@@ -1,49 +1,23 @@
 # Drizzler
 
-**[Drizzler](https://www.npmjs.com/package/drizzler)** reads a [Drizzle](https://orm.drizzle.team/) schema — one file or many, with the comments you already write as its descriptions — into ER diagrams and DBML, and opens it in a local studio.
+ER diagrams, DBML and table docs from a [Drizzle](https://orm.drizzle.team/) schema, with a local studio and seeder.
 
-![ER diagram](https://raw.githubusercontent.com/nakita628/drizzler/main/examples/layered/docs/er.png)
-
-- 📊 ER diagrams as SVG / PNG (light and dark) and [Mermaid](https://mermaid.js.org/), and [DBML](https://dbml.dbdiagram.io/)
-- 📄 Table specifications in Markdown, with each table's diagram, its `CREATE TABLE` and its Drizzle queries beside the SQL they build: `-o docs/`
-- 🗂️ Schemas split over files: a directory, a glob, or the `schema` of `drizzle.config.ts`
-- 🔗 [Relations v2](https://orm.drizzle.team/docs/relations) (`defineRelations`) drawn even where no foreign key exists
-- ✏️ `drizzler studio`: the schema beside its live diagram, its docs, the data, Drizzle queries and SQL
-- 🌱 `drizzler seed`: rows from [faker](https://fakerjs.dev/) or your own, keeping every key
-
-## Quick Start
+## Installation
 
 ```bash
 npm install -D drizzler
 ```
 
+## Usage
+
 ```bash
-npx drizzler db/schema.ts -o docs/         # the table specification and every diagram
-npx drizzler db/schema.ts -o docs/er.svg   # one file: .svg / .png, .md (Mermaid) or .dbml
-npx drizzler -o docs/ER.md                 # the schema of drizzle.config.ts
-npx drizzler studio db/schema.ts --url file:./dev.db
-npx drizzler seed
+npx drizzler db/schema.ts -o docs/         # table docs: README.md and ER diagrams
+npx drizzler db/schema.ts -o docs/er.svg   # one file: .svg, .png, .md (Mermaid) or .dbml
+npx drizzler studio db/schema.ts           # the local studio
+npx drizzler seed                          # fill the database from drizzler.config.ts
 ```
 
-`drizzler seed` inserts the rows `drizzler.config.ts` describes:
-
-```ts
-import { defineConfig } from "drizzler";
-
-import * as schema from "./db/schema";
-
-export default defineConfig(schema, {
-  url: "file:./dev.db",
-  seed: 42,
-  models: { user: { count: 20 }, post: { count: 40 } },
-});
-```
-
-## Documentation
-
-- [Diagrams and DBML](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/generate.md): the command line, docs, schemas split over files, comments, relations
-- [Studio](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/studio.md)
-- [Seed](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/seed.md)
+Without an input, drizzler reads the `schema` of `drizzle.config.ts`.
 
 ## License
 
