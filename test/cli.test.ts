@@ -80,11 +80,12 @@ describe("a schema split over files (examples/layered)", () => {
       output: `💧 Generated docs (README.md, er.svg, tables/*.svg) at: ${docs}/`,
     });
     expect(fs.readdirSync(docs).toSorted()).toStrictEqual(["README.md", "er.svg", "tables"]);
-    // A diagram per table with a relation; domainEventTable has none.
+    // A diagram per table, domainEventTable's too though it has no relation.
     expect(fs.readdirSync(path.join(docs, "tables")).toSorted()).toStrictEqual([
       "cartItemTable.svg",
       "cartTable.svg",
       "customerTable.svg",
+      "domainEventTable.svg",
       "orderItemTable.svg",
       "orderTable.svg",
       "productTable.svg",
@@ -102,6 +103,10 @@ describe("a schema split over files (examples/layered)", () => {
       "- `productId` → [productTable.productId](#table-productTable) (many to one, defineRelations, no foreign key)",
     );
     expect(readme).toContain("![orderTable and the tables it relates to](tables/orderTable.svg)");
+    expect(readme).toContain("![domainEventTable](tables/domainEventTable.svg)");
+    const alone = fs.readFileSync(path.join(docs, "tables/domainEventTable.svg"), "utf8");
+    expect(alone).toContain("domain_event");
+    expect(alone).not.toContain("cart_item");
     // Each query beside the SQL drizzle-orm builds for it, from the schema loaded through its
     // tsconfig path imports; columns are named as snakeCase.table names them.
     expect(readme).toContain("<summary>Queries and their SQL</summary>");

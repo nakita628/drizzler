@@ -213,9 +213,11 @@ function tableSection(
   const names = table.dbName === table.name ? [] : [`Table ${inline(table.dbName)}.`];
   const intro = [...names, ...(table.description ? [table.description] : [])].join(" ");
   const related = table.references.length > 0 || table.referencedBy.length > 0;
-  const diagram = related
-    ? [`![${table.name} and the tables it relates to](${tableDiagramPath(table.name)})`]
-    : [];
+  const diagram = [
+    related
+      ? `![${table.name} and the tables it relates to](${tableDiagramPath(table.name)})`
+      : `![${table.name}](${tableDiagramPath(table.name)})`,
+  ];
   return [
     heading(3, "table", table.name),
     ...(intro === "" ? [] : [intro]),

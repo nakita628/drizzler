@@ -29,7 +29,7 @@ function removeStaleDiagrams(input: { readonly dir: string; readonly keep: Reado
 /**
  * Writes a schema's documentation into the directory `output`: README.md, the table
  * specification as the studio's Docs page shows it, beside the ER diagram it links (er.svg), one
- * diagram per table with a relation (tables/<table>.svg: the table and the tables it joins).
+ * diagram per table (tables/<table>.svg: the table and the tables it joins, or the table alone).
  *
  * @param code - the schema's source lines, without their imports
  * @param output - the directory to write into, made when it is not there
@@ -74,13 +74,11 @@ export function drizzlerDocs(
       ["README.md", readme],
       [DOCS_FILES.diagram, erSvg(code, theme)],
     ] as const;
-    // Each table with a relation gets its own diagram: it and the tables it joins.
+    // Each table gets its own diagram: it and the tables it joins, or it alone.
     const schema = diagramSchema(code);
-    const tables = schema.models
-      .filter((m) => schema.relations.some((r) => r.from.model === m.name || r.to.model === m.name))
-      .map(
-        (m) => [tableDiagramPath(m.name), schemaSvg(neighborhood(schema, m.name), theme)] as const,
-      );
+    const tables = schema.models.map(
+      (m) => [tableDiagramPath(m.name), schemaSvg(neighborhood(schema, m.name), theme)] as const,
+    );
     yield* removeStaleDiagrams({
       dir: path.join(output, DOCS_FILES.tables),
       keep: new Set(tables.map(([file]) => path.basename(file))),
