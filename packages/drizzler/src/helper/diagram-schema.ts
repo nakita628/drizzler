@@ -231,10 +231,11 @@ export function diagramSchema(code: readonly string[]) {
 
   const creators = tableCreators(program);
 
-  const models = tableCalls(program, text).flatMap(({ varName, callee, args, start }) => {
+  const models = tableCalls(program, text).flatMap(({ varName, callee, builder, args, start }) => {
     const columns = args[1];
-    // `snakeCase.table(...)` names a column it is not given a name for in snake_case.
-    const snakeCase = /^snakeCase\.table\b/u.test(textOf(text, callee).replace(/\s+/gu, ""));
+    // `snakeCase.table(...)`, or an alias of it, names a column it is not given a name for in
+    // snake_case.
+    const snakeCase = /^snakeCase\.table\b/u.test(builder);
     if (!isObject(columns) && !isArrow(columns) && columns?.type !== "Identifier") return [];
     const constraints = readConstraints(args[2]);
     for (const c of constraints) {
