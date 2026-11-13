@@ -38,16 +38,13 @@ export function presetQuery(code: string) {
   saveString(CODE_KEY, `${code}\n`);
 }
 
-function initialCode(firstTable: string | null) {
-  const stored = loadString(CODE_KEY);
-  if (stored !== null && stored.trim() !== "") return stored;
-  return [
-    "// `db` is Drizzle over the connected database, with the schema. The schema's tables and",
-    "// drizzle-orm's operators (eq, and, or, desc, sql, count, ...) are in scope.",
-    "// The last expression is the result; Ctrl/Cmd + Enter runs it.",
-    firstTable === null ? "db.run(sql`select 1`)" : `db.select().from(${firstTable}).limit(10)`,
-    "",
-  ].join("\n");
+// What earlier studios put in the editor for a start; a browser that kept it opens empty instead.
+const FORMER_STARTER = "// `db` is Drizzle over the connected database";
+
+// The editor opens with what was last written there, else empty.
+function initialCode() {
+  const stored = loadString(CODE_KEY) ?? "";
+  return stored.startsWith(FORMER_STARTER) ? "" : stored;
 }
 
 /**
@@ -94,7 +91,7 @@ export function QueryView() {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const checkSeq = useRef(0);
-  const text = code ?? (db === null ? null : initialCode(db.tables[0]?.name ?? null));
+  const text = code ?? (db === null ? null : initialCode());
   const { tables, analyze } = useTouched(text ?? "", snapshot?.source ?? null);
 
   useEffect(() => {
