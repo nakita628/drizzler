@@ -449,6 +449,31 @@ describe("extractRelationsFromSchema", () => {
     ]);
   });
 
+  it.concurrent("reads the callback's parameter as the table itself in a foreignKey()", () => {
+    const code = [
+      'export const employees = pgTable("employees", {',
+      '  id: varchar("id").primaryKey(),',
+      '  recipientId: varchar("recipient_id"),',
+      "}, (table) => ({",
+      "  recipientFk: foreignKey({",
+      "    columns: [table.recipientId],",
+      "    foreignColumns: [table.id],",
+      "  }),",
+      "}))",
+    ];
+    expect(extractRelationsFromSchema(code)).toStrictEqual([
+      {
+        fromModel: "employees",
+        toModel: "employees",
+        fromField: "id",
+        toField: "recipientId",
+        isRequired: true,
+        enforced: true,
+        isUnique: false,
+      },
+    ]);
+  });
+
   it.concurrent("extracts foreignKey() from the array form of the constraints callback", () => {
     const code = [
       "export const user = pgTable('user', {",

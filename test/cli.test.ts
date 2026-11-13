@@ -158,6 +158,21 @@ describe("the docs' SQL, as drizzle-orm builds it", () => {
     expect(readme).toContain("#### Definition\n\n```sql\nCREATE TABLE `posts` (");
   });
 
+  it("is written when the schema imports only types from a module that has no runtime", async () => {
+    // `next-auth/adapters` exports only types; an import that names none of its values is erased.
+    const schema = SQLITE_SCHEMA.replace(
+      'from "drizzle-orm/sqlite-core";',
+      'from "drizzle-orm/sqlite-core";\nimport { type Missing } from "no-such-package/types";',
+    );
+    const project = makeProject({ "schema.ts": schema });
+    const { code, output } = await drizzler(["schema.ts", "-o", "docs"], project);
+    const readme = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    removeProject(project);
+    expect(code).toBe(0);
+    expect(output).not.toContain("without their SQL");
+    expect(readme).toContain("#### Definition\n\n```sql\nCREATE TABLE `posts` (");
+  });
+
   it("is left out, with the reason, when the schema cannot be loaded", async () => {
     const project = makeProject({
       "schema.ts": `${SQLITE_SCHEMA}\nthrow new Error("the schema refuses to load");\n`,

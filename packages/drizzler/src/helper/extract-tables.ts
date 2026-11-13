@@ -1,4 +1,11 @@
-import type { CallExpression, Expression, Node, ObjectProperty, Program } from "oxc-parser";
+import type {
+  ArrowFunctionExpression,
+  CallExpression,
+  Expression,
+  Node,
+  ObjectProperty,
+  Program,
+} from "oxc-parser";
 import {
   arrowObject,
   columnProperties,
@@ -155,6 +162,12 @@ export function constraintEntries(arg: CallExpression["arguments"][number] | und
   return obj ? obj.properties.filter(isPropertyAssignment).map((p) => p.value) : [];
 }
 
+// The name of an arrow function's first parameter: `table` in `(table) => ...`.
+function arrowParameter(arrow: ArrowFunctionExpression) {
+  const [first] = arrow.params;
+  return first?.type === "Identifier" ? first.name : null;
+}
+
 // Pattern: foreignKey({ columns: [Table.field], foreignColumns: [OtherTable.field] })
 function extractRelationsFromForeignKeyConstraints(
   tableName: string,
@@ -169,9 +182,13 @@ function extractRelationsFromForeignKeyConstraints(
     const foreignColumnsMatch = constraintText.match(/foreignColumns:\s*\[\s*(\w+)\.(\w+)\s*\]/);
     if (!columnsMatch || !foreignColumnsMatch) return [];
 
+    // The callback's own parameter (`(table) => ...`) stands for the table being declared, so a
+    // `foreignColumns: [table.id]` is a key to the table itself.
+    const own = isArrow(constraintArg) ? arrowParameter(constraintArg) : null;
+    const target = foreignColumnsMatch[1] === own ? tableName : foreignColumnsMatch[1];
     return [
       {
-        fromModel: foreignColumnsMatch[1],
+        fromModel: target,
         toModel: tableName,
         fromField: foreignColumnsMatch[2],
         toField: columnsMatch[2],
