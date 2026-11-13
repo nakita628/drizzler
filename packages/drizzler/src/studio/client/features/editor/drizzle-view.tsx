@@ -25,15 +25,6 @@ type ParseError = { readonly message: string; readonly line: number; readonly co
 const DRAW_DEBOUNCE_MS = 250;
 const CHECK_DEBOUNCE_MS = 500;
 
-/**
- * The schema file in Monaco on the left and its ER diagram on the right, redrawn as you type;
- * the card of the table the cursor is in is selected. A link can name a table (`focus`) or a
- * line to open on, as the diagram, the table pages and the error banner hand them over.
- * The editor holds the text; `base` is the text on disk as far as the page knows. A change on
- * disk replaces a clean editor and waits behind a banner when there is unsaved work.
- */
-// What the header chip says of the file: a syntax error first, then the save in flight, then
-// whether the text differs from the file.
 function saveStatus(input: {
   readonly parseError: ParseError | null;
   readonly saving: boolean;
@@ -47,7 +38,13 @@ function saveStatus(input: {
   return { label: "Saved", color: "success" } as const;
 }
 
-/** The Drizzle schema page: the file in Monaco beside its live ER diagram. */
+/**
+ * The schema file in Monaco on the left and its ER diagram on the right, redrawn as you type;
+ * the card of the table the cursor is in is selected. A link can name a table (`focus`) or a
+ * line to open on, as the diagram, the table pages and the error banner hand them over.
+ * The editor holds the text; `base` is the text on disk as far as the page knows. A change on
+ * disk replaces a clean editor and waits behind a banner when there is unsaved work.
+ */
 export function DrizzleView({
   focus,
   line,
@@ -120,11 +117,10 @@ export function DrizzleView({
   useEffect(() => {
     const editor = editorRef.current;
     if (editor === null || text === null) return;
+    const declaration = focus === null ? null : new RegExp(`^export const ${focus}\\b`, "u");
     const target =
-      focus !== null
-        ? text
-            .split("\n")
-            .findIndex((row) => new RegExp(`^export const ${focus}\\b`, "u").test(row)) + 1
+      declaration !== null
+        ? text.split("\n").findIndex((row) => declaration.test(row)) + 1
         : (line ?? 0);
     if (target < 1) return;
     editor.setPosition({ lineNumber: target, column: 1 });

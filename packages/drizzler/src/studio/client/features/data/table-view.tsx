@@ -203,7 +203,6 @@ export function TableView({
     if (action === "copy-tsv") copyText(toTsv(columns, page.rows), "This page");
   }
 
-  // The Data tab: why there are no rows yet, or the grid of them.
   function dataPane() {
     if (!connected) {
       return (

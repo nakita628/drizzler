@@ -32,6 +32,22 @@ export function uniqueKey(row: SeedRow, fields: readonly string[]) {
   return fields.map((field) => keyOf(row[field] ?? null)).join(" ");
 }
 
+// Keys by the key's fields, then by row. A parent is keyed again for every child row that picks
+// one, and a key is costly to make (JSON per value); a row is never changed once made, so its key
+// never goes stale.
+const parentKeys = new WeakMap<readonly string[], WeakMap<SeedRow, string>>();
+
+/** `uniqueKey` of a parent row, made once per row and key. */
+export function parentKey(row: SeedRow, fields: readonly string[]) {
+  const byRow = parentKeys.get(fields) ?? new WeakMap<SeedRow, string>();
+  if (!parentKeys.has(fields)) parentKeys.set(fields, byRow);
+  const known = byRow.get(row);
+  if (known !== undefined) return known;
+  const key = uniqueKey(row, fields);
+  byRow.set(row, key);
+  return key;
+}
+
 /** Whether a value is a plain object naming a row by its key. */
 export function isKeyObject(value: SeedValue | undefined): value is SeedRow {
   return (

@@ -76,6 +76,7 @@ export function makeSeedPlan(tables: readonly ModelTable[]) {
         message: `Required relations form a cycle: ${visited.cycle}.\n   Make one of them nullable so the seeder can insert the models in order.`,
       });
     }
-    return visited.order.flatMap((name) => tables.filter((table) => table.name === name));
+    const byName = Map.groupBy(tables, (table) => table.name);
+    return visited.order.flatMap((name) => byName.get(name) ?? []);
   });
 }

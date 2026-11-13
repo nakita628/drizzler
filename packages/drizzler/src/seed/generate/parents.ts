@@ -3,7 +3,15 @@ import type { SeedRow } from "../config.js";
 import { SeedGenerationError } from "../errors.js";
 import type { ForeignKey, ModelTable } from "../schema.js";
 import type { Context, RowInput } from "./context.js";
-import { describeValue, isKeyObject, keyOf, modelTable, specifies, uniqueKey } from "./context.js";
+import {
+  describeValue,
+  isKeyObject,
+  keyOf,
+  modelTable,
+  parentKey,
+  specifies,
+  uniqueKey,
+} from "./context.js";
 
 /** The parent the given key values name; fails when no such row exists. */
 function findParent(input: RowInput, fk: ForeignKey, given: SeedRow) {
@@ -18,7 +26,7 @@ function findParent(input: RowInput, fk: ForeignKey, given: SeedRow) {
       });
     }
     const key = wanted.map(keyOf).join(" ");
-    const parent = parents.find((row) => uniqueKey(row, fk.toFields) === key);
+    const parent = parents.find((row) => parentKey(row, fk.toFields) === key);
     if (parent !== undefined) return parent;
     return yield* new SeedGenerationError({
       message: `${table.name} data[${index}].${fk.field}: no ${fk.toModel} has ${fk.toFields.join(", ")} = ${wanted.map(describeValue).join(", ")}.\n   Give ${fk.toModel} that row, or let the seeder pick one.`,
@@ -82,7 +90,7 @@ export function pickParent(input: RowInput, fk: ForeignKey, self: SeedRow) {
     const bound = parentBound(context, table, fk);
     const counts = context.linkCounts.get(`${table.name}.${fk.field}`);
     function counted(parent: SeedRow) {
-      return counts?.get(uniqueKey(parent, fk.toFields)) ?? 0;
+      return counts?.get(parentKey(parent, fk.toFields)) ?? 0;
     }
     // Parents still under the rule's `min` come first, so every one of them is served; none above
     // its `max` is offered at all. With no rule there is nothing to count: every parent is open.

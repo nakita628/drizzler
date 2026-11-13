@@ -25,7 +25,6 @@ export function QuerySchemaPane({
         : new Map(tables.map(({ table, columns }) => [table, new Set(columns)])),
     [tables],
   );
-  // The diagram once the saved schema is drawn; until then why it is not.
   function canvas() {
     if (schema === null || schemaPath === null) {
       return (

@@ -184,9 +184,9 @@ export function ddlBySubject(statements: readonly string[]) {
     return subject === undefined || subject === null ? [] : [[subject, statement] as const];
   });
   return new Map(
-    [...new Set(keyed.map(([key]) => key))].map((key) => [
+    [...Map.groupBy(keyed, ([key]) => key)].map(([key, group]) => [
       key,
-      keyed.filter(([k]) => k === key).map(([, statement]) => statement),
+      group.map(([, statement]) => statement),
     ]),
   );
 }
@@ -207,7 +207,7 @@ function definitionOf(statements: readonly string[] | undefined) {
 function tableSection(
   table: Table,
   enums: ReadonlySet<string>,
-  queries: readonly QueryExampleSql[] | null,
+  queries: ReadonlyMap<string, readonly QueryExampleSql[]> | null,
   ddl: ReadonlyMap<string, readonly string[]>,
 ) {
   const names = table.dbName === table.name ? [] : [`Table ${inline(table.dbName)}.`];
@@ -227,9 +227,7 @@ function tableSection(
     ...indexesOf(table),
     ...relationsOf("References", table.references, false),
     ...relationsOf("Referenced by", table.referencedBy, true),
-    ...(queries === null
-      ? codeQueriesOf(table)
-      : sqlQueriesOf(queries.filter((query) => query.table === table.name))),
+    ...(queries === null ? codeQueriesOf(table) : sqlQueriesOf(queries.get(table.name) ?? [])),
   ].join("\n\n");
 }
 
@@ -285,7 +283,10 @@ export function docsMarkdown(
     readonly ddl?: readonly string[] | null;
   } = {},
 ) {
-  const queries = options.queries ?? null;
+  const queries =
+    options.queries === null || options.queries === undefined
+      ? null
+      : Map.groupBy(options.queries, (query) => query.table);
   const ddl = ddlBySubject(options.ddl ?? []);
   const docs = makeDocs({ ...diagramSchema(code), relationFields: relationFields(code) });
   const enums = new Set(docs.enums.map((e) => e.name));

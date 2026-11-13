@@ -383,6 +383,30 @@ export default defineConfig({
       "custom/catch-must-log": "error",
 
       // =========================================================================
+      // Rules turned on: keep loops linear (./lint/perf.js and built-in rules)
+      // =========================================================================
+
+      // Why: a search of another collection on every turn of a loop is O(n × m).
+      // NG:   models.map((m) => relations.find((r) => r.to === m.name))
+      // OK:   const byTarget = new Map(relations.map((r) => [r.to, r])); models.map((m) => byTarget.get(m.name))
+      "custom/no-lookup-in-loop": "error",
+
+      // Why: a reduce that copies its accumulator, or a part of it, each step is O(n²).
+      // NG:   xs.reduce((s, x) => ({ next: s.next + 1, rows: [...s.rows, x] }), init)
+      // OK:   xs.map((x, index) => ({ index, x }))
+      "custom/no-accumulator-copy": "error",
+
+      // Why: a RegExp / Set / Map built in a loop from values the loop does not change.
+      // NG:   rows.filter((row) => new Set(ids).has(row.id))
+      // OK:   const wanted = new Set(ids); rows.filter((row) => wanted.has(row.id))
+      "custom/no-invariant-construction": "error",
+
+      // Why: an array only ever asked `.includes()` is a Set, whose `.has()` does not scan.
+      // NG:   const KEYWORDS = ["select", "from"] as const; KEYWORDS.includes(word)
+      // OK:   const KEYWORDS = new Set(["select", "from"]); KEYWORDS.has(word)
+      "unicorn/prefer-set-has": "error",
+
+      // =========================================================================
       // Rules turned on: document the code (./lint/docs.js and the jsdoc plugin)
       // =========================================================================
 
@@ -454,6 +478,7 @@ export default defineConfig({
           "custom/no-try-catch": "error",
           "custom/no-class": "error",
           "custom/effect-run-at-edge": "error",
+          "custom/promise-catch-must-log": "error",
           "custom/domain-only-from-usecases": "error",
         },
       },
@@ -527,6 +552,55 @@ export default defineConfig({
           "custom/domain-no-nondeterminism": "error",
           "custom/domain-no-side-effects": "error",
           "custom/layer-function-shape": "error",
+        },
+      },
+      {
+        // The library's computing core is pure, as the studio's domain is: schema text in, diagrams,
+        // DBML, docs and SQL analysis out. Reading files, the clock and randomness happens in
+        // core/, schema/sources.ts, file/ and the CLI, which hand these modules plain values.
+        files: [
+          "packages/drizzler/src/sql/**",
+          "packages/drizzler/src/generator/**",
+          "packages/drizzler/src/diagram/**",
+          "packages/drizzler/src/helper/**",
+          "packages/drizzler/src/schema/paths.ts",
+          "packages/drizzler/src/schema/strip-imports.ts",
+        ],
+        rules: {
+          "custom/domain-no-nondeterminism": "error",
+          "custom/domain-no-side-effects": "error",
+          // Why: a pure module that imports I/O can start doing it unnoticed.
+          // NG:   import fs from "node:fs"  /  import { Effect } from "effect"
+          // OK:   import path from "node:path"  /  import { parseSync } from "oxc-parser"
+          "no-restricted-imports": [
+            "error",
+            {
+              paths: [
+                { name: "effect", message: "Pure modules return values; Effects belong in core/." },
+              ],
+              patterns: [
+                {
+                  group: [
+                    "node:fs",
+                    "node:fs/*",
+                    "node:child_process",
+                    "node:os",
+                    "node:http",
+                    "node:https",
+                    "node:net",
+                    "node:crypto",
+                    "@effect/*",
+                    "../file/*",
+                    "../core/*",
+                    "../emit/*",
+                    "../schema/sources.js",
+                  ],
+                  message:
+                    "Pure modules do not touch the outside world; read it in core/ or schema/sources.ts and pass the value in.",
+                },
+              ],
+            },
+          ],
         },
       },
       {

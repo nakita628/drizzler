@@ -30,7 +30,10 @@ function builderAliases(program: Program) {
  * `pgTable("articles", ...)`, as every reader of the schema expects. Nothing else is touched.
  */
 export function unaliasTableBuilders(content: string) {
-  const { program } = parse(content);
+  return unaliased(content, parse(content).program);
+}
+
+function unaliased(content: string, program: Program) {
   const aliases = builderAliases(program);
   if (aliases.size === 0) return content;
   const spans = program.body.flatMap((stmt) => {
@@ -60,9 +63,11 @@ export function unaliasTableBuilders(content: string) {
  * builder imported under another name is called by its own name.
  */
 export function stripImports(source: string) {
-  const content = unaliasTableBuilders(source);
+  const parsed = parse(source);
+  const content = unaliased(source, parsed.program);
   const lines = content.split("\n");
-  const { program, errors } = parse(content);
+  // Parsed again only when a builder was renamed: otherwise it is the source already parsed.
+  const { program, errors } = content === source ? parsed : parse(content);
   const firstCode = program.body.findIndex((stmt) => stmt.type !== "ImportDeclaration");
   const imports = program.body.slice(0, firstCode === -1 ? undefined : firstCode);
   const lastImportEnd = errors.length === 0 ? imports.at(-1)?.end : undefined;

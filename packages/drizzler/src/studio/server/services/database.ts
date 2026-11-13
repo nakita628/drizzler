@@ -164,7 +164,9 @@ function openSqlite(file: string, cwd: string) {
             catch: queryError,
           }),
         ),
-      close: Effect.sync(() => db.close()),
+      close: Effect.try(() => db.close()).pipe(
+        Effect.catch((error) => Effect.logWarning("cannot close the SQLite database", error)),
+      ),
     };
     return driver;
   });
@@ -238,7 +240,9 @@ function openPostgres(url: string, cwd: string) {
           },
           catch: queryError,
         }),
-      close: Effect.promise(() => client.end().catch(() => undefined)),
+      close: Effect.tryPromise(() => client.end()).pipe(
+        Effect.catch((error) => Effect.logWarning("cannot close the PostgreSQL connection", error)),
+      ),
     };
     return driver;
   });
@@ -315,7 +319,9 @@ function openMysql(url: string, cwd: string) {
           },
           catch: queryError,
         }),
-      close: Effect.promise(() => connection.end().catch(() => undefined)),
+      close: Effect.tryPromise(() => connection.end()).pipe(
+        Effect.catch((error) => Effect.logWarning("cannot close the MySQL connection", error)),
+      ),
     };
     return driver;
   });

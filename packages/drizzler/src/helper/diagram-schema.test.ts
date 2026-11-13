@@ -41,10 +41,10 @@ describe("diagramSchema", () => {
     ]);
 
     const [user, membership] = schema.models;
-    expect(user.name).toBe("user");
-    expect(user.dbName).toBe("users");
-    expect(user.documentation).toBe("People who sign in");
-    expect(user.fields).toStrictEqual([
+    expect(user?.name).toBe("user");
+    expect(user?.dbName).toBe("users");
+    expect(user?.documentation).toBe("People who sign in");
+    expect(user?.fields).toStrictEqual([
       {
         name: "id",
         dbName: null,
@@ -99,12 +99,12 @@ describe("diagramSchema", () => {
       },
     ]);
 
-    expect(membership.primaryKey).toStrictEqual(["userId", "groupId"]);
-    expect(membership.indexes).toStrictEqual([
+    expect(membership?.primaryKey).toStrictEqual(["userId", "groupId"]);
+    expect(membership?.indexes).toStrictEqual([
       { type: "id", fields: ["userId", "groupId"] },
       { type: "normal", fields: ["groupId"], name: "membership_group_idx" },
     ]);
-    expect(membership.fields.map((f) => [f.name, f.dbName, f.isForeignKey])).toStrictEqual([
+    expect(membership?.fields.map((f) => [f.name, f.dbName, f.isForeignKey])).toStrictEqual([
       ["userId", "user_id", true],
       ["groupId", "group_id", false],
     ]);
@@ -133,7 +133,7 @@ describe("diagramSchema", () => {
 
     const schema = diagramSchema(code);
 
-    expect(schema.models[1].indexes).toStrictEqual([
+    expect(schema.models[1]?.indexes).toStrictEqual([
       { type: "unique", fields: ["authorId"], name: "post_author" },
     ]);
     expect(schema.relations.map((r) => [r.onDelete, r.onUpdate, r.to.cardinality])).toStrictEqual([
@@ -154,7 +154,7 @@ describe("diagramSchema", () => {
 
     const [relation] = diagramSchema(code).relations;
 
-    expect(relation.origin).toBe("relations");
-    expect(diagramSchema(code).models[1].fields[0].isForeignKey).toBe(true);
+    expect(relation?.origin).toBe("relations");
+    expect(diagramSchema(code).models[1]?.fields[0]?.isForeignKey).toBe(true);
   });
 });

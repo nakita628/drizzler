@@ -72,7 +72,7 @@ function generate(config: Omit<SeedConfig, "schema">) {
     faker.seed(7);
     const entries = yield* generateSeedRows({
       tables,
-      config: resolveSeedConfig({ ...config, schema }),
+      config: resolveSeedConfig({ ...config, schema }, new Date()),
       faker,
     });
     return Object.fromEntries(entries.map((entry) => [entry.table.name, entry.rows]));

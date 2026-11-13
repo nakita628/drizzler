@@ -22,7 +22,6 @@ function labelOf(table: ModelTable, index: number, row: SeedRow) {
 function relatedCounts(context: Context, side: ParentSide, rows: readonly SeedRow[]) {
   const fk = childKey(context.tables, side);
   if (fk === undefined) return rows.map(() => 0);
-  // The children by the key they point at, all its columns joined.
   const children = Map.groupBy(context.rowsByModel.get(side.child) ?? [], (child) =>
     JSON.stringify(fk.fromFields.map((f) => keyOf(child[f] ?? null))),
   );
@@ -39,8 +38,9 @@ export function checkCardinality(context: Context) {
       const table = modelTable(context.tables, name);
       const rows = context.rowsByModel.get(name) ?? [];
       if (table === undefined) return [];
+      const sides = Map.groupBy(table.parents, (parent) => parent.name);
       return Object.entries(rule.relations ?? {}).flatMap(([relation, bound]) => {
-        const side = table.parents.find((parent) => parent.name === relation);
+        const side = sides.get(relation)?.[0];
         if (side === undefined) return [];
         const counts = relatedCounts(context, side, rows);
         return counts.flatMap((count, index) => {

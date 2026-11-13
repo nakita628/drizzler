@@ -58,7 +58,6 @@ export function ResultPane({
     table === null
       ? "one value"
       : `${table.rows.length.toLocaleString()} ${table.rows.length === 1 ? "row" : "rows"}`;
-  // What the status line says: the run in flight, or how long the last one took and what it did.
   function runStatus() {
     if (running) return "Running…";
     if (result === null) return "";
@@ -68,8 +67,6 @@ export function ResultPane({
     return `${statements} · ${result.durationMs} ms`;
   }
 
-  // The tab's content: the failed request, the prompt to run, the SQL sent, the error the query
-  // threw, or what it returned as a table or as JSON.
   function body() {
     if (error !== null && error !== undefined) {
       return <pre className="error-box m-4 whitespace-pre-wrap">{problemMessage(error)}</pre>;

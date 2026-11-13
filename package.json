@@ -30,6 +30,7 @@
     "cspell": "^10.4.0",
     "drizzle-orm": "1.0.0-rc.5",
     "markdownlint-cli2": "^0.24.0",
+    "oxc-parser": "^0.156.0",
     "textlint": "^15.8.0",
     "textlint-rule-terminology": "^5.2.16",
     "vite-plus": "1.4.0"

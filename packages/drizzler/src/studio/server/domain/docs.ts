@@ -10,38 +10,30 @@ function relationKind(near: Cardinality, far: Cardinality) {
   return `${isMany(near) ? "many" : "one"} to ${isMany(far) ? "many" : "one"}`;
 }
 
-function columnName(model: SchemaModel, field: string) {
-  return model.fields.find((f) => f.name === field)?.dbName ?? field;
+/** The relations seen from the table that holds the foreign key: those whose `to` is that table. */
+function referencesOf(relations: readonly SchemaRelation[]) {
+  return relations.map((r) => ({
+    table: r.from.model,
+    column: r.to.field,
+    otherColumn: r.from.field,
+    kind: relationKind(r.to.cardinality, r.from.cardinality),
+    origin: r.origin,
+    onDelete: r.onDelete,
+    onUpdate: r.onUpdate ?? null,
+  }));
 }
 
-/** The relations seen from the table that holds the foreign key. */
-function referencesOf(name: string, relations: readonly SchemaRelation[]) {
-  return relations
-    .filter((r) => r.to.model === name)
-    .map((r) => ({
-      table: r.from.model,
-      column: r.to.field,
-      otherColumn: r.from.field,
-      kind: relationKind(r.to.cardinality, r.from.cardinality),
-      origin: r.origin,
-      onDelete: r.onDelete,
-      onUpdate: r.onUpdate ?? null,
-    }));
-}
-
-/** The relations seen from the table another one points at. */
-function referencedByOf(name: string, relations: readonly SchemaRelation[]) {
-  return relations
-    .filter((r) => r.from.model === name)
-    .map((r) => ({
-      table: r.to.model,
-      column: r.from.field,
-      otherColumn: r.to.field,
-      kind: relationKind(r.from.cardinality, r.to.cardinality),
-      origin: r.origin,
-      onDelete: r.onDelete,
-      onUpdate: r.onUpdate ?? null,
-    }));
+/** The relations seen from the table another one points at: those whose `from` is that table. */
+function referencedByOf(relations: readonly SchemaRelation[]) {
+  return relations.map((r) => ({
+    table: r.to.model,
+    column: r.from.field,
+    otherColumn: r.to.field,
+    kind: relationKind(r.from.cardinality, r.to.cardinality),
+    origin: r.origin,
+    onDelete: r.onDelete,
+    onUpdate: r.onUpdate ?? null,
+  }));
 }
 
 /**
@@ -127,19 +119,23 @@ const MakeDocsInput = z
  */
 export function makeDocs(input: z.infer<typeof MakeDocsInput>) {
   const { models, relations, enums } = input;
+  // Grouped once by table, rather than searched again for every table and column.
+  const byTarget = Map.groupBy(relations, (r) => r.to.model);
+  const bySource = Map.groupBy(relations, (r) => r.from.model);
+  const relationNames = Map.groupBy(input.relationFields, (f) => f.table);
   const tables = models.map((model) => {
     const primaryKey = new Set(model.primaryKey ?? []);
+    const targeting = byTarget.get(model.name) ?? [];
+    const referenceTo = Map.groupBy(targeting, (r) => r.to.field);
     return {
       name: model.name,
       dbName: model.dbName ?? model.name,
       description: model.documentation ?? null,
       columns: model.fields.map((field) => {
-        const reference = relations.find(
-          (r) => r.to.model === model.name && r.to.field === field.name,
-        );
+        const reference = referenceTo.get(field.name)?.[0];
         return {
           name: field.name,
-          dbName: columnName(model, field.name),
+          dbName: field.dbName ?? field.name,
           type: field.type,
           nullable: !field.isRequired,
           primaryKey: field.isId || primaryKey.has(field.name),
@@ -157,13 +153,11 @@ export function makeDocs(input: z.infer<typeof MakeDocsInput>) {
         type: index.type,
         columns: [...index.fields],
       })),
-      references: referencesOf(model.name, relations),
-      referencedBy: referencedByOf(model.name, relations),
+      references: referencesOf(targeting),
+      referencedBy: referencedByOf(bySource.get(model.name) ?? []),
       queries: makeQueries({
         model,
-        relationNames: input.relationFields
-          .filter((f) => f.table === model.name)
-          .map((f) => f.name),
+        relationNames: (relationNames.get(model.name) ?? []).map((f) => f.name),
       }),
     };
   });
@@ -209,7 +203,7 @@ export function makeDbTables(input: z.infer<typeof MakeDbTablesInput>) {
       table: model.dbName ?? model.name,
       columns: model.fields.map((field) => ({
         name: field.name,
-        column: columnName(model, field.name),
+        column: field.dbName ?? field.name,
         type: field.type,
         nullable: !field.isRequired,
       })),

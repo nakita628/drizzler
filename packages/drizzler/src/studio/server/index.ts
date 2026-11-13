@@ -58,27 +58,27 @@ import {
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 // main.tsp promises a 422 problem for a request that fails validation, where @hono/zod-openapi
-// would answer 400 with the zod error; as the default hook it sees the ZodError itself, before any
-// handler runs.
+// would answer 400 with the zod error.
 const app = new OpenAPIHono({
-  defaultHook: (result, c) =>
-    result.success
-      ? undefined
-      : c.json(
-          {
-            type: "/problems/validation-failed",
-            title: "Validation Failed",
-            status: 422,
-            detail: "The request failed validation. See `errors` for the offending fields.",
-            instance: c.req.path,
-            errors: result.error.issues.map((issue) => ({
-              field: issue.path.map(String).join("."),
-              message: issue.message,
-            })),
-          } as const,
-          422,
-          { "Content-Type": "application/problem+json" },
-        ),
+  defaultHook(result, c) {
+    if (!result.success) {
+      return c.json(
+        {
+          type: "/problems/validation-failed",
+          title: "Validation Failed",
+          status: 422,
+          detail: "The request failed validation. See `errors` for the offending fields.",
+          instance: c.req.path,
+          errors: result.error.issues.map((issue) => ({
+            field: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        422,
+        { "Content-Type": "application/problem+json" },
+      );
+    }
+  },
 }).basePath("/api");
 
 // The API is unauthenticated, so a page on another origin must not reach it even when its DNS name

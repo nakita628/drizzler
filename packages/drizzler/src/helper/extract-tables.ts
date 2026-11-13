@@ -181,20 +181,23 @@ function extractRelationsFromForeignKeyConstraints(
 
     const columnsMatch = constraintText.match(/columns:\s*\[\s*(\w+)\.(\w+)\s*\]/);
     const foreignColumnsMatch = constraintText.match(/foreignColumns:\s*\[\s*(\w+)\.(\w+)\s*\]/);
-    if (!columnsMatch || !foreignColumnsMatch) return [];
+    const [, , column] = columnsMatch ?? [];
+    const [, foreignTable, foreignColumn] = foreignColumnsMatch ?? [];
+    if (column === undefined || foreignTable === undefined || foreignColumn === undefined) {
+      return [];
+    }
 
     // The callback's own parameter (`(table) => ...`) stands for the table being declared, so a
     // `foreignColumns: [table.id]` is a key to the table itself.
     const own = isArrow(constraintArg) ? arrowParameter(constraintArg) : null;
-    const target = foreignColumnsMatch[1] === own ? tableName : foreignColumnsMatch[1];
+    const target = foreignTable === own ? tableName : foreignTable;
     return [
       {
         fromModel: target,
         toModel: tableName,
-        fromField: foreignColumnsMatch[2],
-        toField: columnsMatch[2],
-        // The key is required when its column is NOT NULL.
-        isRequired: required.get(`${tableName}.${columnsMatch[2]}`) ?? false,
+        fromField: foreignColumn,
+        toField: column,
+        isRequired: required.get(`${tableName}.${column}`) ?? false,
         enforced: true,
       },
     ];
@@ -352,7 +355,7 @@ export function relationDefinitions(program: Program, text: string) {
             table: table(source),
             name,
             kind: builder[1] === "one" ? ("one" as const) : ("many" as const),
-            target: table(builder[2]),
+            target: table(builder[2] ?? ""),
             from: from ? relationEnd(from, table) : null,
             to: to ? relationEnd(to, table) : null,
             optional:
@@ -384,16 +387,23 @@ function extractRelationsFromDefinitions(
   program: Program,
   text: string,
   foreignKeys: readonly Relation[],
+  required: ReturnType<typeof requiredColumns>,
+  keys: ReturnType<typeof keyedColumns>,
 ) {
-  const required = requiredColumns(program, text);
-  const keys = keyedColumns(program, text);
   const references = new Set(foreignKeys.map((r) => `${r.toModel}.${r.toField}->${r.fromModel}`));
   // Whether a column of `child` is a foreign key to the table of `parent`.
   function pointsAt(child: readonly ColumnRef[], parent: readonly ColumnRef[]) {
-    return child.some((c) => references.has(`${c.table}.${c.column}->${parent[0].table}`));
+    const [head] = parent;
+    return (
+      head !== undefined &&
+      child.some((c) => references.has(`${c.table}.${c.column}->${head.table}`))
+    );
   }
   function isKeyed(columns: readonly ColumnRef[]) {
-    return (keys.get(columns[0].table) ?? []).some(
+    const [head] = columns;
+    if (head === undefined) return false;
+    return (keys.get(head.table) ?? []).some(
+      // oxlint-disable-next-line custom/no-lookup-in-loop -- a key holds a few columns
       (key) => key.length === columns.length && columns.every((c) => key.includes(c.column)),
     );
   }
@@ -405,19 +415,24 @@ function extractRelationsFromDefinitions(
     if (pointsAt(from, to)) return false;
     const fromKeyed = isKeyed(from);
     if (fromKeyed !== isKeyed(to)) return fromKeyed;
-    return !isFkLikeName(from[0].column) && isFkLikeName(to[0].column);
+    return !isFkLikeName(from[0]?.column ?? "") && isFkLikeName(to[0]?.column ?? "");
   }
+  // An end names at least one column (relationEnd gives null otherwise), so an edge is drawn
+  // between the first of each; an end with none draws nothing.
   function edge(parent: readonly ColumnRef[], child: readonly ColumnRef[], mustExist: boolean) {
     const [p] = parent;
     const [c] = child;
-    return {
-      fromModel: p.table,
-      toModel: c.table,
-      fromField: p.column,
-      toField: c.column,
-      isRequired: mustExist || (required.get(`${c.table}.${c.column}`) ?? true),
-      enforced: false,
-    };
+    if (p === undefined || c === undefined) return [];
+    return [
+      {
+        fromModel: p.table,
+        toModel: c.table,
+        fromField: p.column,
+        toField: c.column,
+        isRequired: mustExist || (required.get(`${c.table}.${c.column}`) ?? true),
+        enforced: false,
+      },
+    ];
   }
 
   return relationDefinitions(program, text).flatMap(({ relations }) =>
@@ -427,12 +442,12 @@ function extractRelationsFromDefinitions(
       if (from === null || to === null) return [];
       // A many-to-many through a junction table is a key from each end into the junction.
       if (from.through.length > 0 && to.through.length > 0) {
-        return [edge(from.columns, from.through, false), edge(to.columns, to.through, false)];
+        return [...edge(from.columns, from.through, false), ...edge(to.columns, to.through, false)];
       }
-      if (relation.kind === "many") return [edge(from.columns, to.columns, false)];
+      if (relation.kind === "many") return edge(from.columns, to.columns, false);
       return targetHoldsKey(from.columns, to.columns)
-        ? [edge(from.columns, to.columns, false)]
-        : [edge(to.columns, from.columns, relation.optional === false)];
+        ? edge(from.columns, to.columns, false)
+        : edge(to.columns, from.columns, relation.optional === false);
     }),
   );
 }
@@ -539,14 +554,13 @@ export function extractRelationsFromSchema(code: readonly string[]) {
     return [...fieldRelations, ...fkRelations];
   });
 
+  const keys = keyedColumns(program, text);
   const allRelations = [
     ...tableRelations,
-    ...extractRelationsFromDefinitions(program, text, tableRelations),
+    ...extractRelationsFromDefinitions(program, text, tableRelations, required, keys),
   ];
 
-  // Deduplicate relations based on fromModel.fromField -> toModel.toField
   const seen = new Set<string>();
-  const keys = keyedColumns(program, text);
   return allRelations
     .filter((r) => {
       const key = `${r.fromModel}.${r.fromField}->${r.toModel}.${r.toField}`;
@@ -576,7 +590,7 @@ export function relationFields(code: readonly string[]) {
   const all = relationDefinitions(program, text).flatMap(({ relations }) =>
     relations.map(({ table, name, target }) => ({ table, name, target })),
   );
-  return all.filter(
-    (field, at) => all.findIndex((o) => o.table === field.table && o.name === field.name) === at,
-  );
+  // The first of each table and name, in the order they are declared.
+  const byName = Map.groupBy(all, (field) => JSON.stringify([field.table, field.name]));
+  return [...byName.values()].flatMap((same) => same.slice(0, 1));
 }

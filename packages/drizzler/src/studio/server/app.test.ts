@@ -71,6 +71,27 @@ describe("drizzler studio API", () => {
     expect(written.parseError.line).toBe(17);
   });
 
+  it("streams a change event when the schema file changes on disk, until the client leaves", async () => {
+    const abort = new AbortController();
+    const response = await api.request(`${BASE}/api/schema/events`, { signal: abort.signal });
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    async function until(event: string, seen = ""): Promise<string> {
+      if (seen.includes(`event: ${event}`)) return seen;
+      const { value, done } = await reader.read();
+      if (done) return seen;
+      return until(event, seen + decoder.decode(value));
+    }
+    expect(await until("ready")).toContain("event: ready");
+    // A later modification time than the file has, so the poll sees a change.
+    const later = new Date(Date.now() + 5000);
+    fs.writeFileSync(file, `${schema}\n// edited elsewhere\n`);
+    fs.utimesSync(file, later, later);
+    expect(await until("change")).toContain("event: change");
+    abort.abort();
+    await reader.cancel();
+  });
+
   it("draws the diagram, and reports a syntax error instead of failing", async () => {
     const ok = await (
       await request("POST", "/api/diagram/svg", { source: schema, theme: "dark" })

@@ -126,10 +126,11 @@ function keyedExamples(model: Model, enums: Schema["enums"]): QueryExample[] {
  */
 export function queryExamples(code: readonly string[]): QueryExample[] {
   const schema = diagramSchema(code);
-  const fields = relationFields(code);
+  const fieldsOf = Map.groupBy(relationFields(code), (f) => f.table);
   return schema.models.flatMap((model) => {
     const t = model.name;
-    const names = fields.filter((f) => f.table === t).map((f) => `${f.name}: true`);
+    const names = (fieldsOf.get(t) ?? []).map((f) => `${f.name}: true`);
+    const keyed = keyedExamples(model, schema.enums);
     const withRelations = names.length === 0 ? "" : `{ with: { ${names.join(", ")} } }`;
     return [
       {
@@ -153,14 +154,14 @@ export function queryExamples(code: readonly string[]): QueryExample[] {
             : `The rows of ${t} with what they relate to, through the relational query API.`,
         code: `db.query.${t}.findMany(${withRelations})`,
       },
-      ...keyedExamples(model, schema.enums).slice(0, 1),
+      ...keyed.slice(0, 1),
       {
         table: t,
         name: "Insert",
         description: `Adds a row to ${t}, giving the columns that have no default.`,
         code: `db.insert(${t}).values(${objectOf(model.fields.filter(mustInsert), schema.enums)})`,
       },
-      ...keyedExamples(model, schema.enums).slice(1),
+      ...keyed.slice(1),
     ];
   });
 }

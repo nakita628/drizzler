@@ -2,7 +2,8 @@ import path from "node:path";
 import { Effect } from "effect";
 import * as ParseDomain from "../domain/parse.js";
 import * as ParseService from "../services/parse.js";
-import { readText, writeText } from "../services/file.js";
+import { WATCH_INTERVAL_MS } from "../constants/index.js";
+import { readText, watchFile, writeText } from "../services/file.js";
 import { getStudio } from "../services/studio.js";
 
 function snapshot(schemaPath: string, source: string) {
@@ -69,5 +70,29 @@ export function writeSchema(input: { readonly source: string }) {
     const { schemaPath } = getStudio();
     yield* writeText({ file: schemaPath, text: input.source });
     return snapshot(schemaPath, input.source);
+  });
+}
+
+/**
+ * Watches the schema file, so an edit made in another editor reaches the page.
+ *
+ * @param input.onChange - Called whenever the file changes on disk.
+ * @returns Nothing; the watch lasts as long as the scope it runs in.
+ *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant U as SchemaUseCase
+ *   participant F as file
+ *   U->>F: watchFile({ file: schemaPath, intervalMs: WATCH_INTERVAL_MS, onChange })
+ *   loop while the scope is open
+ *     F-->>U: onChange()
+ *   end
+ * ```
+ */
+export function watchSchema(input: { readonly onChange: () => void }) {
+  return watchFile({
+    file: getStudio().schemaPath,
+    intervalMs: WATCH_INTERVAL_MS,
+    onChange: input.onChange,
   });
 }

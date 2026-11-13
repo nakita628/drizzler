@@ -221,7 +221,6 @@ function nextId(ctx: Context) {
   return `n${ctx.counter}`;
 }
 
-/** Adds an item to one of the context's lists. */
 function collect<T>(list: T[], item: T) {
   // oxlint-disable-next-line custom/no-array-mutation -- the walk's collected picture (see above)
   list.push(item);
@@ -1337,8 +1336,9 @@ function buildFromItem(ctx: Context, item: FromItem, scope: Scope, scopeName: st
         typeOf(typing, item.on);
         collectParams(typing, item.on, null, snippet(ctx, item.on.range));
       }
+      const joined = [...left.relations, ...right.relations];
       for (const name of item.using ?? []) {
-        for (const relation of [...left.relations, ...right.relations]) relation.used.add(name);
+        for (const relation of joined) relation.used.add(name);
       }
       const nodeId = addNode(ctx, {
         kind: "join",
@@ -1889,20 +1889,19 @@ function buildInsert(
   const root: Scope = { relations: [], outer: null, ctes: new Map() };
   const scope = statement.ctes.length === 0 ? root : buildCtes(ctx, statement.ctes, false, root);
   const table = lookupTable(ctx, statement.table);
+  // The table's columns by lowercased name, the first of a name winning as a scan would.
+  const byName = new Map(
+    (table?.columns ?? []).toReversed().map((column) => [column.name.toLowerCase(), column]),
+  );
   const targetColumns: readonly SchemaColumn[] =
     statement.columns === null
       ? (table?.columns ?? [])
       : statement.columns.map(
-          (name) =>
-            table?.columns.find((column) => column.name.toLowerCase() === name.toLowerCase()) ?? {
-              name,
-              dataType: "",
-              nullable: true,
-            },
+          (name) => byName.get(name.toLowerCase()) ?? { name, dataType: "", nullable: true },
         );
   if (table !== null && statement.columns !== null) {
     for (const name of statement.columns) {
-      if (!table.columns.some((column) => column.name.toLowerCase() === name.toLowerCase())) {
+      if (!byName.has(name.toLowerCase())) {
         warn(ctx, `"${table.name}" has no column "${name}"`, statement.range);
       }
     }
@@ -2268,6 +2267,17 @@ function paramsTypeOf(params: readonly Parameter[]) {
   return `[${params.map(entry).join(", ")}]`;
 }
 
+/** The names with case-insensitive repeats dropped, the first spelling of each kept. */
+function firstOfEachName(names: ReadonlySet<string>): readonly string[] {
+  const seen = new Set<string>();
+  return [...names].filter((name) => {
+    const key = name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function finish(
   ctx: Context,
   kind: StatementKind,
@@ -2275,8 +2285,9 @@ function finish(
   columns: readonly Resolved[],
 ): StatementAnalysis {
   const parameters = orderParams(ctx);
+  const refsByNode = new Map(ctx.refs.toReversed().map((ref) => [ref.nodeId, ref]));
   const nodes = ctx.nodes.map((node) => {
-    const ref = ctx.refs.find((candidate) => candidate.nodeId === node.id);
+    const ref = refsByNode.get(node.id);
     if (ref === undefined) return node;
     const used = new Set([...ref.used].map((name) => name.toLowerCase()));
     return {
@@ -2299,10 +2310,7 @@ function finish(
       alias: ref.alias,
       scope: ref.scope,
       known: ref.known,
-      columnsUsed: [...ref.used].filter(
-        (name, index, all) =>
-          all.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === index,
-      ),
+      columnsUsed: firstOfEachName(ref.used),
       range: ref.range,
     })),
     columns: columns.map((column) => ({

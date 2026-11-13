@@ -93,7 +93,8 @@ export function makeSchemaDialect(input: z.infer<typeof MakeSchemaDialectInput>)
 /** The names a query has in scope: every export of the schema, and the operators it does not shadow. */
 function scope(names: readonly string[]) {
   const tables = names.filter((name) => name !== "db");
-  const operators = OPERATORS.filter((name) => !tables.includes(name));
+  const shadowed = new Set(tables);
+  const operators = OPERATORS.filter((name) => !shadowed.has(name));
   return { tables, operators };
 }
 
@@ -387,17 +388,19 @@ export function makeQueryTouched(input: z.infer<typeof MakeQueryTouchedInput>) {
     return next.size === from.size ? from : reached(next);
   }
   const touched = reached(start);
+  const membersOf = Map.groupBy(input.members, (m) => m.object);
+  const writes = new Set(input.writes);
   return input.models
     .filter((model) => touched.has(model.name))
     .map((model) => {
       const fields = new Set(model.fields.map((f) => f.name));
-      const columns = input.members
-        .filter((m) => m.object === model.name && fields.has(m.property))
+      const columns = (membersOf.get(model.name) ?? [])
+        .filter((m) => fields.has(m.property))
         .map((m) => m.property);
       return {
         table: model.name,
         columns: [...new Set(columns)],
-        write: input.writes.includes(model.name),
+        write: writes.has(model.name),
       };
     });
 }

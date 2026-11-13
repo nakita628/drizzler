@@ -168,7 +168,6 @@ function aliasesOf(text: string, tables: readonly EditorTable[]) {
   return aliases;
 }
 
-// An element with its class and children (text or elements), built in one expression.
 function element(tag: string, className: string | null, ...children: readonly (Node | string)[]) {
   const node = document.createElement(tag);
   if (className !== null) node.setAttribute("class", className);
@@ -190,7 +189,6 @@ function tooltipDom(title: string, detail: string, lines: readonly string[]) {
   );
 }
 
-// Where the word around `at` starts and ends: the identifier characters on either side of it.
 function wordAround(text: string, at: number) {
   const before = text.slice(0, at).match(/[\w$]*$/u)?.[0].length ?? 0;
   const after = text.slice(at).match(/^[\w$]*/u)?.[0].length ?? 0;

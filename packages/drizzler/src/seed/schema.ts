@@ -275,7 +275,6 @@ function dialectOf(table: Table): Dialect | null {
   return null;
 }
 
-// What the dialect's own `getTableConfig` reports of a table.
 function dialectTableConfig(table: Table) {
   if (is(table, PgTable)) return pgTableConfig(table);
   if (is(table, SQLiteTable)) return sqliteTableConfig(table);
@@ -309,6 +308,7 @@ function sameKey(a: readonly string[], b: readonly string[]) {
 }
 
 function sameSet(a: readonly string[], b: readonly string[]) {
+  // oxlint-disable-next-line custom/no-lookup-in-loop -- a unique constraint holds a few fields
   return a.length === b.length && a.every((field) => b.includes(field));
 }
 
@@ -405,18 +405,22 @@ export function readSchema(schema: Readonly<Record<string, unknown>>) {
       ...shapes.flatMap((shape) => shape.config.foreignKeys.flatMap((fk) => fk.foreignColumns)),
       ...keys.flatMap((key) => {
         const parent = shapeOf.get(key.parent)?.entry.table;
-        const columns = parent === undefined ? {} : getTableColumns(parent);
+        const columns = new Map(
+          parent === undefined ? [] : Object.entries(getTableColumns(parent)),
+        );
         return key.parentFields.flatMap((field) => {
-          const column = Object.entries(columns).find(([name]) => name === field)?.[1];
+          const column = columns.get(field);
           return column === undefined ? [] : [column];
         });
       }),
     ]);
 
+    const keysOfChild = Map.groupBy(keys, (key) => key.child);
     const tables = shapes.map((shape): ModelTable => {
       const { entry, config, columns, uniques } = shape;
+      const columnOf = new Map(columns);
       function required(keys: readonly string[]) {
-        return keys.every((key) => columns.find(([field]) => field === key)?.[1].notNull === true);
+        return keys.every((key) => columnOf.get(key)?.notNull === true);
       }
       function oneToOne(keys: readonly string[]) {
         return uniques.some((set) => sameSet(set, keys));
@@ -455,12 +459,12 @@ export function readSchema(schema: Readonly<Record<string, unknown>>) {
           },
         ];
       });
-      const logical = keys
+      const enforcedTo = Map.groupBy(enforced, (fk) => fk.toModel);
+      const logical = (keysOfChild.get(entry.name) ?? [])
         .filter(
           (key) =>
-            key.child === entry.name &&
-            !enforced.some(
-              (fk) => fk.toModel === key.parent && sameKey(fk.fromFields, key.childFields),
+            !(enforcedTo.get(key.parent) ?? []).some((fk) =>
+              sameKey(fk.fromFields, key.childFields),
             ),
         )
         .map((key): ForeignKey => ({
@@ -500,10 +504,12 @@ export function readSchema(schema: Readonly<Record<string, unknown>>) {
 
     // The parent side of each key: `posts: r.many.post()` on user, matched to post's key back to
     // user by its columns, which Drizzle has filled in on both sides of the pair.
+    const tableByName = new Map(tables.map((table) => [table.name, table] as const));
+    const linksByOwner = Map.groupBy(links, (link) => link.owner);
     const withParents = tables.map((table): ModelTable => {
-      const parents = links.flatMap((link): ParentSide[] => {
-        if (link.owner !== table.name || link.through !== null) return [];
-        const child = tables.find((t) => t.name === link.target);
+      const parents = (linksByOwner.get(table.name) ?? []).flatMap((link): ParentSide[] => {
+        if (link.through !== null) return [];
+        const child = tableByName.get(link.target);
         const key = child?.foreignKeys.find(
           (fk) =>
             fk.toModel === table.name &&
@@ -620,8 +626,9 @@ function relationLinks(
       }),
     ),
   );
-  return all.filter(
-    (link, at) => all.findIndex((o) => o.owner === link.owner && o.name === link.name) === at,
+  // The first link of each owner and name, in the order they came.
+  return [...Map.groupBy(all, (link) => JSON.stringify([link.owner, link.name])).values()].flatMap(
+    ([first]) => (first === undefined ? [] : [first]),
   );
 }
 
@@ -711,16 +718,12 @@ function keysOf(
             },
           ];
     });
-  return found.filter(
-    (key, at) =>
-      found.findIndex(
-        (other) =>
-          other.child === key.child &&
-          other.parent === key.parent &&
-          sameKey(other.childFields, key.childFields) &&
-          sameKey(other.parentFields, key.parentFields),
-      ) === at,
-  );
+  // The first key of each child, parent and fields, in the order they came.
+  return [
+    ...Map.groupBy(found, (key) =>
+      JSON.stringify([key.child, key.parent, key.childFields, key.parentFields]),
+    ).values(),
+  ].flatMap(([first]) => (first === undefined ? [] : [first]));
 }
 
 /**
@@ -730,10 +733,12 @@ function keysOf(
 function indexFields(set: readonly unknown[], columns: readonly (readonly [string, AnyColumn])[]) {
   const found = set.map((part) => {
     if (is(part, SQL)) return null;
+    // oxlint-disable-next-line custom/no-lookup-in-loop -- an index has a few parts
     const own = columns.find(([, column]) => column === part);
     if (own !== undefined) return own[0];
     // A PostgreSQL index holds its columns as IndexedColumn, which carries the column's name.
     const name = typeof part === "object" && part !== null && "name" in part ? part.name : null;
+    // oxlint-disable-next-line custom/no-lookup-in-loop -- an index has a few parts
     return columns.find(([, column]) => column.name === name)?.[0] ?? null;
   });
   return found.every((field): field is string => field !== null) ? found : [];

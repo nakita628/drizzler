@@ -313,6 +313,7 @@ export function renderNode(node: PlacedNode, index: number, palette: Palette) {
   const rows = fields.reduce<{ readonly top: number; readonly svg: readonly string[] }>(
     (state, field) => ({
       top: state.top + fieldRowHeight(field),
+      // oxlint-disable-next-line custom/no-accumulator-copy -- one card's rows, each placed below the last
       svg: [...state.svg, renderRow(node, field, state.top, keys, palette)],
     }),
     { top: fieldsTop(node), svg: [] },

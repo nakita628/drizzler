@@ -36,28 +36,40 @@ export function meets(a: Box, b: Box) {
 
 /** How long a stretch of an axis-aligned segment runs inside a box. */
 function insideBox(a: Point, b: Point, box: Box) {
-  const horizontal = a.y === b.y;
   // The segment is flat, so it is hidden only where the coordinate it does not travel along
   // falls within the box; along the one it does, the two spans simply overlap.
-  const across = horizontal ? a.y : a.x;
-  const [acrossFrom, acrossTo] = horizontal
-    ? [box.y, box.y + box.height]
-    : [box.x, box.x + box.width];
-  if (across <= acrossFrom || across >= acrossTo) return 0;
-  const [from, to] = horizontal
-    ? [Math.min(a.x, b.x), Math.max(a.x, b.x)]
-    : [Math.min(a.y, b.y), Math.max(a.y, b.y)];
-  const [boxFrom, boxTo] = horizontal ? [box.x, box.x + box.width] : [box.y, box.y + box.height];
-  return Math.max(0, Math.min(to, boxTo) - Math.max(from, boxFrom));
+  if (a.y === b.y) {
+    if (a.y <= box.y || a.y >= box.y + box.height) return 0;
+    return Math.max(
+      0,
+      Math.min(Math.max(a.x, b.x), box.x + box.width) - Math.max(Math.min(a.x, b.x), box.x),
+    );
+  }
+  if (a.x <= box.x || a.x >= box.x + box.width) return 0;
+  return Math.max(
+    0,
+    Math.min(Math.max(a.y, b.y), box.y + box.height) - Math.max(Math.min(a.y, b.y), box.y),
+  );
 }
 
 /** How much of a route disappears behind the cards, and how long the route is. */
 export function routeCost(points: Route, obstacles: readonly Box[]) {
+  return boundedRouteCost(points, obstacles, Infinity);
+}
+
+/**
+ * {@link routeCost}, given up once more than `limit` of the route is hidden: the hidden length only
+ * grows segment by segment, so such a route can never beat one hiding `limit`. A route given up on
+ * reports `hidden: Infinity`; any other sums exactly as {@link routeCost} does.
+ */
+export function boundedRouteCost(points: Route, obstacles: readonly Box[], limit: number) {
   return points.slice(0, -1).reduce(
     (cost, a, index) => {
+      if (cost.hidden > limit) return { hidden: Infinity, length: cost.length };
       const b = points[index + 1] ?? a;
+      const hidden = cost.hidden + obstacles.reduce((sum, box) => sum + insideBox(a, b, box), 0);
       return {
-        hidden: cost.hidden + obstacles.reduce((sum, box) => sum + insideBox(a, b, box), 0),
+        hidden: hidden > limit ? Infinity : hidden,
         length: cost.length + Math.hypot(b.x - a.x, b.y - a.y),
       };
     },

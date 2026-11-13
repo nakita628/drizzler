@@ -16,9 +16,22 @@ import { parseSync } from "oxc-parser";
  */
 export function parseSource(code: readonly string[]) {
   const text = code.join("\n");
+  const known = lastParsed.get(text);
+  if (known) return known;
+  const source = parseText(text);
+  // One schema is usually read several times over (its tables, its relations, its diagram), so
+  // the last one parsed is kept; nothing reading it changes the tree.
+  lastParsed.clear();
+  lastParsed.set(text, source);
+  return source;
+}
+
+function parseText(text: string) {
   const { program, comments } = parseSync("temp.ts", text, { lang: "ts", sourceType: "module" });
   return { program, text, comments };
 }
+
+const lastParsed = new Map<string, ReturnType<typeof parseText>>();
 
 type Source = Pick<ReturnType<typeof parseSource>, "text" | "comments">;
 
@@ -42,25 +55,39 @@ function commentLines(comment: Source["comments"][number]) {
  * line of code is that line's.
  */
 export function commentsBefore(source: Source, start: number) {
-  const before = source.comments.filter((comment) => comment.end <= start);
-  return commentRun(source, before, start).flatMap(commentLines);
+  return commentRun(source, endingBy(source.comments, start), start).flatMap(commentLines);
 }
 
-// The comments at the end of `before` that run up to `at` with only whitespace between them,
-// oldest first.
+// How many of the comments end by `at`. They come in the order they are written and never
+// overlap, so those are the first ones, and a binary search finds where they stop.
+function endingBy(
+  comments: Source["comments"],
+  at: number,
+  low = 0,
+  high = comments.length,
+): number {
+  if (low >= high) return low;
+  const middle = Math.floor((low + high) / 2);
+  return (comments[middle]?.end ?? Infinity) <= at
+    ? endingBy(comments, at, middle + 1, high)
+    : endingBy(comments, at, low, middle);
+}
+
+// The comments at the end of the first `count` that run up to `at` with only whitespace between
+// them, oldest first.
 function commentRun(
   source: Source,
-  before: readonly Source["comments"][number][],
+  count: number,
   at: number,
 ): readonly Source["comments"][number][] {
-  const comment = before.at(-1);
+  const comment = source.comments[count - 1];
   if (comment === undefined) return [];
   const gap = source.text.slice(comment.end, at);
   if (gap.trim() !== "" || (gap.match(/\n/gu)?.length ?? 0) > 1) return [];
   // One that ends a line of code (`id: int(), // ...`) belongs to that line, not to this one.
   const lineStart = source.text.lastIndexOf("\n", comment.start - 1) + 1;
   if (source.text.slice(lineStart, comment.start).trim() !== "") return [];
-  return [...commentRun(source, before.slice(0, -1), comment.start), comment];
+  return [...commentRun(source, count - 1, comment.start), comment];
 }
 
 /**

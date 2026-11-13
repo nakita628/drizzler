@@ -6,7 +6,6 @@ import { schemaSql } from "./schema-sql.js";
 import {
   DOCS_FILES,
   docsMarkdown,
-  erSvg,
   neighborhood,
   queryExamples,
   schemaSvg,
@@ -70,12 +69,12 @@ export function drizzlerDocs(
     const readme = yield* fmtMarkdown(
       docsMarkdown(code, { queries: loaded.queries, ddl: loaded.ddl }),
     );
+    const schema = diagramSchema(code);
     const outputs = [
       ["README.md", readme],
-      [DOCS_FILES.diagram, erSvg(code, theme)],
+      [DOCS_FILES.diagram, schemaSvg(schema, theme)],
     ] as const;
     // Each table gets its own diagram: it and the tables it joins, or it alone.
-    const schema = diagramSchema(code);
     const tables = schema.models.map(
       (m) => [tableDiagramPath(m.name), schemaSvg(neighborhood(schema, m.name), theme)] as const,
     );

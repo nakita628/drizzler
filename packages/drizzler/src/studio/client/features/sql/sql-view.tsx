@@ -136,6 +136,10 @@ export function SqlView({
       ? pickedRange
       : (statement?.nodes.find((candidate) => candidate.id === selectedNode)?.range ?? null);
 
+  // Held steady while there is no statement, so the editor is not handed a new empty list (and
+  // made to redraw its marks) on every keystroke.
+  const diagnostics = useMemo(() => statement?.diagnostics ?? [], [statement]);
+
   const touched = useMemo(
     () => canvasHighlight(highlightOf(statement), schema),
     [statement, schema],
@@ -198,7 +202,6 @@ export function SqlView({
     [schema],
   );
 
-  // What the views' status line says of the analysis.
   function analysisStatus() {
     if (analysis.isError) return "The analysis failed.";
     if (stale || analysis.isFetching) return "Analyzing…";
@@ -206,7 +209,6 @@ export function SqlView({
     return `${statement.kind} · ${statement.nodes.length} nodes`;
   }
 
-  // The Result tab: the failed run, the prompt to run, or the rows it returned.
   function resultPane() {
     if (run.isError) return <div className="error-box m-4">{problemDetail(run.error)}</div>;
     if (result === null) {
@@ -227,7 +229,6 @@ export function SqlView({
     );
   }
 
-  // The schema beside the editor, once there are tables to draw.
   function schemaCanvas() {
     if (schema === null) return null;
     if (schema.models.length === 0) {
@@ -248,7 +249,7 @@ export function SqlView({
           dialect={database?.dialect ?? null}
           tables={tables}
           highlight={highlight}
-          diagnostics={statement?.diagnostics ?? []}
+          diagnostics={diagnostics}
         />
       </div>
       <ParamsPanel
@@ -259,7 +260,7 @@ export function SqlView({
         }}
       />
       <DiagnosticsList
-        diagnostics={statement?.diagnostics ?? []}
+        diagnostics={diagnostics}
         onPick={(range) => {
           setSelectedNode(null);
           setPickedRange(range);
