@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { SeedRow } from "../config.js";
+import type { LooseFieldRule, SeedRow } from "../config.js";
 import { toSeedValue, dateBetween, generatedDefault, makeFieldValue } from "../values.js";
 import { SeedGenerationError } from "../errors.js";
 import type { ModelTable, SeedColumn } from "../schema.js";
@@ -81,15 +81,23 @@ function fillDefaults(input: RowInput, skip: ReadonlySet<string>, row: SeedRow) 
   });
 }
 
+/** Whether a rule makes the column's values itself, rather than only saying how often it is null. */
+function fillsColumn(rule: LooseFieldRule | undefined) {
+  if (rule === undefined) return false;
+  if (typeof rule === "function") return true;
+  return Object.entries(rule).some(([name, value]) => name !== "nullRate" && value !== undefined);
+}
+
 function makeRow(input: RowInput) {
   return Effect.gen(function* () {
     const { context, table, given } = input;
     const rules = context.config.models[table.name]?.fields ?? {};
     const fitted = normalizeGiven(input);
-    // A faker row gets every key picked unless a rule fills its columns; a real row's keys are
-    // read from what it gives, or picked when it gives nothing for a required one.
+    // A faker row gets every key picked unless a rule fills its columns (a rule that only sets
+    // `nullRate` leaves the pick to the seeder); a real row's keys are read from what it gives, or
+    // picked when it gives nothing for a required one.
     const keys = table.foreignKeys.filter(
-      (fk) => given !== null || rules[fk.fromFields[0] ?? ""] === undefined,
+      (fk) => given !== null || !fillsColumn(rules[fk.fromFields[0] ?? ""]),
     );
     const skip = new Set([...Object.keys(fitted), ...keys.flatMap((fk) => fk.fromFields)]);
     const scalars =

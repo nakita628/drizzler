@@ -46,9 +46,11 @@ row no id is written by hand:
 
 The tables are filled parents first, and every foreign key, unique key, enum, length and
 nullability is respected; a relation that only `defineRelations` declares is filled like a
-foreign key. Every row is checked against its columns before anything is written, and the rows
-go in one transaction (on PostgreSQL, the sequences are moved past them). The seeder fills tables
-that exist; create them first, with drizzle-kit or your migrations.
+foreign key. On a foreign-key column, a field rule that only sets `nullRate` keeps the column
+linked to a parent row; any other rule fills the column as it says. Every row is checked against
+its columns before anything is written, and the rows go in one transaction (on PostgreSQL, the
+sequences are moved past them). The seeder fills tables that exist; create them first, with
+drizzle-kit or your migrations.
 
 | Option                     | What it does                                                                                                                        |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
