@@ -480,6 +480,8 @@ where "customer"."customer_id" = $1
 
 Table `domain_event`. Every event an aggregate raised, in order
 
+![domainEventTable](tables/domainEventTable.svg)
+
 | Column           | Type        | Constraints | Default | Description |
 | ---------------- | ----------- | ----------- | ------- | ----------- |
 | `eventId`        | `varchar`   | PK NOT NULL |         |             |

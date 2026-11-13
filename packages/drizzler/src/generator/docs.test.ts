@@ -47,6 +47,18 @@ describe("docsMarkdown", () => {
     );
   });
 
+  it("links the diagram of a table that has no relation too", () => {
+    const alone = docsMarkdown([
+      "/** Codes sent by email */",
+      "export const verification = pgTable('verification', {",
+      "  id: text('id').primaryKey(),",
+      "})",
+    ]);
+    expect(alone).toContain(
+      "### verification\n\nCodes sent by email\n\n![verification](tables/verification.svg)\n\n| Column |",
+    );
+  });
+
   it("writes each column with its type, constraints, default and description", () => {
     expect(markdown).toContain("| `id` | `uuid` | PK NOT NULL | `.defaultRandom()` | The key |");
     // A pipe in a description would end the cell.
