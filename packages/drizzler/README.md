@@ -21,4 +21,4 @@ Without an input, drizzler reads the `schema` of `drizzle.config.ts`.
 
 ## License
 
-MIT
+Distributed under the MIT License. See [LICENSE](https://github.com/nakita628/drizzler?tab=MIT-1-ov-file) for more information.
