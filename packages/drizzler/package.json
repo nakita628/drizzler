@@ -1,6 +1,6 @@
 {
   "name": "drizzler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Drizzler reads a Drizzle schema — one file or many, with its comments as descriptions — into ER diagrams (SVG, PNG, Mermaid) and DBML, drawing relations v2 even without foreign keys, and opens it in drizzler studio.",
   "keywords": [
     "dbml",
