@@ -44,9 +44,19 @@ export function mermaidCardinalities(child: Cardinality) {
   };
 }
 
-// An entity or attribute name as Mermaid reads it: bare when it is one word, else quoted.
+function quoted(value: string) {
+  return `"${value.replace(/"/gu, "'")}"`;
+}
+
+// An entity name as Mermaid reads it: bare when it is one word, else quoted. A hyphen is not part
+// of an entity name (`pg-drizzle_post` would read as `pg` and a relation), so it is quoted too.
 function entity(value: string) {
-  return /^[A-Za-z_][\w-]*$/u.test(value) ? value : `"${value.replace(/"/gu, "'")}"`;
+  return /^[A-Za-z_]\w*$/u.test(value) ? value : quoted(value);
+}
+
+// An attribute name as Mermaid reads it: an attribute word may hold a hyphen; anything else is quoted.
+function attribute(value: string) {
+  return /^[A-Za-z_][\w-]*$/u.test(value) ? value : quoted(value);
 }
 
 // An attribute type as Mermaid reads it: one word, so `double precision` is `double_precision`.
@@ -83,7 +93,7 @@ export function mermaidER(code: string[]) {
         ].filter((k): k is string => k !== null);
         const keyPart = keys.length > 0 ? ` ${keys.join(", ")}` : "";
         const descPart = column.note ? ` "${column.note.replace(/"/gu, "'")}"` : "";
-        return `        ${attributeType(column.type)} ${entity(column.name)}${keyPart}${descPart}`;
+        return `        ${attributeType(column.type)} ${attribute(column.name)}${keyPart}${descPart}`;
       }),
       "    }",
     ];

@@ -447,19 +447,54 @@ export function isTableBuilder(callee: string) {
 }
 
 /**
+ * The builder each top-level alias stands for: `const table = snakeCase.table` makes `table` the
+ * builder `snakeCase.table`, and `const createTable = pgTableCreator(...)` makes `createTable` a
+ * table builder whatever it is named.
+ */
+function builderAliases(program: Program, text: string) {
+  const aliases = new Map<string, string>();
+  for (const { declarator } of topLevelDeclarations(program)) {
+    const name = declaratorName(declarator);
+    const init = declarator.init ? unwrapParens(declarator.init) : null;
+    if (name === null || init === null || aliases.has(name)) continue;
+    if (init.type === "Identifier" || (init.type === "MemberExpression" && !init.computed)) {
+      aliases.set(name, resolveBuilder(textOf(text, init).replace(/\s+/gu, ""), aliases));
+    } else if (
+      isCall(init) &&
+      init.callee.type === "Identifier" &&
+      init.callee.name.endsWith("TableCreator")
+    ) {
+      aliases.set(name, init.callee.name.replace(/Creator$/u, ""));
+    }
+  }
+  return aliases;
+}
+
+// A callee with its leading alias replaced by the builder it stands for: `table` -> `snakeCase.table`,
+// `table.withRLS` -> `pgTable.withRLS`.
+function resolveBuilder(callee: string, aliases: ReadonlyMap<string, string>) {
+  const match = /^([\w$]+)(.*)$/su.exec(callee);
+  const alias = match?.[1] === undefined ? undefined : aliases.get(match[1]);
+  return alias === undefined || match === null ? callee : `${alias}${match[2] ?? ""}`;
+}
+
+/**
  * The top-level `xxxTable("name", { ...columns }, constraints)` calls, exported in place or in an
- * `export { ... }` list, with the variable they are bound to.
+ * `export { ... }` list, with the variable they are bound to and the builder they call, aliases
+ * resolved (`snakeCase.table` for `const table = snakeCase.table; table(...)`).
  */
 export function tableCalls(program: Program, text: string) {
+  const aliases = builderAliases(program, text);
   return topLevelDeclarations(program).flatMap(({ declarator, start, end }) => {
     const varName = declaratorName(declarator);
     if (varName === null) return [];
 
     const init = declarator.init;
     if (!isCall(init)) return [];
-    if (!isTableBuilder(textOf(text, init.callee))) return [];
+    const builder = resolveBuilder(textOf(text, init.callee).replace(/\s+/gu, ""), aliases);
+    if (!isTableBuilder(builder)) return [];
 
-    return [{ varName, callee: init.callee, args: init.arguments, start, end }];
+    return [{ varName, callee: init.callee, builder, args: init.arguments, start, end }];
   });
 }
 

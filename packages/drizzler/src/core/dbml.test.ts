@@ -311,6 +311,35 @@ Ref project1_post_author_id_project1_user_created_by_id_fk: project1_post.author
     );
   });
 
+  it("names the columns of an aliased snakeCase.table in snake_case, in indexes too", () => {
+    const code = [
+      "const table = snakeCase.table",
+      "export const user = table('user', {",
+      "  id: text().primaryKey(),",
+      "  emailVerified: boolean().notNull(),",
+      "}, (t) => [index('users_email_verified_idx').on(t.emailVerified)])",
+      "const pgTable = snakeCase.table",
+      "export const session = pgTable('session', {",
+      "  userId: text().notNull().references(() => user.id),",
+      "})",
+    ];
+    expect(dbml(code)).toBe(
+      `Table user {
+  id text [pk, not null]
+  email_verified boolean [not null]
+  indexes {
+    (email_verified) [name: 'users_email_verified_idx']
+  }
+}
+
+Table session {
+  user_id text [not null]
+}
+
+Ref session_user_id_user_id_fk: session.user_id > user.id`,
+    );
+  });
+
   it("quotes a type of several words, such as double precision", () => {
     const code = [
       "export const orders = pgTable('orders', {",

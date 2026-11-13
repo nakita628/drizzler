@@ -463,6 +463,49 @@ erDiagram
 `);
   });
 
+  it("quotes a table name with a hyphen, in its card and in its relations", () => {
+    const code = [
+      "const createTable = pgTableCreator((name) => `pg-drizzle_${name}`)",
+      "export const user = pgTable('user', {",
+      "  id: varchar('id').primaryKey(),",
+      "})",
+      "export const posts = createTable('post', {",
+      "  name: varchar('name', { length: 256 }),",
+      "  createdById: varchar('created_by_id').notNull().references(() => user.id),",
+      "})",
+    ];
+    expect(mermaidER(code)).toBe(`\`\`\`mermaid
+erDiagram
+    user ||--o{ "pg-drizzle_post" : "(id) - (created_by_id)"
+    user {
+        varchar id PK
+    }
+    "pg-drizzle_post" {
+        varchar name
+        varchar created_by_id FK
+    }
+\`\`\`
+`);
+  });
+
+  it("names the columns of an aliased snakeCase.table in snake_case, in indexes too", () => {
+    const code = [
+      "const table = snakeCase.table",
+      "export const user = table('user', {",
+      "  id: text().primaryKey(),",
+      "  emailVerified: boolean().notNull(),",
+      "})",
+    ];
+    expect(mermaidER(code)).toBe(`\`\`\`mermaid
+erDiagram
+    user {
+        text id PK
+        boolean email_verified
+    }
+\`\`\`
+`);
+  });
+
   it("draws a self key of the object-style constraints to the table itself", () => {
     const code = [
       "export const employees = pgTable('employees', {",
