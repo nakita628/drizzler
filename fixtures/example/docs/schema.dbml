@@ -1,0 +1,13 @@
+Table user {
+  id varchar [pk, note: 'Primary key']
+  name varchar [note: 'Display name']
+}
+
+Table post {
+  id varchar [pk, note: 'Primary key']
+  title varchar [note: 'Article title']
+  content varchar [note: 'Body content (no length limit)']
+  userId varchar [note: 'Foreign key referencing User.id']
+}
+
+Ref post_userId_user_id_fk: post.userId > user.id

@@ -1,0 +1,17 @@
+packages:
+  - packages/*
+  - fixtures/*
+  - examples/*
+  - test
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+overrides:
+  drizzler: link:packages/drizzler
+  # @heroui/react reaches these types packages; their newer releases pull in Adobe's Spectrum
+  # design system (thousands of icon files) for declarations erased at build time.
+  # hono-takibi pins effect and @effect/platform-node to 4.0.6, whose platform-node-shared floats
+  # to a release that imports what effect 4.0.6 lacks; hold it to the one it ships with.
+  "@effect/platform-node@4.0.6>@effect/platform-node-shared": 4.0.6
+  "@react-types/color": 3.1.4
+  "@react-types/slider": 3.8.4

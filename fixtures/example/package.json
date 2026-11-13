@@ -1,0 +1,12 @@
+{
+  "name": "@fixtures/generate",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "drizzler": "drizzler"
+  },
+  "dependencies": {
+    "drizzle-orm": "1.0.0-rc.5",
+    "drizzler": "workspace:^"
+  }
+}

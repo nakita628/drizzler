@@ -1,0 +1,21 @@
+import { integer, primaryKey, snakeCase, varchar } from "drizzle-orm/pg-core";
+
+import { cartTable } from "#/adapter/secondary/persistence/rdb/schema/cart.sql.js";
+import { timestamps } from "#/adapter/secondary/persistence/rdb/schema/columns.helpers.js";
+
+/** A line of a cart */
+const cartItemTable = snakeCase.table(
+  "cart_item",
+  {
+    customerId: varchar({ length: 26 })
+      .notNull()
+      .references(() => cartTable.customerId, { onDelete: "restrict", onUpdate: "restrict" }),
+    // No foreign key: the product may be gone while the cart still holds it
+    productId: varchar({ length: 26 }).notNull(),
+    quantity: integer().notNull(),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.customerId, t.productId] })],
+);
+
+export { cartItemTable };

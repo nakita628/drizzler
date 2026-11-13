@@ -1,0 +1,28 @@
+{
+  "name": "drizzler-monorepo",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "deps": "mkdir -p /tmp/pnpm-store && pnpm config set store-dir /tmp/pnpm-store &&rm -rf node_modules && rm -rf pnpm-lock.yaml && rm -rf ~/.pnpm-store && pnpm store prune && pnpm install --no-prefer-frozen-lockfile",
+    "build": "pnpm -F drizzler build",
+    "studio": "pnpm build && pnpm -F @examples/studio studio",
+    "studio:diagram": "pnpm build && pnpm -F @examples/studio studio:diagram",
+    "example": "pnpm build && pnpm -F @examples/studio generate && pnpm -F @examples/layered generate",
+    "check": "vp check",
+    "test": "vp test",
+    "release": "pnpm -F drizzler release",
+    "check:fix": "vp check --fix",
+    "lint": "vp lint",
+    "typecheck": "pnpm -F drizzler typecheck",
+    "test:e2e": "vp run --filter ./test test"
+  },
+  "dependencies": {
+    "drizzler": "link:packages/drizzler"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "1.0.0-rc.5",
+    "vite-plus": "1.4.0"
+  },
+  "packageManager": "pnpm@11.11.0"
+}

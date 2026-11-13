@@ -1,0 +1,13 @@
+import { integer, snakeCase, varchar } from "drizzle-orm/pg-core";
+
+import { timestamps } from "#/adapter/secondary/persistence/rdb/schema/columns.helpers.js";
+
+/** What is for sale */
+const productTable = snakeCase.table("product", {
+  productId: varchar({ length: 26 }).primaryKey(),
+  name: varchar({ length: 100 }).notNull().unique("product_name_unique"),
+  price: integer().notNull(),
+  ...timestamps,
+});
+
+export { productTable };
