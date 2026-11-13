@@ -85,29 +85,30 @@ describe("E2E: DBML generation", () => {
     // Tables exist
     expect(content.includes("Table user {")).toBe(true);
     expect(content.includes("Table order {")).toBe(true);
-    expect(content.includes("Table orderItem {")).toBe(true);
+    expect(content.includes("Table order_item {")).toBe(true);
 
     // User columns
-    expect(content.includes("id varchar [pk]")).toBe(true);
-    expect(content.includes("name varchar")).toBe(true);
-    expect(content.includes("email varchar")).toBe(true);
+    expect(content.includes("id varchar [pk, not null]")).toBe(true);
+    expect(content.includes("name varchar [not null]")).toBe(true);
+    expect(content.includes("email varchar [not null]")).toBe(true);
 
     // Order columns
-    expect(content.includes("userId varchar")).toBe(true);
-    expect(content.includes("total decimal")).toBe(true);
-    expect(content.includes("createdAt timestamp")).toBe(true);
+    expect(content.includes("user_id varchar [not null]")).toBe(true);
+    expect(content.includes("total decimal [not null]")).toBe(true);
+    expect(content.includes("created_at timestamp [not null]")).toBe(true);
 
     // OrderItem columns
-    expect(content.includes("orderId int")).toBe(true);
-    expect(content.includes("productName varchar")).toBe(true);
-    expect(content.includes("quantity int")).toBe(true);
-    expect(content.includes("price decimal")).toBe(true);
+    expect(content.includes("order_id integer [not null]")).toBe(true);
+    expect(content.includes("product_name varchar [not null]")).toBe(true);
+    expect(content.includes("quantity integer [not null]")).toBe(true);
+    expect(content.includes("price decimal [not null]")).toBe(true);
 
     // Foreign key refs
-    expect(content.includes("Ref order_userId_user_id_fk: order.userId > user.id")).toBe(true);
+    expect(content.includes("Ref order_user_id_user_id_fk: order.user_id > user.id")).toBe(true);
     expect(
-      content.includes("Ref orderItem_orderId_order_id_fk: orderItem.orderId > order.id"),
+      content.includes("Ref order_item_order_id_order_id_fk: order_item.order_id > order.id"),
     ).toBe(true);
+    expect(() => run(content, "svg")).not.toThrow();
   });
 
   it("generates DBML with field descriptions as notes for auth schema", async () => {
@@ -134,8 +135,8 @@ describe("E2E: DBML generation", () => {
     const content = fs.readFileSync(output, "utf-8");
 
     expect(content.includes("Table config {")).toBe(true);
-    expect(content.includes("key text [pk]")).toBe(true);
-    expect(content.includes("value text")).toBe(true);
+    expect(content.includes("key text [pk, not null]")).toBe(true);
+    expect(content.includes("value text [not null]")).toBe(true);
     // No Ref lines
     expect(content.includes("Ref ")).toBe(false);
   });
@@ -159,8 +160,8 @@ describe("dbml relations", () => {
     ];
     expect(dbml(code)).toBe(
       `Table user {
-  id uuid [pk, note: 'first comment line second comment line']
-  email varchar [note: 'User\\'s email （連絡先）']
+  id uuid [pk, not null, note: 'first comment line second comment line']
+  email varchar [not null, note: 'User\\'s email （連絡先）']
 }`,
     );
   });
@@ -190,21 +191,21 @@ describe("dbml relations", () => {
     ];
     expect(dbml(code)).toBe(
       `Table user {
-  id varchar [pk]
-  name varchar
+  id varchar [pk, not null]
+  name varchar [not null]
 }
 
 Table post {
-  id varchar [pk]
-  userId varchar
+  id varchar [pk, not null]
+  user_id varchar [not null]
 }
 
 Table profile {
-  id varchar [pk]
-  user_id varchar
+  id varchar [pk, not null]
+  user_id varchar [not null]
 }
 
-Ref post_userId_user_id_fk: post.userId > user.id
+Ref post_user_id_user_id_fk: post.user_id > user.id
 
 Ref profile_user_id_user_id: profile.user_id > user.id`,
     );
@@ -224,15 +225,15 @@ Ref profile_user_id_user_id: profile.user_id > user.id`,
     ];
     expect(dbml(code)).toBe(
       `Table user {
-  id varchar [pk]
+  id varchar [pk, not null]
 }
 
 Table post {
-  id varchar [pk]
-  userId varchar
+  id varchar [pk, not null]
+  user_id varchar [not null]
 }
 
-Ref post_userId_user_id_fk: post.userId > user.id [delete: cascade]`,
+Ref post_user_id_user_id_fk: post.user_id > user.id [delete: cascade]`,
     );
   });
 
@@ -270,13 +271,123 @@ Ref post_userId_user_id_fk: post.userId > user.id [delete: cascade]`,
     ];
     expect(dbml(code)).toBe(
       `Table user {
-  createdAt timestamptz
-  updatedAt timestamptz
+  createdAt timestamptz [not null]
+  updated_at timestamptz
   seenAt timestamp
   opensAt timetz
   closesAt time
 }`,
     );
+  });
+  it("names tables and columns as the database does", () => {
+    const code = [
+      "const createTable = pgTableCreator((name) => `project1_${name}`)",
+      "export const users = pgTable('project1_user', {",
+      "  createdById: text('created_by_id').notNull(),",
+      "})",
+      "export const posts = createTable('post', {",
+      "  id: serial('id').primaryKey(),",
+      "  authorId: text('author_id').references(() => users.createdById),",
+      "})",
+      "export const account = snakeCase.table('account', (t) => ({",
+      "  emailVerified: t.boolean().notNull(),",
+      "}))",
+    ];
+    expect(dbml(code)).toBe(
+      `Table project1_user {
+  created_by_id text [not null]
+}
+
+Table project1_post {
+  id serial [pk, increment, not null]
+  author_id text
+}
+
+Table account {
+  email_verified boolean [not null]
+}
+
+Ref project1_post_author_id_project1_user_created_by_id_fk: project1_post.author_id > project1_user.created_by_id`,
+    );
+  });
+
+  it("quotes a type of several words, such as double precision", () => {
+    const code = [
+      "export const orders = pgTable('orders', {",
+      "  id: varchar('id').primaryKey(),",
+      "  freight: doublePrecision('freight').notNull(),",
+      "})",
+    ];
+    const out = dbml(code);
+    expect(out).toBe(
+      `Table orders {
+  id varchar [pk, not null]
+  freight "double precision" [not null]
+}`,
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("writes not null, unique, composite primary keys and indexes", () => {
+    const code = [
+      "/** Accounts. */",
+      "export const users = pgTable('users', {",
+      "  id: serial('id').primaryKey(),",
+      "  email: text('email').notNull().unique(),",
+      "}, (t) => [index('users_email_idx').on(t.email)])",
+      "export const membership = pgTable('membership', {",
+      "  userId: text('user_id').notNull(),",
+      "  orgId: text('org_id').notNull(),",
+      "}, (t) => [unique('membership_user_org').on(t.userId, t.orgId)])",
+      "export const articleTags = pgTable('article_tags', {",
+      "  articleId: integer('article_id'),",
+      "  tagName: text('tag_name'),",
+      "}, (t) => [primaryKey({ columns: [t.articleId, t.tagName] })])",
+    ];
+    const out = dbml(code);
+    expect(out).toBe(
+      `Table users {
+  id serial [pk, increment, not null]
+  email text [not null, unique]
+  indexes {
+    (email) [name: 'users_email_idx']
+  }
+  Note: 'Accounts.'
+}
+
+Table membership {
+  user_id text [not null]
+  org_id text [not null]
+  indexes {
+    (user_id, org_id) [unique, name: 'membership_user_org']
+  }
+}
+
+Table article_tags {
+  article_id integer [not null]
+  tag_name text [not null]
+  indexes {
+    (article_id, tag_name) [pk]
+  }
+}`,
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("draws a self key of the object-style constraints to the table itself", () => {
+    const code = [
+      "export const employees = pgTable('employees', {",
+      "  id: varchar('id').primaryKey(),",
+      "  recipientId: varchar('recipient_id'),",
+      "}, (table) => ({",
+      "  recipientFk: foreignKey({ columns: [table.recipientId], foreignColumns: [table.id] }),",
+      "}))",
+    ];
+    const out = dbml(code);
+    expect(out).toContain(
+      "Ref employees_recipient_id_employees_id_fk: employees.recipient_id > employees.id",
+    );
+    expect(() => run(out, "svg")).not.toThrow();
   });
 });
 

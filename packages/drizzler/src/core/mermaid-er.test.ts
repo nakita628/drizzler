@@ -6,7 +6,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { mermaidRelationSymbol } from "../generator/index.js";
+import { mermaidCardinalities, mermaidER, mermaidRelationSymbol } from "../generator/index.js";
 import { stripImports } from "../schema/strip-imports.js";
 import { drizzlerMermaidER } from "./mermaid-er.js";
 
@@ -208,7 +208,7 @@ describe("drizzlerMermaidER", () => {
     const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
     const expected = `\`\`\`mermaid
 erDiagram
-    user ||--|{ post : "(id) - (userId)"
+    user ||--o{ post : "(id) - (user_id)"
     user {
         varchar id PK "Primary key"
         varchar name "Display name"
@@ -217,7 +217,7 @@ erDiagram
         varchar id PK "Primary key"
         varchar title "Article title"
         varchar content "Body content (no length limit)"
-        varchar userId FK "Foreign key referencing User.id"
+        varchar user_id FK "Foreign key referencing User.id"
     }
 \`\`\`
 `;
@@ -231,7 +231,7 @@ erDiagram
     const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
     const expected = `\`\`\`mermaid
 erDiagram
-    user ||--|{ post : "(id) - (userId)"
+    user ||--o{ post : "(id) - (user_id)"
     user {
         varchar id PK
         varchar name
@@ -240,7 +240,7 @@ erDiagram
         varchar id PK
         varchar title
         varchar content
-        varchar userId FK
+        varchar user_id FK
     }
 \`\`\`
 `;
@@ -254,7 +254,7 @@ erDiagram
     const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
     const expected = `\`\`\`mermaid
 erDiagram
-    User ||--|{ Post : "(id) - (userId)"
+    User ||--o{ Post : "(id) - (userId)"
     User {
         text id PK
         text name
@@ -262,7 +262,7 @@ erDiagram
     Post {
         text id PK
         text body
-        text userId
+        text userId FK
     }
 \`\`\`
 `;
@@ -276,7 +276,7 @@ erDiagram
     const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
     const expected = `\`\`\`mermaid
 erDiagram
-    User ||..|{ Post : "(id) - (userId)"
+    User ||..o{ Post : "(id) - (userId)"
     User {
         text id PK
         text name
@@ -284,7 +284,7 @@ erDiagram
     Post {
         text id PK
         text body
-        text userId
+        text userId FK
     }
 \`\`\`
 `;
@@ -296,7 +296,7 @@ erDiagram
     const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
     const expected = `\`\`\`mermaid
 erDiagram
-    User ||--|{ Post : "(id) - (userId)"
+    User ||--o{ Post : "(id) - (userId)"
     User {
         text id PK
         text name
@@ -304,7 +304,7 @@ erDiagram
     Post {
         text id PK
         text body
-        text userId
+        text userId FK
     }
 \`\`\`
 `;
@@ -339,19 +339,19 @@ describe("E2E: Mermaid ER generation", () => {
     expect(content.endsWith("```\n")).toBe(true);
 
     // Relations (user -> order, order -> orderItem)
-    expect(content.includes('user ||--|{ order : "(id) - (userId)"')).toBe(true);
-    expect(content.includes('order ||--|{ orderItem : "(id) - (orderId)"')).toBe(true);
+    expect(content.includes('user ||--o{ order : "(id) - (user_id)"')).toBe(true);
+    expect(content.includes('order ||--o{ order_item : "(id) - (order_id)"')).toBe(true);
 
     // Table definitions
     expect(content.includes("user {")).toBe(true);
     expect(content.includes("order {")).toBe(true);
-    expect(content.includes("orderItem {")).toBe(true);
+    expect(content.includes("order_item {")).toBe(true);
 
     // Field details
     expect(content.includes("varchar id PK")).toBe(true);
     expect(content.includes("varchar name")).toBe(true);
-    expect(content.includes("varchar userId FK")).toBe(true);
-    expect(content.includes("int orderId FK")).toBe(true);
+    expect(content.includes("varchar user_id FK")).toBe(true);
+    expect(content.includes("integer order_id FK")).toBe(true);
   });
 
   it("generates Mermaid ER for single-table schema without relations", async () => {
@@ -410,5 +410,68 @@ describe("mermaidRelationSymbol", () => {
         identifying: c.identifying,
       }),
     ).toBe(c.expected);
+  });
+});
+
+describe("mermaidCardinalities", () => {
+  // A parent may have no child; a child has one parent when its key is NOT NULL.
+  it.each([
+    ["many", { from: "one", to: "zero-many" }],
+    ["zero-many", { from: "zero-one", to: "zero-many" }],
+    ["one", { from: "one", to: "zero-one" }],
+    ["zero-one", { from: "zero-one", to: "zero-one" }],
+  ] as const)("draws a %s child as %o", (child, expected) => {
+    expect(mermaidCardinalities(child)).toStrictEqual(expected);
+  });
+});
+
+describe("mermaidER", () => {
+  it("draws a NOT NULL key as one to zero-or-more, and a nullable one as zero-or-one to it", () => {
+    const code = [
+      "export const users = pgTable('users', { id: serial('id').primaryKey() })",
+      "export const posts = pgTable('posts', {",
+      "  id: serial('id').primaryKey(),",
+      "  authorId: integer('author_id').notNull().references(() => users.id),",
+      "  editorId: integer('editor_id').references(() => users.id),",
+      "})",
+    ];
+    const out = mermaidER(code);
+    expect(out).toContain('users ||--o{ posts : "(id) - (author_id)"');
+    expect(out).toContain('users |o--o{ posts : "(id) - (editor_id)"');
+  });
+
+  it("names tables and columns as the database does, with their SQL types", () => {
+    const code = [
+      "export const users = pgTable('project1_user', {",
+      "  createdById: text('created_by_id').notNull(),",
+      "})",
+      "export const orders = pgTable('orders', {",
+      "  freight: doublePrecision('freight').notNull(),",
+      "  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),",
+      "})",
+    ];
+    expect(mermaidER(code)).toBe(`\`\`\`mermaid
+erDiagram
+    project1_user {
+        text created_by_id
+    }
+    orders {
+        double_precision freight
+        timestamptz created_at
+    }
+\`\`\`
+`);
+  });
+
+  it("draws a self key of the object-style constraints to the table itself", () => {
+    const code = [
+      "export const employees = pgTable('employees', {",
+      "  id: varchar('id').primaryKey(),",
+      "  recipientId: varchar('recipient_id'),",
+      "}, (table) => ({",
+      "  recipientFk: foreignKey({ columns: [table.recipientId], foreignColumns: [table.id] }),",
+      "}))",
+    ];
+    expect(mermaidER(code)).toContain('employees |o--o{ employees : "(id) - (recipient_id)"');
   });
 });

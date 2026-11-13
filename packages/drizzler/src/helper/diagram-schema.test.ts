@@ -102,7 +102,7 @@ describe("diagramSchema", () => {
     expect(membership.primaryKey).toStrictEqual(["userId", "groupId"]);
     expect(membership.indexes).toStrictEqual([
       { type: "id", fields: ["userId", "groupId"] },
-      { type: "normal", fields: ["groupId"] },
+      { type: "normal", fields: ["groupId"], name: "membership_group_idx" },
     ]);
     expect(membership.fields.map((f) => [f.name, f.dbName, f.isForeignKey])).toStrictEqual([
       ["userId", "user_id", true],
@@ -133,7 +133,9 @@ describe("diagramSchema", () => {
 
     const schema = diagramSchema(code);
 
-    expect(schema.models[1].indexes).toStrictEqual([{ type: "unique", fields: ["authorId"] }]);
+    expect(schema.models[1].indexes).toStrictEqual([
+      { type: "unique", fields: ["authorId"], name: "post_author" },
+    ]);
     expect(schema.relations.map((r) => [r.onDelete, r.onUpdate, r.to.cardinality])).toStrictEqual([
       ["set null", "cascade", "zero-one"],
     ]);

@@ -1,13 +1,13 @@
 Table user {
-  id varchar [pk, note: 'Primary key']
-  name varchar [note: 'Display name']
+  id varchar [pk, not null, note: 'Primary key']
+  name varchar [not null, note: 'Display name']
 }
 
 Table post {
-  id varchar [pk, note: 'Primary key']
-  title varchar [note: 'Article title']
-  content varchar [note: 'Body content (no length limit)']
-  userId varchar [note: 'Foreign key referencing User.id']
+  id varchar [pk, not null, note: 'Primary key']
+  title varchar [not null, note: 'Article title']
+  content varchar [not null, note: 'Body content (no length limit)']
+  user_id varchar [not null, note: 'Foreign key referencing User.id']
 }
 
-Ref post_userId_user_id_fk: post.userId > user.id
+Ref post_user_id_user_id_fk: post.user_id > user.id

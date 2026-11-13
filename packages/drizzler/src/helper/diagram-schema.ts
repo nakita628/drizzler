@@ -17,6 +17,7 @@ import {
   isPropertyAssignment,
   parseSource,
   textOf,
+  unwrapParens,
 } from "./ast.js";
 import { constraintEntries, tableCalls } from "./extract-tables.js";
 import { mergeRelations } from "./merge-relations.js";
@@ -144,7 +145,16 @@ function readConstraints(arg: CallExpression["arguments"][number] | undefined) {
         : columnNames(chain.args);
     const on = chain.methods.find((m) => m.name === "on");
     const fields = on ? columnNames(on.args) : fromConfig;
-    return fields.length > 0 ? [{ kind: "index", index: { type, fields } }] : [];
+    // `index("users_email_idx")`, `unique("name")`, or `primaryKey({ name, columns })`.
+    const named =
+      isObject(config) &&
+      config.properties.find(
+        (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "name",
+      );
+    const name =
+      named && isPropertyAssignment(named) ? stringLiteral(named.value) : stringLiteral(config);
+    const index: DiagramIndex = name === null ? { type, fields } : { type, fields, name };
+    return fields.length > 0 ? [{ kind: "index", index }] : [];
   });
 }
 
@@ -172,6 +182,38 @@ function readEnums(program: Program, source: Parameters<typeof descriptionBefore
   });
 }
 
+// A column name as drizzle's snake_case casing writes it: `emailVerified` -> `email_verified`.
+function toSnakeCase(name: string) {
+  const words = name.replace(/['\u2019]/gu, "").match(/[\da-z]+|[A-Z]+(?![a-z])|[A-Z][\da-z]+/gu);
+  return (words ?? []).map((word) => word.toLowerCase()).join("_");
+}
+
+/**
+ * The name each table creator gives a table, by the creator's variable:
+ * `const createTable = pgTableCreator((name) => \`project1_${name}\`)` makes
+ * `createTable("post")` the table `project1_post`. Only a template of the name is read.
+ */
+function tableCreators(program: Program) {
+  return new Map(
+    topLevelDeclarations(program).flatMap(({ declarator }) => {
+      const name = declaratorName(declarator);
+      const init = declarator.init;
+      if (name === null || !isCall(init) || init.callee.type !== "Identifier") return [];
+      if (!init.callee.name.endsWith("TableCreator")) return [];
+      const [make] = init.arguments;
+      if (!isArrow(make)) return [];
+      const [param] = make.params;
+      const body = make.body.type === "BlockStatement" ? null : unwrapParens(make.body);
+      if (param?.type !== "Identifier" || body?.type !== "TemplateLiteral") return [];
+      if (!body.expressions.every((e) => e.type === "Identifier" && e.name === param.name)) {
+        return [];
+      }
+      const parts = body.quasis.map((q) => q.value.cooked ?? "");
+      return [[name, (table: string) => parts.join(table)] as const];
+    }),
+  );
+}
+
 /**
  * The Drizzle schema as the ER diagram draws it: a card per table with a row
  * per column, a card per `pgEnum`, and the relations `mergeRelations` finds
@@ -187,8 +229,12 @@ export function diagramSchema(code: readonly string[]) {
   const foreignKeys = new Set(merged.map((r) => `${r.to.model}.${r.to.field}`));
   const actions = new Map<string, { onDelete: string | null; onUpdate: string | null }>();
 
-  const models = tableCalls(program, text).flatMap(({ varName, args, start }): SchemaModel[] => {
+  const creators = tableCreators(program);
+
+  const models = tableCalls(program, text).flatMap(({ varName, callee, args, start }) => {
     const columns = args[1];
+    // `snakeCase.table(...)` names a column it is not given a name for in snake_case.
+    const snakeCase = /^snakeCase\.table\b/u.test(textOf(text, callee).replace(/\s+/gu, ""));
     if (!isObject(columns) && !isArrow(columns) && columns?.type !== "Identifier") return [];
     const constraints = readConstraints(args[2]);
     for (const c of constraints) {
@@ -208,12 +254,24 @@ export function diagramSchema(code: readonly string[]) {
       }
       const references = chain.methods.find((m) => m.name === "references");
       if (references) actions.set(`${varName}.${name}`, referentialActions(references.args[1]));
-      const dbName = stringLiteral(chain.args[0]);
+      const dbName = stringLiteral(chain.args[0]) ?? (snakeCase ? toSnakeCase(name) : name);
       const isId = has("primaryKey");
+      const withTimezone = chain.args.some(
+        (arg) =>
+          isObject(arg) &&
+          arg.properties.some(
+            (p) =>
+              isPropertyAssignment(p) &&
+              p.key.type === "Identifier" &&
+              p.key.name === "withTimezone" &&
+              p.value.type === "Literal" &&
+              p.value.value === true,
+          ),
+      );
       return [
         {
           name,
-          dbName: dbName !== null && dbName !== name ? dbName : null,
+          dbName: dbName !== name ? dbName : null,
           kind: enumNames.has(chain.builder) ? "enum" : "scalar",
           type: chain.builder,
           isList: has("array"),
@@ -223,11 +281,15 @@ export function diagramSchema(code: readonly string[]) {
           isForeignKey: references !== undefined || foreignKeys.has(`${varName}.${name}`),
           documentation: descriptionBefore(source, prop.start),
           attributes: fieldNotes(chain.methods, text),
+          ...(withTimezone ? { withTimezone: true as const } : {}),
         },
       ];
     });
 
-    const tableName = stringLiteral(args[0]);
+    // The table's name in the database: the one it is given, through its creator's template.
+    const given = stringLiteral(args[0]);
+    const creator = callee.type === "Identifier" ? creators.get(callee.name) : undefined;
+    const tableName = given === null ? null : (creator?.(given) ?? given);
     return [
       {
         name: varName,
@@ -236,7 +298,7 @@ export function diagramSchema(code: readonly string[]) {
         primaryKey: compositeKey,
         fields,
         indexes: indexes.filter((i) => i.type !== "id" || i.fields.length > 1),
-      },
+      } satisfies SchemaModel,
     ];
   });
 
