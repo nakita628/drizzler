@@ -186,7 +186,9 @@ foreign key backs it. Such an edge is dashed; when a `.references()` or `foreign
 same pair, it is drawn solid as that foreign key. The child side is "one or more" when its column
 is `.notNull()` (or the `r.one` is `optional: false`), else "zero or more"; when that column is
 a key of its own (`.primaryKey()`, `.unique()`, a one-column unique constraint) it is "one" or
-"zero or one", a one-to-one. The same holds for a foreign key.
+"zero or one", a one-to-one. The same holds for a foreign key. Mermaid draws the ends as a
+foreign key allows them: a parent has zero or more children (zero or one for a one-to-one), and a
+child has one parent, or zero or one when its key column may be null.
 
 `from` is not always the side that holds the key (`r.one.profile({ from: r.user.id, to:
 r.profile.userId })`), so the child is the side whose column is a foreign key to the other; else
@@ -197,6 +199,10 @@ reverse side of a pair the other table declares.
 
 ## Output Examples
 
+DBML and Mermaid name tables and columns as the database does: by the name given to `pgTable` (a
+`pgTableCreator` prefix applied) and to each column, or in snake_case under `snakeCase.table`.
+Their types are SQL types (`timestamptz`, `double precision`).
+
 ### DBML
 
 ```sh
@@ -205,18 +211,22 @@ npx drizzler db/schema.ts -o docs/schema.dbml
 
 ```dbml
 Table user {
-  id varchar [pk, note: 'Primary key']
-  name varchar [note: 'Display name']
+  id varchar [pk, not null, note: 'Primary key']
+  name varchar [not null, note: 'Display name']
+  email varchar [not null, unique]
   Note: 'Everyone who can sign in'
 }
 
 Table post {
-  id varchar [pk]
-  title varchar
-  userId varchar
+  id varchar [pk, not null]
+  title varchar [not null]
+  user_id varchar [not null]
+  indexes {
+    (user_id) [name: 'post_user_idx']
+  }
 }
 
-Ref post_userId_user_id_fk: post.userId > user.id
+Ref post_user_id_user_id_fk: post.user_id > user.id
 ```
 
 ### Mermaid ER
@@ -227,15 +237,16 @@ npx drizzler db/schema.ts -o docs/ER.md
 
 ```mermaid
 erDiagram
-    user ||--|{ post : "(id) - (userId)"
+    user ||--o{ post : "(id) - (user_id)"
     user {
         varchar id PK "Primary key"
         varchar name "Display name"
+        varchar email
     }
     post {
         varchar id PK
         varchar title
-        varchar userId FK
+        varchar user_id FK
     }
 ```
 

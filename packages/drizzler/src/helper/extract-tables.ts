@@ -173,6 +173,7 @@ function extractRelationsFromForeignKeyConstraints(
   tableName: string,
   constraintArg: CallExpression["arguments"][number],
   text: string,
+  required: ReadonlyMap<string, boolean>,
 ) {
   return constraintEntries(constraintArg).flatMap((entry) => {
     const constraintText = textOf(text, entry);
@@ -192,8 +193,8 @@ function extractRelationsFromForeignKeyConstraints(
         toModel: tableName,
         fromField: foreignColumnsMatch[2],
         toField: columnsMatch[2],
-        // For foreignKey constraints, we assume required unless explicitly nullable
-        isRequired: !constraintText.includes(".nullable()"),
+        // The key is required when its column is NOT NULL.
+        isRequired: required.get(`${tableName}.${columnsMatch[2]}`) ?? false,
         enforced: true,
       },
     ];
@@ -458,7 +459,7 @@ export function tableCalls(program: Program, text: string) {
     if (!isCall(init)) return [];
     if (!isTableBuilder(textOf(text, init.callee))) return [];
 
-    return [{ varName, args: init.arguments, start, end }];
+    return [{ varName, callee: init.callee, args: init.arguments, start, end }];
   });
 }
 
@@ -485,6 +486,7 @@ export function parseTableInfo(code: readonly string[]) {
  */
 export function extractRelationsFromSchema(code: readonly string[]) {
   const { program, text } = parseSource(code);
+  const required = requiredColumns(program, text);
 
   const tableRelations = tableCalls(program, text).flatMap(({ varName, args }) => {
     const constraintArg = args[2];
@@ -496,7 +498,7 @@ export function extractRelationsFromSchema(code: readonly string[]) {
 
     // Third argument: constraints (foreignKey, indexes, etc.)
     const fkRelations = constraintArg
-      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, text)
+      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, text, required)
       : [];
 
     return [...fieldRelations, ...fkRelations];

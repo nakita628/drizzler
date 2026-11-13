@@ -467,7 +467,7 @@ describe("extractRelationsFromSchema", () => {
         toModel: "employees",
         fromField: "id",
         toField: "recipientId",
-        isRequired: true,
+        isRequired: false,
         enforced: true,
         isUnique: false,
       },
