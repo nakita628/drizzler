@@ -57,7 +57,7 @@ describe("a schema split over files (examples/layered)", () => {
     expect(code).toBe(0);
     const dbml = fs.readFileSync(output, "utf8");
     expect(dbml).toContain("Table cartItemTable {");
-    expect(dbml).toContain("updatedAt timestamp [note: 'When the row was last changed']");
+    expect(dbml).toContain("updatedAt timestamptz [note: 'When the row was last changed']");
     expect(dbml).toContain("Ref cartItemTable_productId_productTable_productId");
   });
 
