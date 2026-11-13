@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "terminology": {
+      "defaultTerms": false,
+      "terms": [
+        "Drizzle",
+        "drizzle-orm",
+        "drizzle-kit",
+        "TypeSpec",
+        "PostgreSQL",
+        "MySQL",
+        "SQLite",
+        ["Node\\.?js", "Node.js"],
+        "GitHub",
+        "TypeScript",
+        "JavaScript",
+        "Monaco",
+        "Mermaid",
+        "DBML"
+      ]
+    }
+  }
+}

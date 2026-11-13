@@ -2,7 +2,7 @@
 
 ## Command line
 
-```
+```text
 drizzler [input...] -o <output> [options]
 drizzler studio <input> [--port <port>] [--url <database-url>]
 drizzler seed [--config <path>] [--url <database-url>] [--sql <file>] [--seed <n>] [--count <n>] [--locale <locale>] [--reset]
@@ -15,7 +15,7 @@ an unknown format, a file that is not there) prints why and exits with code 1.
 
 ### Options
 
-```
+```text
 -o, --output <path>               Output file (.md, .dbml, .svg, .png), or a directory for the docs
 --theme <light|dark>              Colour scheme of the ER diagram
 -p, --port <port>                 Port for drizzler studio (default: 4983)
@@ -86,7 +86,7 @@ is such a directory.
 Layered projects often keep one table per file, export the tables in a list, build them with a
 casing helper, and share columns through a helper module:
 
-```
+```text
 src/adapter/secondary/persistence/rdb/schema/
 ├── columns.helpers.ts   # const timestamps = { createdAt, updatedAt }
 ├── cart.sql.ts          # const cartTable = snakeCase.table("cart", { ..., ...timestamps })

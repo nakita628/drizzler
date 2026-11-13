@@ -1,0 +1,38 @@
+name: Lint
+
+# The gates that need no build, as `pnpm lint` runs them locally: the prose of the repository
+# (markdownlint, textlint, cspell) and the workflows themselves (actionlint for the syntax,
+# zizmor for the security posture). zizmor is installed first so that `pnpm lint` runs it here
+# rather than skipping it as it does on a machine without it.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: voidzero-dev/setup-vp@49c3e4e92c52e7f8392712a9267bbe71c5ab30e5 # v1.19.0
+        with:
+          node-version: "22"
+          cache: true
+
+      # pnpm-lock.yaml is not committed in this repository, so the install cannot be frozen.
+      - run: vp install
+
+      # zizmor is a Rust tool published on PyPI; pipx is on the hosted runner. The version is
+      # pinned here by hand — it is not an npm dependency, so nothing updates it.
+      - run: pipx install zizmor==1.30.0
+
+      # setup-vp puts `vp` on PATH, not `pnpm`; `vp run` runs the root script with both available.
+      - run: vp run lint

@@ -12,16 +12,26 @@
     "test": "vp test",
     "release": "pnpm -F drizzler release",
     "check:fix": "vp check --fix",
-    "lint": "vp lint",
+    "lint": "pnpm lint:md && pnpm lint:text && pnpm lint:spell && pnpm lint:actions",
     "typecheck": "pnpm -F drizzler typecheck",
-    "test:e2e": "vp run --filter ./test test"
+    "test:e2e": "vp run --filter ./test test",
+    "lint:md": "markdownlint-cli2",
+    "lint:text": "textlint '**/*.md'",
+    "lint:spell": "cspell --no-progress .",
+    "lint:actions": "node lint/actionlint.mjs && pnpm lint:actions:security",
+    "lint:actions:security": "sh -c 'if command -v zizmor >/dev/null; then zizmor .github/workflows; else echo \"zizmor is not installed (pipx install zizmor); CI runs it\"; fi'"
   },
   "dependencies": {
     "drizzler": "link:packages/drizzler"
   },
   "devDependencies": {
+    "actionlint": "^2.0.6",
     "better-sqlite3": "^13.0.3",
+    "cspell": "^10.4.0",
     "drizzle-orm": "1.0.0-rc.5",
+    "markdownlint-cli2": "^0.24.0",
+    "textlint": "^15.8.0",
+    "textlint-rule-terminology": "^5.2.16",
     "vite-plus": "1.4.0"
   },
   "packageManager": "pnpm@11.11.0"

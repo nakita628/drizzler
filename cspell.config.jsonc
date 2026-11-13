@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+  "version": "0.2",
+  // The prose of this repository is written in British English (colour, recognised); the names
+  // it is full of — Drizzle, SQL functions, the libraries it builds on — live in .cspell/words.txt.
+  "language": "en-GB,en",
+  "dictionaries": [
+    "typescript",
+    "node",
+    "npm",
+    "softwareTerms",
+    "html",
+    "css",
+    "bash",
+    "sql",
+    "project-words",
+  ],
+  "dictionaryDefinitions": [
+    { "name": "project-words", "path": "./.cspell/words.txt", "addWords": true },
+  ],
+  "useGitignore": true,
+  "ignorePaths": [
+    "node_modules",
+    "dist",
+    "pnpm-lock.yaml",
+    // What drizzler writes for the examples and fixtures, and what Better Auth generates there.
+    "examples/*/docs",
+    "fixtures/**/docs",
+    "fixtures/**/mermaid-er",
+    "fixtures/better-auth/*/db/schema.ts",
+    // What hono-takibi and the TanStack Router plugin generate.
+    "packages/drizzler/docs/studio-api.md",
+    "packages/drizzler/src/studio/server/routes/index.ts",
+    "packages/drizzler/src/studio/client/api/index.ts",
+    "packages/drizzler/src/studio/client/hooks/index.ts",
+    "packages/drizzler/src/studio/client/routeTree.gen.ts",
+    // Sample rows in another language, and the test data that measures wide characters.
+    "examples/studio/drizzler.config.ts",
+    "test/.tmp",
+    "**/*.svg",
+    "**/*.png",
+    "**/*.db",
+    ".cspell/words.txt",
+  ],
+  "ignoreRegExpList": ["/[0-9a-f]{7,}/g", "Urls", "Base64", "HexValues"],
+}

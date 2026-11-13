@@ -1,0 +1,26 @@
+{
+  // Markdown of the repository: the READMEs, the docs, the issue and PR templates. What drizzler
+  // and hono-takibi write (the examples' and fixtures' docs, the studio API reference) is
+  // generated, not written, and is not linted here.
+  "config": {
+    "default": true,
+    // oxfmt lays the text out; line length and the table shape are its call, not this linter's.
+    "MD013": false,
+    // A heading is repeated on purpose where two sections mirror each other.
+    "MD024": { "siblings_only": true },
+    // The PR template opens with a section, under the title GitHub gives the pull request.
+    "MD041": false,
+    // Inline HTML carries the <details> blocks.
+    "MD033": false,
+  },
+  "globs": ["**/*.md"],
+  "ignores": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "packages/drizzler/docs/studio-api.md",
+    "examples/*/docs/**",
+    "fixtures/**/docs/**",
+    "fixtures/**/mermaid-er/**",
+    "test/.tmp/**",
+  ],
+}

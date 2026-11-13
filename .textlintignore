@@ -1,0 +1,7 @@
+**/node_modules/**
+**/dist/**
+packages/drizzler/docs/studio-api.md
+examples/*/docs/**
+fixtures/**/docs/**
+fixtures/**/mermaid-er/**
+test/.tmp/**
