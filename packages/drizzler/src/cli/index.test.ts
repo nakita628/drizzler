@@ -291,7 +291,7 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
     const output = path.join(tmpdir, "described.dbml");
     await cli([described, "-o", output]);
     const content = fs.readFileSync(output, "utf-8");
-    expect(content).toContain("id uuid [pk, note: 'The key']");
+    expect(content).toContain("id uuid [pk, not null, note: 'The key']");
     expect(content).toContain("Everyone who can sign in");
   });
 
@@ -302,7 +302,7 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
     const content = fs.readFileSync(output, "utf-8");
     expect(content).toContain("Table user {");
     expect(content).toContain("Table order {");
-    expect(content).toContain("Table orderItem {");
+    expect(content).toContain("Table order_item {");
   });
 
   it("generates Mermaid ER", async () => {
@@ -343,9 +343,10 @@ describe("drizzler reads a schema split over files", () => {
     const output = path.join(out, "schema.dbml");
     await cli([schemaDir, "-o", output]);
     const dbml = fs.readFileSync(output, "utf-8");
-    expect(dbml).toContain("Table cartItemTable {");
-    expect(dbml).toContain("createdAt timestamptz [note: 'When the row was inserted']");
-    expect(dbml).toContain("Ref cartItemTable_productId_productTable_productId");
+    // Named as the database names them: `snakeCase.table` writes the columns in snake_case.
+    expect(dbml).toContain("Table cart_item {");
+    expect(dbml).toContain("created_at timestamptz [not null, note: 'When the row was inserted']");
+    expect(dbml).toContain("Ref cart_item_product_id_product_product_id");
   });
 
   it("reads the schema of drizzle.config.ts when no input is given", async () => {
@@ -355,9 +356,9 @@ describe("drizzler reads a schema split over files", () => {
     expect(printed).toBe(`💧 Generated Mermaid ER at: ${output}`);
     const mermaid = fs.readFileSync(output, "utf-8");
     // A foreign key is solid, a relation only defineRelations declares is dashed.
-    expect(mermaid).toContain('cartTable ||--|{ cartItemTable : "(customerId) - (customerId)"');
-    expect(mermaid).toContain('productTable ||..|{ orderItemTable : "(productId) - (productId)"');
-    expect(mermaid).toContain('customerTable ||..|| cartTable : "(customerId) - (customerId)"');
+    expect(mermaid).toContain('cart ||--o{ cart_item : "(customer_id) - (customer_id)"');
+    expect(mermaid).toContain('product ||..o{ order_item : "(product_id) - (product_id)"');
+    expect(mermaid).toContain('customer ||..o| cart : "(customer_id) - (customer_id)"');
   });
 
   it("reads several inputs given at once", async () => {
@@ -369,7 +370,7 @@ describe("drizzler reads a schema split over files", () => {
       output,
     ]);
     const mermaid = fs.readFileSync(output, "utf-8");
-    expect(mermaid).toContain("cartItemTable {");
-    expect(mermaid).not.toContain("orderTable {");
+    expect(mermaid).toContain("cart_item {");
+    expect(mermaid).not.toContain("    order {");
   });
 });

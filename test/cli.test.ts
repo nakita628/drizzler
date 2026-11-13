@@ -41,14 +41,14 @@ describe("a schema split over files (examples/layered)", () => {
     expect(result).toStrictEqual({ code: 0, output: `💧 Generated Mermaid ER at: ${output}` });
 
     const mermaid = fs.readFileSync(output, "utf8");
-    // A foreign key is solid; a relation only defineRelations declares is dashed; a child column
-    // that is its table's key is a one-to-one.
-    expect(mermaid).toContain('cartTable ||--|{ cartItemTable : "(customerId) - (customerId)"');
-    expect(mermaid).toContain('productTable ||..|{ orderItemTable : "(productId) - (productId)"');
-    expect(mermaid).toContain('customerTable ||..|| cartTable : "(customerId) - (customerId)"');
+    // Named as the database names them. A foreign key is solid; a relation only defineRelations
+    // declares is dashed; a child column that is its table's key is a one-to-one.
+    expect(mermaid).toContain('cart ||--o{ cart_item : "(customer_id) - (customer_id)"');
+    expect(mermaid).toContain('product ||..o{ order_item : "(product_id) - (product_id)"');
+    expect(mermaid).toContain('customer ||..o| cart : "(customer_id) - (customer_id)"');
     // Columns spread from the helper module, with their comments, and a table with no relation.
-    expect(mermaid).toContain('timestamp createdAt "When the row was inserted"');
-    expect(mermaid).toContain("domainEventTable {");
+    expect(mermaid).toContain('timestamptz created_at "When the row was inserted"');
+    expect(mermaid).toContain("domain_event {");
   });
 
   it("reads a directory, following the helper it imports through a tsconfig path", async () => {
@@ -56,9 +56,11 @@ describe("a schema split over files (examples/layered)", () => {
     const { code } = await drizzler([LAYERED_SCHEMA, "-o", output], LAYERED);
     expect(code).toBe(0);
     const dbml = fs.readFileSync(output, "utf8");
-    expect(dbml).toContain("Table cartItemTable {");
-    expect(dbml).toContain("updatedAt timestamptz [note: 'When the row was last changed']");
-    expect(dbml).toContain("Ref cartItemTable_productId_productTable_productId");
+    expect(dbml).toContain("Table cart_item {");
+    expect(dbml).toContain(
+      "updated_at timestamptz [not null, note: 'When the row was last changed']",
+    );
+    expect(dbml).toContain("Ref cart_item_product_id_product_product_id");
   });
 
   it("reads a glob, as drizzle-kit's schema is written", async () => {
@@ -66,8 +68,8 @@ describe("a schema split over files (examples/layered)", () => {
     const { code } = await drizzler([`${LAYERED_SCHEMA}/cart*.sql.ts`, "-o", output], LAYERED);
     expect(code).toBe(0);
     const mermaid = fs.readFileSync(output, "utf8");
-    expect(mermaid).toContain("cartItemTable {");
-    expect(mermaid).not.toContain("orderTable {");
+    expect(mermaid).toContain("cart_item {");
+    expect(mermaid).not.toContain("    order {");
   });
 
   it("writes the docs into a directory: the table specification and every diagram", async () => {
@@ -95,7 +97,7 @@ describe("a schema split over files (examples/layered)", () => {
       /\| \[cartItemTable\]\(#table-cartItemTable\) +\| `cart_item` +\| A line of a cart +\|/u,
     );
     expect(readme).toMatch(
-      /\| `createdAt` +\| `timestamp` +\| NOT NULL +\| `\.defaultNow\(\)` +\| When the row was inserted +\|/u,
+      /\| `createdAt` \(`created_at`\) +\| `timestamp` +\| NOT NULL +\| `\.defaultNow\(\)` +\| When the row was inserted +\|/u,
     );
     expect(readme).toContain(
       "- `productId` → [productTable.productId](#table-productTable) (many to one, defineRelations, no foreign key)",
@@ -160,6 +162,21 @@ describe("the docs' SQL, as drizzle-orm builds it", () => {
       '```sql\ndelete from "posts"\nwhere "posts"."id" = ?\n-- params: [1]\n```',
     );
     expect(readme).toContain("json_group_array");
+    expect(readme).toContain("#### Definition\n\n```sql\nCREATE TABLE `posts` (");
+  });
+
+  it("is written when the schema imports only types from a module that has no runtime", async () => {
+    // `next-auth/adapters` exports only types; an import that names none of its values is erased.
+    const schema = SQLITE_SCHEMA.replace(
+      'from "drizzle-orm/sqlite-core";',
+      'from "drizzle-orm/sqlite-core";\nimport { type Missing } from "no-such-package/types";',
+    );
+    const project = makeProject({ "schema.ts": schema });
+    const { code, output } = await drizzler(["schema.ts", "-o", "docs"], project);
+    const readme = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    removeProject(project);
+    expect(code).toBe(0);
+    expect(output).not.toContain("without their SQL");
     expect(readme).toContain("#### Definition\n\n```sql\nCREATE TABLE `posts` (");
   });
 

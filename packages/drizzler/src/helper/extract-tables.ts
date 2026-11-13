@@ -1,4 +1,11 @@
-import type { CallExpression, Expression, Node, ObjectProperty, Program } from "oxc-parser";
+import type {
+  ArrowFunctionExpression,
+  CallExpression,
+  Expression,
+  Node,
+  ObjectProperty,
+  Program,
+} from "oxc-parser";
 import {
   arrowObject,
   columnProperties,
@@ -155,11 +162,18 @@ export function constraintEntries(arg: CallExpression["arguments"][number] | und
   return obj ? obj.properties.filter(isPropertyAssignment).map((p) => p.value) : [];
 }
 
+// The name of an arrow function's first parameter: `table` in `(table) => ...`.
+function arrowParameter(arrow: ArrowFunctionExpression) {
+  const [first] = arrow.params;
+  return first?.type === "Identifier" ? first.name : null;
+}
+
 // Pattern: foreignKey({ columns: [Table.field], foreignColumns: [OtherTable.field] })
 function extractRelationsFromForeignKeyConstraints(
   tableName: string,
   constraintArg: CallExpression["arguments"][number],
   text: string,
+  required: ReadonlyMap<string, boolean>,
 ) {
   return constraintEntries(constraintArg).flatMap((entry) => {
     const constraintText = textOf(text, entry);
@@ -169,14 +183,18 @@ function extractRelationsFromForeignKeyConstraints(
     const foreignColumnsMatch = constraintText.match(/foreignColumns:\s*\[\s*(\w+)\.(\w+)\s*\]/);
     if (!columnsMatch || !foreignColumnsMatch) return [];
 
+    // The callback's own parameter (`(table) => ...`) stands for the table being declared, so a
+    // `foreignColumns: [table.id]` is a key to the table itself.
+    const own = isArrow(constraintArg) ? arrowParameter(constraintArg) : null;
+    const target = foreignColumnsMatch[1] === own ? tableName : foreignColumnsMatch[1];
     return [
       {
-        fromModel: foreignColumnsMatch[1],
+        fromModel: target,
         toModel: tableName,
         fromField: foreignColumnsMatch[2],
         toField: columnsMatch[2],
-        // For foreignKey constraints, we assume required unless explicitly nullable
-        isRequired: !constraintText.includes(".nullable()"),
+        // The key is required when its column is NOT NULL.
+        isRequired: required.get(`${tableName}.${columnsMatch[2]}`) ?? false,
         enforced: true,
       },
     ];
@@ -441,7 +459,7 @@ export function tableCalls(program: Program, text: string) {
     if (!isCall(init)) return [];
     if (!isTableBuilder(textOf(text, init.callee))) return [];
 
-    return [{ varName, args: init.arguments, start, end }];
+    return [{ varName, callee: init.callee, args: init.arguments, start, end }];
   });
 }
 
@@ -468,6 +486,7 @@ export function parseTableInfo(code: readonly string[]) {
  */
 export function extractRelationsFromSchema(code: readonly string[]) {
   const { program, text } = parseSource(code);
+  const required = requiredColumns(program, text);
 
   const tableRelations = tableCalls(program, text).flatMap(({ varName, args }) => {
     const constraintArg = args[2];
@@ -479,7 +498,7 @@ export function extractRelationsFromSchema(code: readonly string[]) {
 
     // Third argument: constraints (foreignKey, indexes, etc.)
     const fkRelations = constraintArg
-      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, text)
+      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, text, required)
       : [];
 
     return [...fieldRelations, ...fkRelations];

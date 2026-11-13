@@ -4,6 +4,7 @@ import module from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Data, Effect } from "effect";
+import { parseSync } from "oxc-parser";
 import type { QueryExample, QueryExampleSql } from "../generator/query-examples.js";
 import { schemaDialect } from "../generator/query-examples.js";
 import { resolveImport } from "../schema/sources.js";
@@ -41,6 +42,30 @@ function isProjectTypeScript(url: string) {
   return isProjectFile(url) && /\.(c|m)?tsx?$/u.test(new URL(url).pathname);
 }
 
+/**
+ * The source with each import that brings in only types blanked out: `import { type X } from
+ * "pkg"` names no value, and TypeScript drops it, but Node's type stripping keeps it as
+ * `import {} from "pkg"`, which still loads `pkg` (a types-only subpath fails to resolve). The
+ * import is replaced by spaces, so every position after it stays where it was.
+ */
+export function elideTypeOnlyImports(source: string, file = "schema.ts") {
+  const lang = /\.(c|m)?tsx$/u.test(file) ? "tsx" : "ts";
+  const { program } = parseSync(file, source, { lang, sourceType: "module" });
+  const spans = program.body.flatMap((stmt) =>
+    stmt.type === "ImportDeclaration" &&
+    stmt.importKind !== "type" &&
+    stmt.specifiers.length > 0 &&
+    stmt.specifiers.every((s) => s.type === "ImportSpecifier" && s.importKind === "type")
+      ? [[stmt.start, stmt.end] as const]
+      : [],
+  );
+  return spans.reduceRight(
+    (text, [start, end]) =>
+      text.slice(0, start) + text.slice(start, end).replace(/[^\n]/gu, " ") + text.slice(end),
+    source,
+  );
+}
+
 // The source without its types. Node calls the API experimental and says so on stderr each run;
 // the CLI's output stays its own, so the warning is held back for this one call.
 function stripTypes(source: string) {
@@ -73,7 +98,8 @@ function registerHooks() {
     },
     load(url, context, nextLoad) {
       if (!isProjectTypeScript(url)) return nextLoad(url, context);
-      const source = fs.readFileSync(fileURLToPath(url), "utf8");
+      const file = fileURLToPath(url);
+      const source = elideTypeOnlyImports(fs.readFileSync(file, "utf8"), file);
       return { format: "module", source: stripTypes(source), shortCircuit: true };
     },
   });

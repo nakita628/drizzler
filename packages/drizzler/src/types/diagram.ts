@@ -23,6 +23,8 @@ export type DiagramTheme = "light" | "dark";
 export type DiagramIndex = {
   readonly type: "id" | "normal" | "unique" | "fulltext";
   readonly fields: readonly string[];
+  /** The name the schema gives the index or constraint, when it gives one. */
+  readonly name?: string | null;
 };
 
 /** What the layout needs of a field to size the row it takes. */
@@ -89,6 +91,8 @@ export type SchemaField = {
   readonly isForeignKey: boolean;
   readonly documentation: string | null;
   readonly attributes?: readonly string[];
+  /** Set when the column's config says `withTimezone: true`. */
+  readonly withTimezone?: true;
 };
 
 /** A model as the drawing shows it: a card with a row per field. */

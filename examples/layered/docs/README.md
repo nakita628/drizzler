@@ -95,12 +95,12 @@ Table `cart`. A customer's cart, one per customer
 
 ![cartTable and the tables it relates to](tables/cartTable.svg)
 
-| Column           | Type        | Constraints                                                    | Default                        | Description                                                                |
-| ---------------- | ----------- | -------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------- |
-| `customerId`     | `varchar`   | PK NOT NULL → [customerTable.customerId](#table-customerTable) |                                | The cart's id is its customer's: no foreign key, joined in the application |
-| `sequenceNumber` | `integer`   | NOT NULL                                                       |                                |                                                                            |
-| `createdAt`      | `timestamp` | NOT NULL                                                       | `.defaultNow()`                | When the row was inserted                                                  |
-| `updatedAt`      | `timestamp` | NOT NULL                                                       | `.defaultNow()` `.$onUpdate()` | When the row was last changed                                              |
+| Column                               | Type        | Constraints                                                    | Default                        | Description                                                                |
+| ------------------------------------ | ----------- | -------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------- |
+| `customerId` (`customer_id`)         | `varchar`   | PK NOT NULL → [customerTable.customerId](#table-customerTable) |                                | The cart's id is its customer's: no foreign key, joined in the application |
+| `sequenceNumber` (`sequence_number`) | `integer`   | NOT NULL                                                       |                                |                                                                            |
+| `createdAt` (`created_at`)           | `timestamp` | NOT NULL                                                       | `.defaultNow()`                | When the row was inserted                                                  |
+| `updatedAt` (`updated_at`)           | `timestamp` | NOT NULL                                                       | `.defaultNow()` `.$onUpdate()` | When the row was last changed                                              |
 
 #### Definition
 
@@ -221,13 +221,13 @@ Table `cart_item`. A line of a cart
 
 ![cartItemTable and the tables it relates to](tables/cartItemTable.svg)
 
-| Column       | Type        | Constraints                                                 | Default                        | Description                                                           |
-| ------------ | ----------- | ----------------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------- |
-| `customerId` | `varchar`   | PK NOT NULL → [cartTable.customerId](#table-cartTable)      |                                |                                                                       |
-| `productId`  | `varchar`   | PK NOT NULL → [productTable.productId](#table-productTable) |                                | No foreign key: the product may be gone while the cart still holds it |
-| `quantity`   | `integer`   | NOT NULL                                                    |                                |                                                                       |
-| `createdAt`  | `timestamp` | NOT NULL                                                    | `.defaultNow()`                | When the row was inserted                                             |
-| `updatedAt`  | `timestamp` | NOT NULL                                                    | `.defaultNow()` `.$onUpdate()` | When the row was last changed                                         |
+| Column                       | Type        | Constraints                                                 | Default                        | Description                                                           |
+| ---------------------------- | ----------- | ----------------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------- |
+| `customerId` (`customer_id`) | `varchar`   | PK NOT NULL → [cartTable.customerId](#table-cartTable)      |                                |                                                                       |
+| `productId` (`product_id`)   | `varchar`   | PK NOT NULL → [productTable.productId](#table-productTable) |                                | No foreign key: the product may be gone while the cart still holds it |
+| `quantity`                   | `integer`   | NOT NULL                                                    |                                |                                                                       |
+| `createdAt` (`created_at`)   | `timestamp` | NOT NULL                                                    | `.defaultNow()`                | When the row was inserted                                             |
+| `updatedAt` (`updated_at`)   | `timestamp` | NOT NULL                                                    | `.defaultNow()` `.$onUpdate()` | When the row was last changed                                         |
 
 #### Definition
 
@@ -357,13 +357,13 @@ Table `customer`. Someone who shops
 
 ![customerTable and the tables it relates to](tables/customerTable.svg)
 
-| Column       | Type        | Constraints     | Default                        | Description                   |
-| ------------ | ----------- | --------------- | ------------------------------ | ----------------------------- |
-| `customerId` | `varchar`   | PK NOT NULL     |                                |                               |
-| `name`       | `varchar`   | NOT NULL        |                                |                               |
-| `email`      | `varchar`   | UNIQUE NOT NULL |                                |                               |
-| `createdAt`  | `timestamp` | NOT NULL        | `.defaultNow()`                | When the row was inserted     |
-| `updatedAt`  | `timestamp` | NOT NULL        | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
+| Column                       | Type        | Constraints     | Default                        | Description                   |
+| ---------------------------- | ----------- | --------------- | ------------------------------ | ----------------------------- |
+| `customerId` (`customer_id`) | `varchar`   | PK NOT NULL     |                                |                               |
+| `name`                       | `varchar`   | NOT NULL        |                                |                               |
+| `email`                      | `varchar`   | UNIQUE NOT NULL |                                |                               |
+| `createdAt` (`created_at`)   | `timestamp` | NOT NULL        | `.defaultNow()`                | When the row was inserted     |
+| `updatedAt` (`updated_at`)   | `timestamp` | NOT NULL        | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
 
 #### Definition
 
@@ -482,15 +482,15 @@ Table `domain_event`. Every event an aggregate raised, in order
 
 ![domainEventTable](tables/domainEventTable.svg)
 
-| Column           | Type        | Constraints | Default | Description |
-| ---------------- | ----------- | ----------- | ------- | ----------- |
-| `eventId`        | `varchar`   | PK NOT NULL |         |             |
-| `occurredAt`     | `timestamp` | NOT NULL    |         |             |
-| `sequenceNumber` | `integer`   | NOT NULL    |         |             |
-| `eventName`      | `varchar`   | NOT NULL    |         |             |
-| `aggregateId`    | `varchar`   | NOT NULL    |         |             |
-| `aggregateName`  | `varchar`   | NOT NULL    |         |             |
-| `payload`        | `jsonb`     | NOT NULL    |         |             |
+| Column                               | Type        | Constraints | Default | Description |
+| ------------------------------------ | ----------- | ----------- | ------- | ----------- |
+| `eventId` (`event_id`)               | `varchar`   | PK NOT NULL |         |             |
+| `occurredAt` (`occurred_at`)         | `timestamp` | NOT NULL    |         |             |
+| `sequenceNumber` (`sequence_number`) | `integer`   | NOT NULL    |         |             |
+| `eventName` (`event_name`)           | `varchar`   | NOT NULL    |         |             |
+| `aggregateId` (`aggregate_id`)       | `varchar`   | NOT NULL    |         |             |
+| `aggregateName` (`aggregate_name`)   | `varchar`   | NOT NULL    |         |             |
+| `payload`                            | `jsonb`     | NOT NULL    |         |             |
 
 #### Definition
 
@@ -613,13 +613,13 @@ Table `order`. An order placed from a cart
 
 ![orderTable and the tables it relates to](tables/orderTable.svg)
 
-| Column           | Type        | Constraints                                                 | Default                        | Description                   |
-| ---------------- | ----------- | ----------------------------------------------------------- | ------------------------------ | ----------------------------- |
-| `orderId`        | `varchar`   | PK NOT NULL                                                 |                                |                               |
-| `customerId`     | `varchar`   | NOT NULL → [customerTable.customerId](#table-customerTable) |                                |                               |
-| `sequenceNumber` | `integer`   | NULL                                                        |                                |                               |
-| `createdAt`      | `timestamp` | NOT NULL                                                    | `.defaultNow()`                | When the row was inserted     |
-| `updatedAt`      | `timestamp` | NOT NULL                                                    | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
+| Column                               | Type        | Constraints                                                 | Default                        | Description                   |
+| ------------------------------------ | ----------- | ----------------------------------------------------------- | ------------------------------ | ----------------------------- |
+| `orderId` (`order_id`)               | `varchar`   | PK NOT NULL                                                 |                                |                               |
+| `customerId` (`customer_id`)         | `varchar`   | NOT NULL → [customerTable.customerId](#table-customerTable) |                                |                               |
+| `sequenceNumber` (`sequence_number`) | `integer`   | NULL                                                        |                                |                               |
+| `createdAt` (`created_at`)           | `timestamp` | NOT NULL                                                    | `.defaultNow()`                | When the row was inserted     |
+| `updatedAt` (`updated_at`)           | `timestamp` | NOT NULL                                                    | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
 
 #### Definition
 
@@ -741,14 +741,14 @@ Table `order_item`. A line of an order, priced when it was placed
 
 ![orderItemTable and the tables it relates to](tables/orderItemTable.svg)
 
-| Column      | Type        | Constraints                                                 | Default                        | Description                   |
-| ----------- | ----------- | ----------------------------------------------------------- | ------------------------------ | ----------------------------- |
-| `orderId`   | `varchar`   | PK NOT NULL → [orderTable.orderId](#table-orderTable)       |                                |                               |
-| `productId` | `varchar`   | PK NOT NULL → [productTable.productId](#table-productTable) |                                |                               |
-| `price`     | `integer`   | NOT NULL                                                    |                                |                               |
-| `quantity`  | `integer`   | NOT NULL                                                    |                                |                               |
-| `createdAt` | `timestamp` | NOT NULL                                                    | `.defaultNow()`                | When the row was inserted     |
-| `updatedAt` | `timestamp` | NOT NULL                                                    | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
+| Column                     | Type        | Constraints                                                 | Default                        | Description                   |
+| -------------------------- | ----------- | ----------------------------------------------------------- | ------------------------------ | ----------------------------- |
+| `orderId` (`order_id`)     | `varchar`   | PK NOT NULL → [orderTable.orderId](#table-orderTable)       |                                |                               |
+| `productId` (`product_id`) | `varchar`   | PK NOT NULL → [productTable.productId](#table-productTable) |                                |                               |
+| `price`                    | `integer`   | NOT NULL                                                    |                                |                               |
+| `quantity`                 | `integer`   | NOT NULL                                                    |                                |                               |
+| `createdAt` (`created_at`) | `timestamp` | NOT NULL                                                    | `.defaultNow()`                | When the row was inserted     |
+| `updatedAt` (`updated_at`) | `timestamp` | NOT NULL                                                    | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
 
 #### Definition
 
@@ -884,13 +884,13 @@ Table `product`. What is for sale
 
 ![productTable and the tables it relates to](tables/productTable.svg)
 
-| Column      | Type        | Constraints     | Default                        | Description                   |
-| ----------- | ----------- | --------------- | ------------------------------ | ----------------------------- |
-| `productId` | `varchar`   | PK NOT NULL     |                                |                               |
-| `name`      | `varchar`   | UNIQUE NOT NULL |                                |                               |
-| `price`     | `integer`   | NOT NULL        |                                |                               |
-| `createdAt` | `timestamp` | NOT NULL        | `.defaultNow()`                | When the row was inserted     |
-| `updatedAt` | `timestamp` | NOT NULL        | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
+| Column                     | Type        | Constraints     | Default                        | Description                   |
+| -------------------------- | ----------- | --------------- | ------------------------------ | ----------------------------- |
+| `productId` (`product_id`) | `varchar`   | PK NOT NULL     |                                |                               |
+| `name`                     | `varchar`   | UNIQUE NOT NULL |                                |                               |
+| `price`                    | `integer`   | NOT NULL        |                                |                               |
+| `createdAt` (`created_at`) | `timestamp` | NOT NULL        | `.defaultNow()`                | When the row was inserted     |
+| `updatedAt` (`updated_at`) | `timestamp` | NOT NULL        | `.defaultNow()` `.$onUpdate()` | When the row was last changed |
 
 #### Definition
 
