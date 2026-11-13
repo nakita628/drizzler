@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { makeSqliteDatabase, SQLITE_SCHEMA } from "./fixtures.ts";
 import {
@@ -6,6 +8,7 @@ import {
   makeProject,
   removeProject,
   requestWithHost,
+  STUDIO_ASSETS,
   startStudio,
 } from "./helpers.ts";
 
@@ -52,6 +55,24 @@ describe("drizzler studio, the packaged command", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/html");
       expect(await res.text()).toContain('<div id="root">');
+    }
+  });
+
+  // The editors colour TypeScript and SQL with the Monarch grammars Monaco registers on import.
+  // A bundler that takes the package for side-effect free drops those imports, and the editors
+  // lose their colours (and their completion with them), so the shipped chunks are checked.
+  it("ships and serves the editors' TypeScript and SQL highlighting", async () => {
+    const chunks = fs.readdirSync(STUDIO_ASSETS).filter((file) => file.endsWith(".js"));
+    for (const postfix of [".ts", ".sql"]) {
+      const grammar = chunks.find((file) =>
+        fs
+          .readFileSync(path.join(STUDIO_ASSETS, file), "utf8")
+          .includes(`tokenPostfix:\`${postfix}\``),
+      );
+      expect(grammar, `a chunk with the ${postfix} grammar`).toBeDefined();
+      const res = await fetch(`${base}/assets/${grammar}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("javascript");
     }
   });
 
