@@ -92,7 +92,10 @@ export function pickParent(input: RowInput, fk: ForeignKey, self: SeedRow) {
     // The parents furthest from their `min` come first, so the rows are spread before any is spent.
     const fewest = Math.min(...behind.map(counted));
     const short = behind.filter((parent) => counted(parent) === fewest);
-    const nullRate = context.config.nullRate ?? 0;
+    // The key column's own `nullRate` wins over the config's.
+    const rule = context.config.models[table.name]?.fields?.[fk.fromFields[0] ?? ""];
+    const nullRate =
+      (typeof rule === "object" ? rule.nullRate : undefined) ?? context.config.nullRate ?? 0;
     if (
       !fk.required &&
       short.length === 0 &&

@@ -46,7 +46,14 @@ const auditLog = sqliteTable("audit_logs", {
   action: text("action").notNull(),
 });
 
-const tables = { user, post, profile, auditLog };
+/** A nullable key: a task may have no one assigned. */
+const task = sqliteTable("tasks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  assigneeId: integer("assignee_id").references(() => user.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+});
+
+const tables = { user, post, profile, auditLog, task };
 
 const schema = {
   ...tables,
@@ -97,6 +104,33 @@ describe("generateSeedRows", () => {
     expect(new Set((rows.profile ?? []).map((p) => p.userId)).size).toBe(5);
     // The relation without a foreign key is filled all the same.
     expect((rows.auditLog ?? []).every((l) => ids.has(l.actorId as number))).toBe(true);
+  });
+
+  it("links a nullable key whose rule only sets nullRate to a row that exists", () => {
+    const rows = Effect.runSync(
+      generate({
+        models: {
+          user: { count: 3 },
+          task: { count: 40, fields: { assigneeId: { nullRate: 0.5 } } },
+        },
+      }),
+    );
+    const ids = new Set((rows.user ?? []).map((u) => u.id));
+    const assignees = (rows.task ?? []).map((t) => t.assigneeId);
+    expect(assignees.some((a) => a === null)).toBe(true);
+    expect(assignees.some((a) => a !== null)).toBe(true);
+    expect(assignees.every((a) => a === null || ids.has(a))).toBe(true);
+    const never = Effect.runSync(
+      generate({
+        nullRate: 1,
+        models: {
+          user: { count: 3 },
+          task: { count: 10, fields: { assigneeId: { nullRate: 0 } } },
+        },
+      }),
+    );
+    // The column's own rate wins over the config's.
+    expect((never.task ?? []).every((t) => ids.has(t.assigneeId as number))).toBe(true);
   });
 
   it("gives the same rows for the same seed", () => {
