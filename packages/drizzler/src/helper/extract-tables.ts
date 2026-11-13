@@ -27,6 +27,32 @@ function baseBuilderName(expr: Expression, text: string): string {
   return callee.property.type === "Identifier" ? callee.property.name : "";
 }
 
+// The call that starts a column chain: `timestamp({ withTimezone: true })` in
+// `timestamp({ withTimezone: true }).notNull()`.
+function builderCall(expr: CallExpression): CallExpression {
+  const { callee } = expr;
+  return callee.type === "MemberExpression" && isCall(callee.object)
+    ? builderCall(callee.object)
+    : expr;
+}
+
+// Whether the builder's config says `withTimezone: true`, as in
+// `timestamp({ withTimezone: true })` or `timestamp('created_at', { withTimezone: true })`.
+function hasTimezone(expr: CallExpression) {
+  return builderCall(expr).arguments.some(
+    (arg) =>
+      isObject(arg) &&
+      arg.properties.some(
+        (p) =>
+          isPropertyAssignment(p) &&
+          p.key.type === "Identifier" &&
+          p.key.name === "withTimezone" &&
+          p.value.type === "Literal" &&
+          p.value.value === true,
+      ),
+  );
+}
+
 function extractKeyType(initText: string) {
   if (initText.includes(".primaryKey()")) return "PK" as const;
   if (initText.includes(".references(")) return "FK" as const;
@@ -85,6 +111,8 @@ function extractFieldInfo(prop: ObjectProperty, source: Parameters<typeof descri
     type: fieldType,
     keyType,
     description,
+    // Only set when written, so a column without a time zone reads as before.
+    ...(hasTimezone(initExpr) ? { withTimezone: true as const } : {}),
   };
 }
 

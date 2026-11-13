@@ -232,7 +232,50 @@ Table post {
   userId varchar
 }
 
-Ref post_userId_user_id_fk: post.userId > user.id`,
+Ref post_userId_user_id_fk: post.userId > user.id [delete: cascade]`,
+    );
+  });
+
+  it("writes onDelete and onUpdate as the Ref's settings", () => {
+    const code = [
+      "export const user = pgTable('user', {",
+      "  id: text().primaryKey(),",
+      "})",
+      "export const session = pgTable('session', {",
+      "  id: text().primaryKey(),",
+      "  userId: text().notNull().references(() => user.id, { onDelete: 'set null', onUpdate: 'cascade' }),",
+      "})",
+      "export const token = pgTable('token', {",
+      "  id: text().primaryKey(),",
+      "  userId: text().notNull(),",
+      "}, (t) => [foreignKey({ columns: [t.userId], foreignColumns: [user.id] }).onDelete('cascade')])",
+    ];
+    const out = dbml(code);
+    expect(out).toContain(
+      "Ref session_userId_user_id_fk: session.userId > user.id [delete: set null, update: cascade]",
+    );
+    expect(out).toContain("Ref token_userId_user_id_fk: token.userId > user.id [delete: cascade]");
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("writes timestamptz and timetz for columns with a time zone", () => {
+    const code = [
+      "export const user = pgTable('user', {",
+      "  createdAt: timestamp({ withTimezone: true, mode: 'date' }).defaultNow().notNull(),",
+      "  updatedAt: timestamp('updated_at', { withTimezone: true }),",
+      "  seenAt: timestamp(),",
+      "  opensAt: time({ withTimezone: true }),",
+      "  closesAt: time({ withTimezone: false }),",
+      "})",
+    ];
+    expect(dbml(code)).toBe(
+      `Table user {
+  createdAt timestamptz
+  updatedAt timestamptz
+  seenAt timestamp
+  opensAt timetz
+  closesAt time
+}`,
     );
   });
 });

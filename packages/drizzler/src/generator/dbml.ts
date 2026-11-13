@@ -1,4 +1,4 @@
-import { mergeRelations, parseTableInfo } from "../helper/index.js";
+import { diagramSchema, parseTableInfo } from "../helper/index.js";
 
 function isMany(c: string) {
   return c === "many" || c === "zero-many";
@@ -39,17 +39,24 @@ export function dbml(code: string[]) {
     timestamptz: "timestamptz",
     date: "date",
     time: "time",
+    timetz: "timetz",
     interval: "interval",
     uuid: "uuid",
     blob: "blob",
     bytea: "bytea",
   };
   const tables = parseTableInfo(code);
-  const relations = mergeRelations(code);
+  // The drawing's relations: the merged ones, each with its foreign key's referential actions.
+  const { relations } = diagramSchema(code);
 
   const tableSections = tables.map((table) => {
     const columns = table.fields.map((field) => {
-      const type = TYPE_MAP[field.type] ?? field.type;
+      // `timestamp({ withTimezone: true })` is `timestamptz`, and `time` likewise `timetz`.
+      const builder =
+        field.withTimezone && (field.type === "timestamp" || field.type === "time")
+          ? `${field.type}tz`
+          : field.type;
+      const type = TYPE_MAP[builder] ?? builder;
       const constraints = [
         field.keyType === "PK" ? "pk" : null,
         field.type.includes("serial") ? "increment" : null,
@@ -73,7 +80,13 @@ export function dbml(code: string[]) {
     // since they are not DB-enforced constraints.
     const suffix = r.origin === "inferred" ? "_fk" : "";
     const name = `${r.to.model}_${r.to.field}_${r.from.model}_${r.from.field}${suffix}`;
-    return `Ref ${name}: ${left} ${op} ${right}`;
+    // https://dbml.dbdiagram.io/docs/#relationship-settings
+    const settings = [
+      r.onDelete ? `delete: ${r.onDelete}` : null,
+      r.onUpdate ? `update: ${r.onUpdate}` : null,
+    ].filter((s): s is string => s !== null);
+    const settingsStr = settings.length > 0 ? ` [${settings.join(", ")}]` : "";
+    return `Ref ${name}: ${left} ${op} ${right}${settingsStr}`;
   });
 
   return [...tableSections, ...refSections].join("\n\n");
