@@ -55,20 +55,19 @@ function userError(cause: string) {
  * input: the files, directories and globs given, and the project modules they import.
  */
 function readSchema(inputs: readonly string[], cwd: string) {
-  return Effect.try({
-    try() {
-      const files = collectSchemaFiles(inputs, cwd);
-      return { files, code: readSchemaSources(files) };
-    },
-    catch: (error) =>
-      userError(`Failed to read input: ${error instanceof Error ? error.message : String(error)}`),
-  });
+  return Effect.gen(function* () {
+    const files = yield* collectSchemaFiles(inputs, cwd);
+    return { files, code: yield* readSchemaSources(files) };
+  }).pipe(Effect.mapError((error) => userError(`Failed to read input: ${error.message}`)));
 }
 
 /** The inputs given, else the `schema` of drizzle.config.ts in `cwd`; empty when neither is. */
 function schemaInputs(given: readonly string[], cwd: string) {
-  if (given.length > 0) return given;
-  return drizzleConfigSchema(cwd)?.inputs ?? [];
+  if (given.length > 0) return Effect.succeed(given);
+  return drizzleConfigSchema(cwd).pipe(
+    Effect.map((config) => config?.inputs ?? []),
+    Effect.mapError((error) => userError(`Failed to read drizzle.config: ${error.message}`)),
+  );
 }
 
 /**
@@ -126,7 +125,7 @@ function describeOutput(
 export function generate(args: GenerateArgs) {
   return Effect.gen(function* () {
     const cwd = process.cwd();
-    const inputs = schemaInputs(args.input, cwd);
+    const inputs = yield* schemaInputs(args.input, cwd);
     // Without a schema there is nothing to do: the usage is the answer.
     if (inputs.length === 0) {
       return yield* new CliError.ShowHelp({ commandPath: [COMMAND_NAME], errors: [] });

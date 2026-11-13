@@ -478,6 +478,7 @@ export default defineConfig({
           "custom/no-try-catch": "error",
           "custom/no-class": "error",
           "custom/effect-run-at-edge": "error",
+          "custom/promise-catch-must-log": "error",
           "custom/domain-only-from-usecases": "error",
         },
       },

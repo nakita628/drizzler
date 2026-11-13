@@ -203,15 +203,30 @@ function readNames(node) {
     });
 }
 
-// The variable a member chain starts from (`model.fields` → `model`), or null when it starts from
-// a call or a literal.
+// The variable a member chain starts from (`model.fields` → `model`, `Object.entries(columns)` →
+// `columns`), or null when it starts from another call or a literal.
 function rootName(node) {
   if (node.type === "Identifier") return node.name;
+  if (node.type === "CallExpression" && isObjectView(node.callee) && node.arguments[0]) {
+    return rootName(node.arguments[0]);
+  }
   if (node.type === "MemberExpression") return rootName(node.object);
   if (node.type === "ChainExpression" || node.type === "TSNonNullExpression") {
     return rootName(node.expression);
   }
   return null;
+}
+
+// `Object.entries` / `Object.keys` / `Object.values`: a view of an object, searched as a list.
+function isObjectView(callee) {
+  return (
+    callee.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.object.type === "Identifier" &&
+    callee.object.name === "Object" &&
+    callee.property.type === "Identifier" &&
+    ["entries", "keys", "values"].includes(callee.property.name)
+  );
 }
 
 // Loops are walked once per file, however many calls sit inside them.

@@ -25,6 +25,9 @@ export type SeedOverrides = {
   readonly reset: boolean;
 };
 
+// faker's locales by name (`ja`, `pt_BR`), for the codes a config gives.
+const LOCALES = new Map(Object.entries(allLocales));
+
 /**
  * A faker speaking the configured locales, each falling back to the next, then to English, seeded
  * when the config names a seed and drawing fresh randomness otherwise.
@@ -33,9 +36,7 @@ function makeFaker(seed: number | null, locales: readonly string[] | null, now: 
   return Effect.gen(function* () {
     const definitions = (locales ?? []).map((code) => ({
       code,
-      definition: Object.entries(allLocales).find(
-        ([name]) => name === code.replaceAll("-", "_"),
-      )?.[1],
+      definition: LOCALES.get(code.replaceAll("-", "_")),
     }));
     const unknown = definitions.filter((entry) => entry.definition === undefined);
     if (unknown.length > 0) {

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Data, Effect } from "effect";
 import {
   aliasesOfConfig,
   aliasTargets,
@@ -16,8 +17,18 @@ import type { PathAliases } from "./paths.js";
 import { stripImports } from "./strip-imports.js";
 
 /** A schema input that cannot be read: a path that is not there, a glob that matches nothing. */
-export class SchemaInputError extends Error {
-  override readonly name = "SchemaInputError";
+export class SchemaInputError extends Data.TaggedError("SchemaInputError")<{
+  readonly message: string;
+}> {}
+
+// A file system call, its failure (a file gone between two looks, one that cannot be read) as a
+// SchemaInputError naming what went wrong.
+function attempt<A>(run: () => A) {
+  return Effect.try({
+    try: run,
+    catch: (error) =>
+      new SchemaInputError({ message: error instanceof Error ? error.message : String(error) }),
+  });
 }
 
 function walk(dir: string): string[] {
@@ -38,29 +49,41 @@ function walk(dir: string): string[] {
  * (tests and declaration files left out), or the files a glob matches
  * (`src/db/schema/*.sql.ts`, as drizzle-kit's `schema` is written).
  */
-export function expandInput(input: string, cwd: string): string[] {
-  if (isGlob(input)) {
-    const matched = fs
-      .globSync(input, { cwd })
-      .map((file) => path.resolve(cwd, file))
-      .filter((file) => fs.statSync(file).isFile() && isSchemaModule(file))
-      .toSorted();
-    if (matched.length === 0) throw new SchemaInputError(`${input} matches no schema file`);
-    return matched;
-  }
-  const full = path.resolve(cwd, input);
-  if (!fs.existsSync(full)) throw new SchemaInputError(`${input} does not exist`);
-  if (fs.statSync(full).isDirectory()) {
-    const files = walk(full);
-    if (files.length === 0) throw new SchemaInputError(`${input} holds no schema file`);
+export function expandInput(input: string, cwd: string) {
+  return Effect.gen(function* () {
+    if (isGlob(input)) {
+      const matched = yield* attempt(() =>
+        fs
+          .globSync(input, { cwd })
+          .map((file) => path.resolve(cwd, file))
+          .filter((file) => fs.statSync(file).isFile() && isSchemaModule(file))
+          .toSorted(),
+      );
+      if (matched.length === 0) {
+        return yield* new SchemaInputError({ message: `${input} matches no schema file` });
+      }
+      return matched;
+    }
+    const full = path.resolve(cwd, input);
+    const stats = yield* attempt(() => fs.statSync(full, { throwIfNoEntry: false }));
+    if (stats === undefined) {
+      return yield* new SchemaInputError({ message: `${input} does not exist` });
+    }
+    if (!stats.isDirectory()) return [full];
+    const files = yield* attempt(() => walk(full));
+    if (files.length === 0) {
+      return yield* new SchemaInputError({ message: `${input} holds no schema file` });
+    }
     return files;
-  }
-  return [full];
+  });
 }
 
 // `compilerOptions.paths` of a tsconfig, following a relative `extends` until one has them.
 function readAliases(file: string, depth = 0): PathAliases | null {
   if (depth > 8 || !fs.existsSync(file)) return null;
+  // This also runs inside Node's synchronous resolve hook (core/schema-sql.ts), where there is no
+  // Effect to fail: a tsconfig that cannot be read or parsed gives no aliases, and the import is
+  // left to Node.
   const config = (() => {
     try {
       return parseJsonc(fs.readFileSync(file, "utf8"));
@@ -135,11 +158,10 @@ export function resolveImport(
  * first, in the order given; a file is read once.
  */
 export function collectSchemaFiles(inputs: readonly string[], cwd: string) {
-  return visitFiles(
-    inputs.flatMap((input) => expandInput(input, cwd)),
-    new Set(),
-    new Map(),
-  );
+  return Effect.gen(function* () {
+    const named = yield* Effect.forEach(inputs, (input) => expandInput(input, cwd));
+    return yield* attempt(() => visitFiles(named.flat(), new Set(), new Map()));
+  });
 }
 
 // Breadth first, a level at a time: the files of `level` not yet `seen`, each added once, then
@@ -170,10 +192,12 @@ function visitFiles(
  * spread from another file or a `defineRelations` in its own module is found.
  */
 export function readSchemaSources(files: readonly string[]) {
-  return files.flatMap((file, i) => [
-    ...(i === 0 ? [] : [""]),
-    ...stripImports(fs.readFileSync(file, "utf8")),
-  ]);
+  return attempt(() =>
+    files.flatMap((file, i) => [
+      ...(i === 0 ? [] : [""]),
+      ...stripImports(fs.readFileSync(file, "utf8")),
+    ]),
+  );
 }
 
 /**
@@ -182,10 +206,12 @@ export function readSchemaSources(files: readonly string[]) {
  * not give `schema` as text drizzler can read without running it.
  */
 export function drizzleConfigSchema(cwd: string) {
-  const file = DRIZZLE_CONFIG_FILES.map((name) => path.join(cwd, name)).find((f) =>
-    fs.existsSync(f),
-  );
-  if (file === undefined) return null;
-  const inputs = configSchemaInputs(parseModule(file, fs.readFileSync(file, "utf8")));
-  return inputs === null ? null : { file, inputs };
+  return attempt(() => {
+    const file = DRIZZLE_CONFIG_FILES.map((name) => path.join(cwd, name)).find((f) =>
+      fs.existsSync(f),
+    );
+    if (file === undefined) return null;
+    const inputs = configSchemaInputs(parseModule(file, fs.readFileSync(file, "utf8")));
+    return inputs === null ? null : { file, inputs };
+  });
 }

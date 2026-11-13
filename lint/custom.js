@@ -14,6 +14,7 @@
 // 3. Do not hide failures
 //   match-exhaustive        `Match.value(...).pipe(...)` ends with `Match.exhaustive`; no `Match.orElse`
 //   catch-must-log          recovering from a failure logs it or turns it into another failure
+//   promise-catch-must-log  a Promise `.catch` logs, rethrows or rejects (studio server)
 //
 // Test files (*.test.ts / *.test.tsx) are exempt from the rules that build fixtures by mutation.
 
@@ -21,7 +22,7 @@ const UTILS_DIRECTORY = /(^|[\\/])utils[\\/]/;
 const UTILS_FILE = /(^|[\\/])utils\.tsx?$/;
 
 import { docRules } from "./docs.js";
-import { TEST_FILE, effectMethod, getFilename, within } from "./helpers.js";
+import { TEST_FILE, effectMethod, getFilename, rangeOf, sourceText, within } from "./helpers.js";
 import { layerRules } from "./layers.js";
 import { perfRules } from "./perf.js";
 
@@ -298,6 +299,40 @@ const plugin = {
               node,
               message:
                 "End this `Match.value(...).pipe(...)` with `Match.exhaustive`, so that adding a new failure to the Effect makes this a type error instead of an unhandled case.",
+            });
+          },
+        };
+      },
+    },
+
+    // Why: a Promise's `.catch` that returns a value drops the failure as surely as an
+    //      Effect.catch that does: the reason never reaches a log.
+    //   NG: client.end().catch(() => undefined)
+    //   OK: Effect.tryPromise(() => client.end()).pipe(Effect.catch((e) => Effect.logWarning("...", e)))
+    "promise-catch-must-log": {
+      meta: { docs: { description: "a Promise .catch must log, rethrow or reject" } },
+      create(context) {
+        if (TEST_FILE.test(getFilename(context))) return {};
+        const HANDLES = /\blog\w*\(|\bthrow\b|\breject\(|\.fail\(/u;
+        return {
+          CallExpression(node) {
+            const callee = node.callee;
+            if (callee.type !== "MemberExpression" || callee.computed) return;
+            if (callee.property.type !== "Identifier" || callee.property.name !== "catch") return;
+            if (callee.object.type === "Identifier" && callee.object.name === "Effect") return;
+            const [handler] = node.arguments;
+            if (
+              handler?.type !== "ArrowFunctionExpression" &&
+              handler?.type !== "FunctionExpression"
+            ) {
+              return;
+            }
+            const [start, end] = rangeOf(handler);
+            if (HANDLES.test(sourceText(context).slice(start, end))) return;
+            context.report({
+              node,
+              message:
+                "This `.catch` drops the failure without a trace. Log it, rethrow it, or wrap the Promise in `Effect.tryPromise` and recover with `Effect.catch((error) => Effect.logWarning('...', error))`.",
             });
           },
         };

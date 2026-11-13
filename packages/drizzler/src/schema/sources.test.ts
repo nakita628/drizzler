@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { isSchemaModule, parseJsonc } from "./paths.js";
 import {
@@ -9,7 +10,6 @@ import {
   expandInput,
   readSchemaSources,
   resolveImport,
-  SchemaInputError,
 } from "./sources.js";
 
 let dir = "";
@@ -61,7 +61,7 @@ describe("expandInput", () => {
     write("db/nested/b.ts", "");
     write("db/a.test.ts", "");
     write("db/node_modules/c.ts", "");
-    expect(expandInput("db", dir)).toStrictEqual([
+    expect(Effect.runSync(expandInput("db", dir))).toStrictEqual([
       path.join(dir, "db/a.ts"),
       path.join(dir, "db/nested/b.ts"),
     ]);
@@ -71,17 +71,20 @@ describe("expandInput", () => {
     write("schema/user.sql.ts", "");
     write("schema/post.sql.ts", "");
     write("schema/columns.helpers.ts", "");
-    expect(expandInput("./schema/*.sql.ts", dir)).toStrictEqual([
+    expect(Effect.runSync(expandInput("./schema/*.sql.ts", dir))).toStrictEqual([
       path.join(dir, "schema/post.sql.ts"),
       path.join(dir, "schema/user.sql.ts"),
     ]);
   });
 
   it("names the input that is missing or matches nothing", () => {
-    expect(() => expandInput("nope.ts", dir)).toThrow(
-      new SchemaInputError("nope.ts does not exist"),
-    );
-    expect(() => expandInput("x/*.ts", dir)).toThrow(SchemaInputError);
+    const missing = Effect.runSync(Effect.flip(expandInput("nope.ts", dir)));
+    expect([missing._tag, missing.message]).toStrictEqual([
+      "SchemaInputError",
+      "nope.ts does not exist",
+    ]);
+    const unmatched = Effect.runSync(Effect.flip(expandInput("x/*.ts", dir)));
+    expect(unmatched.message).toBe("x/*.ts matches no schema file");
   });
 });
 
@@ -112,9 +115,9 @@ describe("collectSchemaFiles and readSchemaSources", () => {
     );
     write("src/schema/types.ts", "export type X = 1;\n");
 
-    const files = collectSchemaFiles(["src/schema/*.sql.ts"], dir);
+    const files = Effect.runSync(collectSchemaFiles(["src/schema/*.sql.ts"], dir));
     expect(files).toStrictEqual([user, path.join(dir, "src/schema/columns.helpers.ts")]);
-    expect(readSchemaSources(files)).toStrictEqual([
+    expect(Effect.runSync(readSchemaSources(files))).toStrictEqual([
       `const user = pgTable("user", { id: text().primaryKey(), ...timestamps });`,
       "export { user };",
       "",
@@ -132,7 +135,7 @@ describe("drizzleConfigSchema", () => {
       "drizzle.config.ts",
       `import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "postgresql", schema: "./src/schema/*.sql.ts" });\n`,
     );
-    expect(drizzleConfigSchema(dir)).toStrictEqual({
+    expect(Effect.runSync(drizzleConfigSchema(dir))).toStrictEqual({
       file: path.join(dir, "drizzle.config.ts"),
       inputs: ["./src/schema/*.sql.ts"],
     });
@@ -143,12 +146,12 @@ describe("drizzleConfigSchema", () => {
       "drizzle.config.ts",
       `const config = { schema: ["./a.ts", "./b.ts"] } satisfies Config;\nexport default config;\n`,
     );
-    expect(drizzleConfigSchema(dir)?.inputs).toStrictEqual(["./a.ts", "./b.ts"]);
+    expect(Effect.runSync(drizzleConfigSchema(dir))?.inputs).toStrictEqual(["./a.ts", "./b.ts"]);
   });
 
   it("is null without a config, or with a schema it cannot read statically", () => {
-    expect(drizzleConfigSchema(dir)).toBeNull();
+    expect(Effect.runSync(drizzleConfigSchema(dir))).toBeNull();
     write("drizzle.config.ts", `export default { schema: process.env.SCHEMA };\n`);
-    expect(drizzleConfigSchema(dir)).toBeNull();
+    expect(Effect.runSync(drizzleConfigSchema(dir))).toBeNull();
   });
 });

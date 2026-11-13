@@ -293,7 +293,11 @@ export function schemaSql(input: {
       });
     }
     return {
-      queries: input.examples.map((example, i): QueryExampleSql => ({ ...example, ...built[i] })),
+      // builtOf checked there is one built query per example.
+      queries: input.examples.flatMap((example, i): readonly QueryExampleSql[] => {
+        const sql = built[i];
+        return sql === undefined ? [] : [{ ...example, ...sql }];
+      }),
       ddl: ddlOf(loaded),
     };
   });

@@ -157,7 +157,7 @@ describe("parseTableInfo", () => {
       "}))",
     ]);
     expect(result.length).toBe(1);
-    expect(result[0].name).toBe("user");
+    expect(result[0]?.name).toBe("user");
   });
 });
 

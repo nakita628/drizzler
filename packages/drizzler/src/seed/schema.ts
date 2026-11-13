@@ -405,9 +405,11 @@ export function readSchema(schema: Readonly<Record<string, unknown>>) {
       ...shapes.flatMap((shape) => shape.config.foreignKeys.flatMap((fk) => fk.foreignColumns)),
       ...keys.flatMap((key) => {
         const parent = shapeOf.get(key.parent)?.entry.table;
-        const columns = parent === undefined ? {} : getTableColumns(parent);
+        const columns = new Map(
+          parent === undefined ? [] : Object.entries(getTableColumns(parent)),
+        );
         return key.parentFields.flatMap((field) => {
-          const column = Object.entries(columns).find(([name]) => name === field)?.[1];
+          const column = columns.get(field);
           return column === undefined ? [] : [column];
         });
       }),
