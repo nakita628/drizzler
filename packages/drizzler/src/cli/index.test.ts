@@ -344,7 +344,7 @@ describe("drizzler reads a schema split over files", () => {
     await cli([schemaDir, "-o", output]);
     const dbml = fs.readFileSync(output, "utf-8");
     expect(dbml).toContain("Table cartItemTable {");
-    expect(dbml).toContain("createdAt timestamp [note: 'When the row was inserted']");
+    expect(dbml).toContain("createdAt timestamptz [note: 'When the row was inserted']");
     expect(dbml).toContain("Ref cartItemTable_productId_productTable_productId");
   });
 

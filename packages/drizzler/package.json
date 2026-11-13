@@ -1,6 +1,6 @@
 {
   "name": "drizzler",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "ER diagrams, DBML and table docs from a Drizzle schema, with a local studio and seeder.",
   "keywords": [
     "dbml",
