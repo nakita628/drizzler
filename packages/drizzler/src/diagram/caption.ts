@@ -273,6 +273,7 @@ function inColumns<E extends CaptionedEdge>(
               box.x >= turn.x &&
               !cards.some((card) => overlapArea(box, card, CARD_MARGIN) > 0) &&
               !wires.some((wire) => wire.edge !== edge && meets(box, wire.box));
+            // oxlint-disable-next-line custom/no-accumulator-copy -- each caption is placed against those before it; one per edge
             return clear ? { placed: [...state.placed, { edge, caption, box }] } : state;
           },
           { placed: [] },
@@ -368,6 +369,7 @@ export function placeCaptions<E extends CaptionedEdge>(
         ? state
         : {
             placed: [
+              // oxlint-disable-next-line custom/no-accumulator-copy -- each caption is placed against those before it; one per edge
               ...state.placed,
               {
                 edge,

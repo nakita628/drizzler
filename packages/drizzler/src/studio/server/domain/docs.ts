@@ -126,12 +126,13 @@ export function makeDocs(input: z.infer<typeof MakeDocsInput>) {
   const tables = models.map((model) => {
     const primaryKey = new Set(model.primaryKey ?? []);
     const targeting = byTarget.get(model.name) ?? [];
+    const referenceTo = Map.groupBy(targeting, (r) => r.to.field);
     return {
       name: model.name,
       dbName: model.dbName ?? model.name,
       description: model.documentation ?? null,
       columns: model.fields.map((field) => {
-        const reference = targeting.find((r) => r.to.field === field.name);
+        const reference = referenceTo.get(field.name)?.[0];
         return {
           name: field.name,
           dbName: field.dbName ?? field.name,

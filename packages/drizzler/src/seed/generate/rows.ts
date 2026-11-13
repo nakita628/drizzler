@@ -155,9 +155,10 @@ function violated(row: SeedRow, table: ModelTable, seen: ReadonlyMap<string, Rea
  */
 function disambiguate(row: SeedRow, fields: readonly string[], table: ModelTable, index: number) {
   const keys = new Set(table.foreignKeys.flatMap((fk) => fk.fromFields));
+  const columns = Map.groupBy(table.columns, (c) => c.field);
   return fields.flatMap((field): readonly (readonly [string, string])[] => {
     const value = row[field];
-    const column = table.columns.find((c) => c.field === field);
+    const column = columns.get(field)?.[0];
     if (keys.has(field) || typeof value !== "string" || column?.kind !== "string") return [];
     const at = value.indexOf("@");
     const suffix = String(index + 1);

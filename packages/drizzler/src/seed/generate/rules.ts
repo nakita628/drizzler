@@ -12,9 +12,12 @@ function checkDataRow(
   row: SeedRow,
   where: string,
 ): readonly string[] {
+  const columns = new Set(table.columns.map((column) => column.field));
+  const keysByField = Map.groupBy(table.foreignKeys, (key) => key.field);
+  const parentsByName = Map.groupBy(table.parents, (side) => side.name);
   return Object.entries(row).flatMap(([name, value]) => {
-    if (table.columns.some((column) => column.field === name)) return [];
-    const fk = table.foreignKeys.find((key) => key.field === name);
+    if (columns.has(name)) return [];
+    const fk = keysByField.get(name)?.[0];
     if (fk !== undefined) {
       return isKeyObject(value)
         ? []
@@ -22,7 +25,7 @@ function checkDataRow(
             `${where}.${name}: name the ${fk.toModel} row by a unique key, \`{ id }\` or \`{ email }\`, or give ${fk.fromFields.join(", ")}.`,
           ];
     }
-    const parent = table.parents.find((side) => side.name === name);
+    const parent = parentsByName.get(name)?.[0];
     const child = parent === undefined ? undefined : modelTable(tables, parent.child);
     if (parent === undefined || child === undefined) {
       return [
@@ -84,8 +87,9 @@ function checkModel(name: string, rule: LooseModelRule, tables: readonly ModelTa
     ];
     return problems.filter(([found]) => found).map(([, message]) => message);
   });
+  const relationNames = new Set(table.parents.map((side) => side.name));
   const relations = Object.entries(rule.relations ?? {}).flatMap(([field, bound]) => {
-    if (!table.parents.some((side) => side.name === field)) {
+    if (!relationNames.has(field)) {
       return [
         `models.${name}.relations.${field}: ${name} has no relation named ${field} that a rule can bound (an r.many whose child points back by a key).`,
       ];

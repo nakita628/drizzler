@@ -51,6 +51,7 @@ export function layoutSql(sql: string) {
   const { starts } = tokens.reduce<{ readonly depth: number; readonly starts: readonly number[] }>(
     (state, token, at) => ({
       depth: state.depth + depthChange(token),
+      // oxlint-disable-next-line custom/no-accumulator-copy -- copied only where a line starts
       starts: startsLine(tokens, at, state.depth) ? [...state.starts, token.start] : state.starts,
     }),
     { depth: 0, starts: [] },

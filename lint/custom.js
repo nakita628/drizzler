@@ -23,6 +23,7 @@ const UTILS_FILE = /(^|[\\/])utils\.tsx?$/;
 import { docRules } from "./docs.js";
 import { TEST_FILE, effectMethod, getFilename, within } from "./helpers.js";
 import { layerRules } from "./layers.js";
+import { perfRules } from "./perf.js";
 
 // ---------------------------------------------------------------------------
 // Rules
@@ -33,6 +34,7 @@ const plugin = {
   rules: {
     ...docRules,
     ...layerRules,
+    ...perfRules,
     // =========================================================================
     // 1. Name modules for what they do
     // =========================================================================

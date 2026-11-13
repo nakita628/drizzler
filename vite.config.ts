@@ -383,6 +383,30 @@ export default defineConfig({
       "custom/catch-must-log": "error",
 
       // =========================================================================
+      // Rules turned on: keep loops linear (./lint/perf.js and built-in rules)
+      // =========================================================================
+
+      // Why: a search of another collection on every turn of a loop is O(n × m).
+      // NG:   models.map((m) => relations.find((r) => r.to === m.name))
+      // OK:   const byTarget = new Map(relations.map((r) => [r.to, r])); models.map((m) => byTarget.get(m.name))
+      "custom/no-lookup-in-loop": "error",
+
+      // Why: a reduce that copies its accumulator, or a part of it, each step is O(n²).
+      // NG:   xs.reduce((s, x) => ({ next: s.next + 1, rows: [...s.rows, x] }), init)
+      // OK:   xs.map((x, index) => ({ index, x }))
+      "custom/no-accumulator-copy": "error",
+
+      // Why: a RegExp / Set / Map built in a loop from values the loop does not change.
+      // NG:   rows.filter((row) => new Set(ids).has(row.id))
+      // OK:   const wanted = new Set(ids); rows.filter((row) => wanted.has(row.id))
+      "custom/no-invariant-construction": "error",
+
+      // Why: an array only ever asked `.includes()` is a Set, whose `.has()` does not scan.
+      // NG:   const KEYWORDS = ["select", "from"] as const; KEYWORDS.includes(word)
+      // OK:   const KEYWORDS = new Set(["select", "from"]); KEYWORDS.has(word)
+      "unicorn/prefer-set-has": "error",
+
+      // =========================================================================
       // Rules turned on: document the code (./lint/docs.js and the jsdoc plugin)
       // =========================================================================
 

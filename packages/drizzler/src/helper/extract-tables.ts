@@ -393,6 +393,7 @@ function extractRelationsFromDefinitions(
   }
   function isKeyed(columns: readonly ColumnRef[]) {
     return (keys.get(columns[0].table) ?? []).some(
+      // oxlint-disable-next-line custom/no-lookup-in-loop -- a key holds a few columns
       (key) => key.length === columns.length && columns.every((c) => key.includes(c.column)),
     );
   }

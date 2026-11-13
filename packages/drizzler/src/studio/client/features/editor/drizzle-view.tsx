@@ -117,11 +117,10 @@ export function DrizzleView({
   useEffect(() => {
     const editor = editorRef.current;
     if (editor === null || text === null) return;
+    const declaration = focus === null ? null : new RegExp(`^export const ${focus}\\b`, "u");
     const target =
-      focus !== null
-        ? text
-            .split("\n")
-            .findIndex((row) => new RegExp(`^export const ${focus}\\b`, "u").test(row)) + 1
+      declaration !== null
+        ? text.split("\n").findIndex((row) => declaration.test(row)) + 1
         : (line ?? 0);
     if (target < 1) return;
     editor.setPosition({ lineNumber: target, column: 1 });

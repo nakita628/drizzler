@@ -41,7 +41,8 @@ export function splitTopLevel(text: string): readonly string[] {
   }>(
     (state, match) =>
       match[0] === "," && state.depth === 0
-        ? { depth: state.depth, cuts: [...state.cuts, match.index] }
+        ? // oxlint-disable-next-line custom/no-accumulator-copy -- copied only at a top-level comma
+          { depth: state.depth, cuts: [...state.cuts, match.index] }
         : { depth: state.depth + depthChange(match[0]), cuts: state.cuts },
     { depth: 0, cuts: [] },
   );

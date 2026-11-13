@@ -307,9 +307,10 @@ const MakeRowInput = z
  * ```
  */
 export function makeRow(input: z.infer<typeof MakeRowInput>) {
+  const named = Map.groupBy(input.table.columns, (c) => c.column);
   return Object.fromEntries(
     Object.entries(input.row).map(([column, value]) => [
-      input.table.columns.find((c) => c.column === column)?.name ?? column,
+      named.get(column)?.[0]?.name ?? column,
       makeCell({ value }),
     ]),
   );
@@ -362,10 +363,11 @@ function whereClause(
 ) {
   const entries = Object.entries(where);
   const bound = entries.filter(([, value]) => value !== null);
+  const positionOf = new Map(bound.map(([name], index) => [name, index]));
   const conditions = entries.map(([field, value]) => {
     const column = makeIdentifier({ dialect, name: columnOf(table, field) ?? field });
     if (value === null) return `${column} IS NULL`;
-    const n = offset + bound.findIndex(([name]) => name === field) + 1;
+    const n = offset + (positionOf.get(field) ?? -1) + 1;
     return `${column} = ${placeholder(dialect, n)}`;
   });
   return {
