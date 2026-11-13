@@ -5,6 +5,7 @@
 ![ER diagram](https://raw.githubusercontent.com/nakita628/drizzler/main/examples/layered/docs/er.png)
 
 - 📊 ER diagrams as SVG / PNG (light and dark) and [Mermaid](https://mermaid.js.org/), and [DBML](https://dbml.dbdiagram.io/)
+- 📄 Table specifications in Markdown, with each table's diagram, its `CREATE TABLE` and its Drizzle queries beside the SQL they build: `-o docs/`
 - 🗂️ Schemas split over files: a directory, a glob, or the `schema` of `drizzle.config.ts`
 - 🔗 [Relations v2](https://orm.drizzle.team/docs/relations) (`defineRelations`) drawn even where no foreign key exists
 - ✏️ `drizzler studio`: the schema beside its live diagram, its docs, the data, Drizzle queries and SQL
@@ -17,7 +18,8 @@ npm install -D drizzler
 ```
 
 ```bash
-npx drizzler db/schema.ts -o docs/er.svg   # .svg / .png, .md (Mermaid) or .dbml
+npx drizzler db/schema.ts -o docs/         # the table specification and every diagram
+npx drizzler db/schema.ts -o docs/er.svg   # one file: .svg / .png, .md (Mermaid) or .dbml
 npx drizzler -o docs/ER.md                 # the schema of drizzle.config.ts
 npx drizzler studio db/schema.ts --url file:./dev.db
 npx drizzler seed
@@ -39,7 +41,7 @@ export default defineConfig(schema, {
 
 ## Documentation
 
-- [Diagrams and DBML](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/generate.md): the command line, schemas split over files, comments, relations
+- [Diagrams and DBML](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/generate.md): the command line, docs, schemas split over files, comments, relations
 - [Studio](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/studio.md)
 - [Seed](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/seed.md)
 

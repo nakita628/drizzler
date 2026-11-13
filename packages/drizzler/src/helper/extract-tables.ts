@@ -479,3 +479,22 @@ export function extractRelationsFromSchema(code: readonly string[]) {
       isUnique: (keys.get(r.toModel) ?? []).some((k) => k.length === 1 && k[0] === r.toField),
     }));
 }
+
+/**
+ * The relations `defineRelations` and `defineRelationsPart` declare, as
+ * `db.query.*.findMany({ with })` names them: the table, the name it gives the relation, and the
+ * table `r.one` or `r.many` points at. A table's relations may be split over a main definition
+ * and its parts; each name counts once.
+ *
+ * @param code - the schema's source lines, without their imports
+ * @returns one entry per table and relation name
+ */
+export function relationFields(code: readonly string[]) {
+  const { program, text } = parseSource(code);
+  const all = relationDefinitions(program, text).flatMap(({ relations }) =>
+    relations.map(({ table, name, target }) => ({ table, name, target })),
+  );
+  return all.filter(
+    (field, at) => all.findIndex((o) => o.table === field.table && o.name === field.name) === at,
+  );
+}

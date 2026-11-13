@@ -8,6 +8,7 @@
   "devDependencies": {
     "@better-auth/drizzle-adapter": "1.7.14",
     "better-auth": "1.7.14",
+    "drizzle-kit": "1.0.0-rc.5",
     "drizzle-orm": "1.0.0-rc.5",
     "drizzler": "workspace:^"
   }

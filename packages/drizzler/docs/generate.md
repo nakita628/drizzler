@@ -16,8 +16,8 @@ an unknown format, a file that is not there) prints why and exits with code 1.
 ### Options
 
 ```
--o, --output <path>               Output file path (.md, .dbml, .svg, .png)
---theme <light|dark>              Colour scheme of the .svg / .png ER diagram
+-o, --output <path>               Output file (.md, .dbml, .svg, .png), or a directory for the docs
+--theme <light|dark>              Colour scheme of the ER diagram
 -p, --port <port>                 Port for drizzler studio (default: 4983)
 -u, --url <database-url>          Database for drizzler studio (default: $DATABASE_URL)
 -h, --help                        Display help message (drizzler studio --help, drizzler seed --help)
@@ -27,6 +27,9 @@ an unknown format, a file that is not there) prints why and exits with code 1.
 ### Quick Start
 
 ```sh
+# Write the docs: the table specification and every diagram, into docs/
+npx drizzler db/schema.ts -o docs/
+
 # Generate DBML
 npx drizzler db/schema.ts -o docs/schema.dbml
 
@@ -43,6 +46,40 @@ npx drizzler studio db/schema.ts --url file:./dev.db
 # Fill the database with the rows drizzler.config.ts describes
 npx drizzler seed
 ```
+
+## Docs
+
+Give a directory as the output (a trailing `/`, or a path with no extension) and drizzler writes
+the schema's docs into it:
+
+```sh
+npx drizzler db/schema.ts -o docs/
+```
+
+| File                 | What it holds                                                                                                                                                                                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md`          | The table specification, as the studio's Docs page shows it: every table with its columns, constraints, defaults, indexes, relations both ways, `CREATE TABLE` definition and Drizzle queries with their SQL, and every enum, with the ER diagram on top and each related table's own diagram above its columns |
+| `er.svg`             | The ER diagram (`--theme dark` for the dark one)                                                                                                                                                                                                                                                                |
+| `tables/<table>.svg` | One diagram per table that has a relation: the table, the tables a relation joins it to, and those relations                                                                                                                                                                                                    |
+
+Under each table, its queries are shown in Drizzle beside the SQL drizzle-orm builds for them, in
+the schema's dialect: every row, how many, the rows with their relations, one row by its primary
+key, and an insert, update and delete, with values of each column's type. To build that SQL,
+drizzler loads the schema with the project's own drizzle-orm (through its proxy drivers, so nothing
+connects to a database), resolving imports as it reads the schema (relative paths, `.js` for `.ts`,
+the tsconfig's `paths`). Defaults the schema computes (`$defaultFn`, `$onUpdate`) see a fixed clock
+and fixed random values, so the docs are the same on every run. Each table also shows its definition, and each enum
+its type, as the project's drizzle-kit writes them (`CREATE TABLE`, its indexes and foreign keys);
+the README opens with the whole schema's SQL, folded. When the schema cannot be loaded (drizzle-orm not installed, an import
+that fails, Node.js older than 22.15), the docs are written with the queries as code only and no
+definitions; without drizzle-kit, only the definitions are left out. Either way the reason is
+printed.
+
+Every description is the comment written above the table, column or enum. The Markdown is
+written as the formatter would, so writing the docs again leaves no diff when nothing changed,
+and the diagram of a table that is gone is removed from `tables/`.
+[examples/layered/docs](https://github.com/nakita628/drizzler/tree/main/examples/layered/docs)
+is such a directory.
 
 ## Schemas Split Over Files
 

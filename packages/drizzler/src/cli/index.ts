@@ -1,7 +1,8 @@
+import path from "node:path";
 import { Config, Console, Effect, Option } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/cli";
 import { version } from "../../package.json" with { type: "json" };
-import { drizzlerDbml, drizzlerER, drizzlerMermaidER } from "../core/index.js";
+import { drizzlerDbml, drizzlerDocs, drizzlerER, drizzlerMermaidER } from "../core/index.js";
 import { collectSchemaFiles, drizzleConfigSchema, readSchemaSources } from "../schema/sources.js";
 import { DEFAULT_PORT } from "../studio/server/constants/index.js";
 import type {
@@ -12,8 +13,12 @@ import type {
 
 const COMMAND_NAME = "drizzler";
 
-/** What an output path asks for, by its extension; null for one drizzler does not write. */
+/**
+ * What an output path asks for, by its extension: a directory (a trailing `/`, or no extension)
+ * is the docs; null for a file drizzler does not write.
+ */
 export function outputKind(output: string) {
+  if (output.endsWith("/") || path.extname(output) === "") return "docs" as const;
   if (output.endsWith(".dbml")) return "dbml" as const;
   if (output.endsWith(".png") || output.endsWith(".svg")) return "diagram" as const;
   if (output.endsWith(".md")) return "mermaid" as const;
@@ -29,7 +34,7 @@ const generateFlags = {
   ),
   output: Flag.String("output").pipe(
     Flag.withAlias("o"),
-    Flag.withDescription("Output file path (.md, .dbml, .svg, .png)"),
+    Flag.withDescription("Output file (.md, .dbml, .svg, .png), or a directory for the docs"),
     Flag.withMetavar("path"),
     Flag.optional,
   ),
@@ -51,7 +56,10 @@ function userError(cause: string) {
  */
 function readSchema(inputs: readonly string[], cwd: string) {
   return Effect.try({
-    try: () => readSchemaSources(collectSchemaFiles(inputs, cwd)),
+    try() {
+      const files = collectSchemaFiles(inputs, cwd);
+      return { files, code: readSchemaSources(files) };
+    },
     catch: (error) =>
       userError(`Failed to read input: ${error instanceof Error ? error.message : String(error)}`),
   });
@@ -63,25 +71,41 @@ function schemaInputs(given: readonly string[], cwd: string) {
   return drizzleConfigSchema(cwd)?.inputs ?? [];
 }
 
-/** Writes the schema's code as the kind of output the path asks for. */
+/**
+ * Writes the schema as the kind of output the path asks for: the files it wrote, and what it left
+ * out and why (the docs' SQL, when the schema could not be loaded).
+ */
 function writeOutput(
   kind: NonNullable<ReturnType<typeof outputKind>>,
-  code: string[],
+  schema: { readonly files: readonly string[]; readonly code: string[] },
   output: string,
   theme: "light" | "dark",
 ) {
-  switch (kind) {
-    case "dbml":
-      return drizzlerDbml(code, output);
-    case "diagram":
-      return drizzlerER(code, output, theme);
-    case "mermaid":
-      return drizzlerMermaidER(code, output);
-  }
+  const { code } = schema;
+  // One Effect whatever the kind, so its failures are mapped once.
+  return Effect.gen(function* () {
+    switch (kind) {
+      case "dbml":
+        yield* drizzlerDbml(code, output);
+        return { written: [output], notes: [] };
+      case "diagram":
+        yield* drizzlerER(code, output, theme);
+        return { written: [output], notes: [] };
+      case "mermaid":
+        yield* drizzlerMermaidER(code, output);
+        return { written: [output], notes: [] };
+      case "docs":
+        return yield* drizzlerDocs(code, output, theme, schema.files);
+    }
+  });
 }
 
-/** What the line printed after writing calls the output. */
-function describeOutput(kind: NonNullable<ReturnType<typeof outputKind>>, output: string) {
+/** What the line printed after writing calls the output; for the docs, the files it holds. */
+function describeOutput(
+  kind: NonNullable<ReturnType<typeof outputKind>>,
+  output: string,
+  written: readonly string[],
+) {
   switch (kind) {
     case "dbml":
       return "DBML";
@@ -89,6 +113,12 @@ function describeOutput(kind: NonNullable<ReturnType<typeof outputKind>>, output
       return "Mermaid ER";
     case "diagram":
       return `${output.endsWith(".png") ? "PNG" : "SVG"} ER diagram`;
+    case "docs": {
+      const names = written.map((file) => path.relative(output, file));
+      const top = names.filter((name) => !name.includes(path.sep));
+      const tables = names.length > top.length ? ["tables/*.svg"] : [];
+      return `docs (${[...top, ...tables].join(", ")})`;
+    }
   }
 }
 
@@ -108,14 +138,15 @@ export function generate(args: GenerateArgs) {
     const kind = outputKind(output);
     if (kind === null) {
       return yield* userError(
-        `Unsupported output format: ${output}. Supported: .dbml, .svg, .png, .md`,
+        `Unsupported output format: ${output}. Supported: .dbml, .svg, .png, .md, or a directory for the docs`,
       );
     }
-    const code = yield* readSchema(inputs, cwd);
-    yield* writeOutput(kind, code, output, args.theme).pipe(
+    const schema = yield* readSchema(inputs, cwd);
+    const { written, notes } = yield* writeOutput(kind, schema, output, args.theme).pipe(
       Effect.mapError((error) => userError(`Failed to write ${output}: ${error.message}`)),
     );
-    yield* Console.log(`💧 Generated ${describeOutput(kind, output)} at: ${output}`);
+    yield* Console.log(`💧 Generated ${describeOutput(kind, output, written)} at: ${output}`);
+    yield* Effect.forEach(notes, (note) => Console.error(`   ${note}`));
   });
 }
 

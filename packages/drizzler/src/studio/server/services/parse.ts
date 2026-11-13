@@ -1,7 +1,7 @@
 import { parseSync, Visitor } from "oxc-parser";
 import type { Node } from "oxc-parser";
 import { parseSource, unwrapParens } from "../../../helper/ast.js";
-import { diagramSchema, relationDefinitions, tableCalls } from "../../../helper/index.js";
+import { diagramSchema, relationFields, tableCalls } from "../../../helper/index.js";
 import { stripImports } from "../../../schema/strip-imports.js";
 
 /**
@@ -82,14 +82,7 @@ export function findTableSpans(input: { readonly source: string }) {
  * @returns every relation field, by table and name, with the table it points at
  */
 export function readRelationFields(input: { readonly source: string }) {
-  const { program, text } = parseSource(stripImports(input.source));
-  const all = relationDefinitions(program, text).flatMap(({ relations }) =>
-    relations.map(({ table, name, target }) => ({ table, name, target })),
-  );
-  // A table's relations may be split over a main definition and its parts; each name counts once.
-  return all.filter(
-    (field, at) => all.findIndex((o) => o.table === field.table && o.name === field.name) === at,
-  );
+  return relationFields(stripImports(input.source));
 }
 
 const WRAP_START = "async function __drizzler_query() {\n";

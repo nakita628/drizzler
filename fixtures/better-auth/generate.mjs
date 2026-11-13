@@ -1,7 +1,7 @@
 // One fixture per Better Auth plugin that changes the database schema, plus `core` (no plugin)
 // and `full` (all of them). Each schema is what Better Auth generates for Drizzle with relations
-// v2 (`npx auth generate`), through the Drizzle adapter's `createSchema`; drizzler then draws it
-// as docs/er.svg, docs/ER.md (Mermaid) and docs/schema.dbml.
+// v2 (`npx auth generate`), through the Drizzle adapter's `createSchema`; drizzler then writes its
+// docs: docs/README.md (the table specification), docs/er.svg, docs/ER.md and docs/schema.dbml.
 //
 // The plugins left out (bearer, captcha, custom-session, email-otp, generic-oauth,
 // haveibeenpwned, magic-link, multi-session, oauth-popup, oauth-proxy, one-tap, one-time-token,
@@ -83,8 +83,6 @@ for (const [name, plugins] of PATTERNS) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(path.join(dir, "db"), { recursive: true });
   fs.writeFileSync(path.join(dir, "db/schema.ts"), await schemaOf(plugins()));
-  for (const output of ["docs/er.svg", "docs/ER.md", "docs/schema.dbml"]) {
-    execFileSync(process.execPath, [CLI, "db/schema.ts", "-o", output], { cwd: dir });
-  }
+  execFileSync(process.execPath, [CLI, "db/schema.ts", "-o", "docs"], { cwd: dir });
   console.log(`generated ${name}`);
 }

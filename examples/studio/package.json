@@ -6,7 +6,7 @@
     "studio": "node sqlite/seed.mjs --if-missing && drizzler studio sqlite/schema.ts --url file:./sqlite/dev.db",
     "studio:diagram": "drizzler studio db/schema.ts",
     "seed": "node sqlite/seed.mjs",
-    "generate": "drizzler db/schema.ts -o docs/er.svg && drizzler db/schema.ts -o docs/er.png && drizzler db/schema.ts -o docs/er-dark.png --theme dark && drizzler db/schema.ts -o docs/ER.md && drizzler db/schema.ts -o docs/schema.dbml",
+    "generate": "drizzler db/schema.ts -o docs && drizzler db/schema.ts -o docs/er.png && drizzler db/schema.ts -o docs/er-dark.png --theme dark",
     "reset": "git checkout -- db/schema.ts sqlite/schema.ts && node sqlite/seed.mjs"
   },
   "dependencies": {
@@ -14,6 +14,7 @@
     "drizzler": "workspace:^"
   },
   "devDependencies": {
+    "drizzle-kit": "1.0.0-rc.5",
     "typescript": "^6.0.3"
   }
 }

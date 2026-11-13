@@ -51,5 +51,6 @@ export function mermaidER(code: string[]) {
     "    }",
   ]);
 
-  return ["```mermaid", "erDiagram", ...relationLines, ...tableDefinitions, "```"].join("\n");
+  // A Markdown file ends with a line break, as the formatters write it.
+  return `${["```mermaid", "erDiagram", ...relationLines, ...tableDefinitions, "```"].join("\n")}\n`;
 }

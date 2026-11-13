@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "drizzler -o docs/er.svg && drizzler -o docs/er.png && drizzler -o docs/er-dark.png --theme dark && drizzler -o docs/ER.md && drizzler -o docs/schema.dbml"
+    "generate": "drizzler -o docs && drizzler -o docs/er.png && drizzler -o docs/er-dark.png --theme dark"
   },
   "devDependencies": {
     "drizzle-kit": "1.0.0-rc.5",

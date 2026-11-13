@@ -219,7 +219,8 @@ erDiagram
         varchar content "Body content (no length limit)"
         varchar userId FK "Foreign key referencing User.id"
     }
-\`\`\``;
+\`\`\`
+`;
     expect(result).toBe(expected);
   });
 
@@ -241,7 +242,8 @@ erDiagram
         varchar content
         varchar userId FK
     }
-\`\`\``;
+\`\`\`
+`;
     expect(result).toBe(expected);
   });
 
@@ -262,7 +264,8 @@ erDiagram
         text body
         text userId
     }
-\`\`\``;
+\`\`\`
+`;
     expect(result).toBe(expected);
   });
 
@@ -283,7 +286,8 @@ erDiagram
         text body
         text userId
     }
-\`\`\``;
+\`\`\`
+`;
     expect(result).toBe(expected);
   });
 
@@ -302,7 +306,8 @@ erDiagram
         text body
         text userId
     }
-\`\`\``;
+\`\`\`
+`;
     expect(result).toBe(expected);
   });
 });
@@ -331,7 +336,7 @@ describe("E2E: Mermaid ER generation", () => {
 
     // Mermaid structure
     expect(content.startsWith("```mermaid\nerDiagram")).toBe(true);
-    expect(content.endsWith("```")).toBe(true);
+    expect(content.endsWith("```\n")).toBe(true);
 
     // Relations (user -> order, order -> orderItem)
     expect(content.includes('user ||--|{ order : "(id) - (userId)"')).toBe(true);
@@ -359,7 +364,7 @@ describe("E2E: Mermaid ER generation", () => {
     const content = fs.readFileSync(output, "utf-8");
 
     expect(content.startsWith("```mermaid\nerDiagram")).toBe(true);
-    expect(content.endsWith("```")).toBe(true);
+    expect(content.endsWith("```\n")).toBe(true);
     expect(content.includes("config {")).toBe(true);
     expect(content.includes("text key PK")).toBe(true);
     expect(content.includes("text value")).toBe(true);
