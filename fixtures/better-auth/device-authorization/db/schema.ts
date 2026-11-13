@@ -1,5 +1,13 @@
-import { defineRelations } from "drizzle-orm";
-import { boolean, index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { defineRelationsPart } from "drizzle-orm";
+import {
+  pgTable,
+  text,
+  timestamp,
+  boolean,
+  integer,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -73,31 +81,50 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
-export const deviceCode = pgTable("device_code", {
-  id: text("id").primaryKey(),
-  deviceCode: text("device_code").notNull(),
-  userCode: text("user_code").notNull(),
-  userId: text("user_id"),
-  expiresAt: timestamp("expires_at").notNull(),
-  status: text("status").notNull(),
-  lastPolledAt: timestamp("last_polled_at"),
-  pollingInterval: integer("polling_interval"),
-  clientId: text("client_id"),
-  scope: text("scope"),
-});
+export const deviceCode = pgTable(
+  "device_code",
+  {
+    id: text("id").primaryKey(),
+    deviceCode: text("device_code").notNull(),
+    userCode: text("user_code").notNull(),
+    userId: text("user_id"),
+    expiresAt: timestamp("expires_at").notNull(),
+    status: text("status").notNull(),
+    lastPolledAt: timestamp("last_polled_at"),
+    pollingInterval: integer("polling_interval"),
+    clientId: text("client_id"),
+    scope: text("scope"),
+  },
+  (table) => [
+    uniqueIndex("deviceCode_deviceCode_uidx").on(table.deviceCode),
+    uniqueIndex("deviceCode_userCode_uidx").on(table.userCode),
+  ],
+);
 
-export const relations = defineRelations(
+export const authRelations = defineRelationsPart(
   { user, session, account, verification, deviceCode },
   (r) => ({
     user: {
-      sessions: r.many.session(),
-      accounts: r.many.account(),
+      sessions: r.many.session({
+        from: r.user.id,
+        to: r.session.userId,
+      }),
+      accounts: r.many.account({
+        from: r.user.id,
+        to: r.account.userId,
+      }),
     },
     session: {
-      user: r.one.user({ from: r.session.userId, to: r.user.id }),
+      user: r.one.user({
+        from: r.session.userId,
+        to: r.user.id,
+      }),
     },
     account: {
-      user: r.one.user({ from: r.account.userId, to: r.user.id }),
+      user: r.one.user({
+        from: r.account.userId,
+        to: r.user.id,
+      }),
     },
   }),
 );

@@ -50,6 +50,9 @@ Table twoFactor {
   secret text
   backupCodes text
   userId text
+  verified boolean
+  failedVerificationCount integer
+  lockedUntil timestamp
 }
 
 Ref session_userId_user_id_fk: session.userId > user.id

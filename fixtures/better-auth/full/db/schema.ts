@@ -1,11 +1,11 @@
-import { defineRelations } from "drizzle-orm";
+import { defineRelationsPart } from "drizzle-orm";
 import {
-  boolean,
-  index,
-  integer,
   pgTable,
   text,
   timestamp,
+  boolean,
+  integer,
+  index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -20,16 +20,17 @@ export const user = pgTable("user", {
     .defaultNow()
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
-  twoFactorEnabled: boolean("two_factor_enabled").default(false),
   role: text("role"),
   banned: boolean("banned").default(false),
   banReason: text("ban_reason"),
   banExpires: timestamp("ban_expires"),
-  username: text("username").unique(),
-  displayUsername: text("display_username"),
   isAnonymous: boolean("is_anonymous").default(false),
+  lastLoginMethod: text("last_login_method"),
   phoneNumber: text("phone_number").unique(),
   phoneNumberVerified: boolean("phone_number_verified"),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  username: text("username").unique(),
+  displayUsername: text("display_username"),
 });
 
 export const session = pgTable(
@@ -49,6 +50,7 @@ export const session = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     impersonatedBy: text("impersonated_by"),
     activeOrganizationId: text("active_organization_id"),
+    activeTeamId: text("active_team_id"),
   },
   (table) => [index("session_userId_idx").on(table.userId)],
 );
@@ -93,21 +95,35 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
-export const twoFactor = pgTable(
-  "two_factor",
+export const deviceCode = pgTable(
+  "device_code",
   {
     id: text("id").primaryKey(),
-    secret: text("secret").notNull(),
-    backupCodes: text("backup_codes").notNull(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    deviceCode: text("device_code").notNull(),
+    userCode: text("user_code").notNull(),
+    userId: text("user_id"),
+    expiresAt: timestamp("expires_at").notNull(),
+    status: text("status").notNull(),
+    lastPolledAt: timestamp("last_polled_at"),
+    pollingInterval: integer("polling_interval"),
+    clientId: text("client_id"),
+    scope: text("scope"),
   },
   (table) => [
-    index("twoFactor_secret_idx").on(table.secret),
-    index("twoFactor_userId_idx").on(table.userId),
+    uniqueIndex("deviceCode_deviceCode_uidx").on(table.deviceCode),
+    uniqueIndex("deviceCode_userCode_uidx").on(table.userCode),
   ],
 );
+
+export const jwks = pgTable("jwks", {
+  id: text("id").primaryKey(),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  expiresAt: timestamp("expires_at"),
+  alg: text("alg"),
+  crv: text("crv"),
+});
 
 export const organization = pgTable(
   "organization",
@@ -120,6 +136,58 @@ export const organization = pgTable(
     metadata: text("metadata"),
   },
   (table) => [uniqueIndex("organization_slug_uidx").on(table.slug)],
+);
+
+export const organizationRole = pgTable(
+  "organization_role",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    permission: text("permission").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").$onUpdate(() => /* @__PURE__ */ new Date()),
+  },
+  (table) => [
+    index("organizationRole_organizationId_idx").on(table.organizationId),
+    index("organizationRole_role_idx").on(table.role),
+  ],
+);
+
+export const team = pgTable(
+  "team",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    memberCount: integer("member_count").default(0).notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").$onUpdate(() => /* @__PURE__ */ new Date()),
+  },
+  (table) => [index("team_organizationId_idx").on(table.organizationId)],
+);
+
+export const teamMember = pgTable(
+  "team_member",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    membershipKey: text("membership_key").unique(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("teamMember_teamId_idx").on(table.teamId),
+    index("teamMember_userId_idx").on(table.userId),
+  ],
 );
 
 export const member = pgTable(
@@ -150,6 +218,7 @@ export const invitation = pgTable(
       .references(() => organization.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     role: text("role"),
+    teamId: text("team_id"),
     status: text("status").default("pending").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -163,71 +232,175 @@ export const invitation = pgTable(
   ],
 );
 
-export const jwks = pgTable("jwks", {
-  id: text("id").primaryKey(),
-  publicKey: text("public_key").notNull(),
-  privateKey: text("private_key").notNull(),
-  createdAt: timestamp("created_at").notNull(),
-  expiresAt: timestamp("expires_at"),
-});
+export const walletAddress = pgTable(
+  "wallet_address",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    address: text("address").notNull(),
+    chainId: integer("chain_id").notNull(),
+    isPrimary: boolean("is_primary").default(false),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [index("walletAddress_userId_idx").on(table.userId)],
+);
 
-export const deviceCode = pgTable("device_code", {
-  id: text("id").primaryKey(),
-  deviceCode: text("device_code").notNull(),
-  userCode: text("user_code").notNull(),
-  userId: text("user_id"),
-  expiresAt: timestamp("expires_at").notNull(),
-  status: text("status").notNull(),
-  lastPolledAt: timestamp("last_polled_at"),
-  pollingInterval: integer("polling_interval"),
-  clientId: text("client_id"),
-  scope: text("scope"),
-});
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean("verified").default(true),
+    failedVerificationCount: integer("failed_verification_count").default(0),
+    lockedUntil: timestamp("locked_until"),
+  },
+  (table) => [
+    index("twoFactor_secret_idx").on(table.secret),
+    index("twoFactor_userId_idx").on(table.userId),
+  ],
+);
 
-export const relations = defineRelations(
+export const authRelations = defineRelationsPart(
   {
     user,
     session,
     account,
     verification,
-    twoFactor,
+    deviceCode,
+    jwks,
     organization,
+    organizationRole,
+    team,
+    teamMember,
     member,
     invitation,
-    jwks,
-    deviceCode,
+    walletAddress,
+    twoFactor,
   },
   (r) => ({
     user: {
-      sessions: r.many.session(),
-      accounts: r.many.account(),
-      twoFactors: r.many.twoFactor(),
-      members: r.many.member(),
-      invitations: r.many.invitation(),
+      sessions: r.many.session({
+        from: r.user.id,
+        to: r.session.userId,
+      }),
+      accounts: r.many.account({
+        from: r.user.id,
+        to: r.account.userId,
+      }),
+      teamMembers: r.many.teamMember({
+        from: r.user.id,
+        to: r.teamMember.userId,
+      }),
+      members: r.many.member({
+        from: r.user.id,
+        to: r.member.userId,
+      }),
+      invitations: r.many.invitation({
+        from: r.user.id,
+        to: r.invitation.inviterId,
+      }),
+      walletAddress: r.many.walletAddress({
+        from: r.user.id,
+        to: r.walletAddress.userId,
+      }),
+      twoFactors: r.many.twoFactor({
+        from: r.user.id,
+        to: r.twoFactor.userId,
+      }),
     },
     session: {
-      user: r.one.user({ from: r.session.userId, to: r.user.id }),
+      user: r.one.user({
+        from: r.session.userId,
+        to: r.user.id,
+      }),
     },
     account: {
-      user: r.one.user({ from: r.account.userId, to: r.user.id }),
-    },
-    twoFactor: {
-      user: r.one.user({ from: r.twoFactor.userId, to: r.user.id }),
+      user: r.one.user({
+        from: r.account.userId,
+        to: r.user.id,
+      }),
     },
     organization: {
-      members: r.many.member(),
-      invitations: r.many.invitation(),
+      organizationRoles: r.many.organizationRole({
+        from: r.organization.id,
+        to: r.organizationRole.organizationId,
+      }),
+      teams: r.many.team({
+        from: r.organization.id,
+        to: r.team.organizationId,
+      }),
+      members: r.many.member({
+        from: r.organization.id,
+        to: r.member.organizationId,
+      }),
+      invitations: r.many.invitation({
+        from: r.organization.id,
+        to: r.invitation.organizationId,
+      }),
+    },
+    organizationRole: {
+      organization: r.one.organization({
+        from: r.organizationRole.organizationId,
+        to: r.organization.id,
+      }),
+    },
+    team: {
+      organization: r.one.organization({
+        from: r.team.organizationId,
+        to: r.organization.id,
+      }),
+      teamMembers: r.many.teamMember({
+        from: r.team.id,
+        to: r.teamMember.teamId,
+      }),
+    },
+    teamMember: {
+      team: r.one.team({
+        from: r.teamMember.teamId,
+        to: r.team.id,
+      }),
+      user: r.one.user({
+        from: r.teamMember.userId,
+        to: r.user.id,
+      }),
     },
     member: {
-      organization: r.one.organization({ from: r.member.organizationId, to: r.organization.id }),
-      user: r.one.user({ from: r.member.userId, to: r.user.id }),
+      organization: r.one.organization({
+        from: r.member.organizationId,
+        to: r.organization.id,
+      }),
+      user: r.one.user({
+        from: r.member.userId,
+        to: r.user.id,
+      }),
     },
     invitation: {
       organization: r.one.organization({
         from: r.invitation.organizationId,
         to: r.organization.id,
       }),
-      user: r.one.user({ from: r.invitation.inviterId, to: r.user.id }),
+      user: r.one.user({
+        from: r.invitation.inviterId,
+        to: r.user.id,
+      }),
+    },
+    walletAddress: {
+      user: r.one.user({
+        from: r.walletAddress.userId,
+        to: r.user.id,
+      }),
+    },
+    twoFactor: {
+      user: r.one.user({
+        from: r.twoFactor.userId,
+        to: r.user.id,
+      }),
     },
   }),
 );

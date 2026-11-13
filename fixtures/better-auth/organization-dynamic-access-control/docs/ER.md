@@ -2,7 +2,11 @@
 erDiagram
     user ||--|{ session : "(id) - (userId)"
     user ||--|{ account : "(id) - (userId)"
-    user ||--|{ twoFactor : "(id) - (userId)"
+    organization ||--|{ organizationRole : "(id) - (organizationId)"
+    organization ||--|{ member : "(id) - (organizationId)"
+    user ||--|{ member : "(id) - (userId)"
+    organization ||--|{ invitation : "(id) - (organizationId)"
+    user ||--|{ invitation : "(id) - (inviterId)"
     user {
         text id PK
         text name
@@ -11,7 +15,6 @@ erDiagram
         text image
         timestamp createdAt
         timestamp updatedAt
-        boolean twoFactorEnabled
     }
     session {
         text id PK
@@ -22,6 +25,7 @@ erDiagram
         text ipAddress
         text userAgent
         text userId FK
+        text activeOrganizationId
     }
     account {
         text id PK
@@ -46,10 +50,37 @@ erDiagram
         timestamp createdAt
         timestamp updatedAt
     }
-    twoFactor {
+    organization {
         text id PK
-        text secret
-        text backupCodes
+        text name
+        text slug
+        text logo
+        timestamp createdAt
+        text metadata
+    }
+    organizationRole {
+        text id PK
+        text organizationId FK
+        text role
+        text permission
+        timestamp createdAt
+        timestamp updatedAt
+    }
+    member {
+        text id PK
+        text organizationId FK
         text userId FK
+        text role
+        timestamp createdAt
+    }
+    invitation {
+        text id PK
+        text organizationId FK
+        text email
+        text role
+        text status
+        timestamp expiresAt
+        timestamp createdAt
+        text inviterId FK
     }
 ```

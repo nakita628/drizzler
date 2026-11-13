@@ -50,6 +50,8 @@ Table jwks {
   privateKey text
   createdAt timestamp
   expiresAt timestamp
+  alg text
+  crv text
 }
 
 Ref session_userId_user_id_fk: session.userId > user.id

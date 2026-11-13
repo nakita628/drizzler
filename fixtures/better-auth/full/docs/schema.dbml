@@ -6,16 +6,17 @@ Table user {
   image text
   createdAt timestamp
   updatedAt timestamp
-  twoFactorEnabled boolean
   role text
   banned boolean
   banReason text
   banExpires timestamp
-  username text
-  displayUsername text
   isAnonymous boolean
+  lastLoginMethod text
   phoneNumber text
   phoneNumberVerified boolean
+  twoFactorEnabled boolean
+  username text
+  displayUsername text
 }
 
 Table session {
@@ -29,6 +30,7 @@ Table session {
   userId text
   impersonatedBy text
   activeOrganizationId text
+  activeTeamId text
 }
 
 Table account {
@@ -56,11 +58,27 @@ Table verification {
   updatedAt timestamp
 }
 
-Table twoFactor {
+Table deviceCode {
   id text [pk]
-  secret text
-  backupCodes text
+  deviceCode text
+  userCode text
   userId text
+  expiresAt timestamp
+  status text
+  lastPolledAt timestamp
+  pollingInterval integer
+  clientId text
+  scope text
+}
+
+Table jwks {
+  id text [pk]
+  publicKey text
+  privateKey text
+  createdAt timestamp
+  expiresAt timestamp
+  alg text
+  crv text
 }
 
 Table organization {
@@ -70,6 +88,32 @@ Table organization {
   logo text
   createdAt timestamp
   metadata text
+}
+
+Table organizationRole {
+  id text [pk]
+  organizationId text
+  role text
+  permission text
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table team {
+  id text [pk]
+  name text
+  memberCount integer
+  organizationId text
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table teamMember {
+  id text [pk]
+  teamId text
+  userId text
+  membershipKey text
+  createdAt timestamp
 }
 
 Table member {
@@ -85,38 +129,43 @@ Table invitation {
   organizationId text
   email text
   role text
+  teamId text
   status text
   expiresAt timestamp
   createdAt timestamp
   inviterId text
 }
 
-Table jwks {
+Table walletAddress {
   id text [pk]
-  publicKey text
-  privateKey text
+  userId text
+  address text
+  chainId integer
+  isPrimary boolean
   createdAt timestamp
-  expiresAt timestamp
 }
 
-Table deviceCode {
+Table twoFactor {
   id text [pk]
-  deviceCode text
-  userCode text
+  secret text
+  backupCodes text
   userId text
-  expiresAt timestamp
-  status text
-  lastPolledAt timestamp
-  pollingInterval integer
-  clientId text
-  scope text
+  verified boolean
+  failedVerificationCount integer
+  lockedUntil timestamp
 }
 
 Ref session_userId_user_id_fk: session.userId > user.id
 
 Ref account_userId_user_id_fk: account.userId > user.id
 
-Ref twoFactor_userId_user_id_fk: twoFactor.userId > user.id
+Ref organizationRole_organizationId_organization_id_fk: organizationRole.organizationId > organization.id
+
+Ref team_organizationId_organization_id_fk: team.organizationId > organization.id
+
+Ref teamMember_teamId_team_id_fk: teamMember.teamId > team.id
+
+Ref teamMember_userId_user_id_fk: teamMember.userId > user.id
 
 Ref member_organizationId_organization_id_fk: member.organizationId > organization.id
 
@@ -125,3 +174,7 @@ Ref member_userId_user_id_fk: member.userId > user.id
 Ref invitation_organizationId_organization_id_fk: invitation.organizationId > organization.id
 
 Ref invitation_inviterId_user_id_fk: invitation.inviterId > user.id
+
+Ref walletAddress_userId_user_id_fk: walletAddress.userId > user.id
+
+Ref twoFactor_userId_user_id_fk: twoFactor.userId > user.id

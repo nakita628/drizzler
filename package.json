@@ -20,7 +20,6 @@
     "drizzler": "link:packages/drizzler"
   },
   "devDependencies": {
-    "better-auth": "^1.7.14",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "1.0.0-rc.5",
     "vite-plus": "1.4.0"

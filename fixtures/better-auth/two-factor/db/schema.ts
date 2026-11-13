@@ -1,5 +1,5 @@
-import { defineRelations } from "drizzle-orm";
-import { boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { defineRelationsPart } from "drizzle-orm";
+import { pgTable, text, timestamp, boolean, integer, index } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -83,6 +83,9 @@ export const twoFactor = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean("verified").default(true),
+    failedVerificationCount: integer("failed_verification_count").default(0),
+    lockedUntil: timestamp("locked_until"),
   },
   (table) => [
     index("twoFactor_secret_idx").on(table.secret),
@@ -90,22 +93,40 @@ export const twoFactor = pgTable(
   ],
 );
 
-export const relations = defineRelations(
+export const authRelations = defineRelationsPart(
   { user, session, account, verification, twoFactor },
   (r) => ({
     user: {
-      sessions: r.many.session(),
-      accounts: r.many.account(),
-      twoFactors: r.many.twoFactor(),
+      sessions: r.many.session({
+        from: r.user.id,
+        to: r.session.userId,
+      }),
+      accounts: r.many.account({
+        from: r.user.id,
+        to: r.account.userId,
+      }),
+      twoFactors: r.many.twoFactor({
+        from: r.user.id,
+        to: r.twoFactor.userId,
+      }),
     },
     session: {
-      user: r.one.user({ from: r.session.userId, to: r.user.id }),
+      user: r.one.user({
+        from: r.session.userId,
+        to: r.user.id,
+      }),
     },
     account: {
-      user: r.one.user({ from: r.account.userId, to: r.user.id }),
+      user: r.one.user({
+        from: r.account.userId,
+        to: r.user.id,
+      }),
     },
     twoFactor: {
-      user: r.one.user({ from: r.twoFactor.userId, to: r.user.id }),
+      user: r.one.user({
+        from: r.twoFactor.userId,
+        to: r.user.id,
+      }),
     },
   }),
 );

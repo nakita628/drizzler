@@ -50,5 +50,7 @@ erDiagram
         text privateKey
         timestamp createdAt
         timestamp expiresAt
+        text alg
+        text crv
     }
 ```

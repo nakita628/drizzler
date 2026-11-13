@@ -1,0 +1,14 @@
+{
+  "name": "@fixtures/better-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs && vp fmt ."
+  },
+  "devDependencies": {
+    "@better-auth/drizzle-adapter": "1.7.14",
+    "better-auth": "1.7.14",
+    "drizzle-orm": "1.0.0-rc.5",
+    "drizzler": "workspace:^"
+  }
+}
