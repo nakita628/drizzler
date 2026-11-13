@@ -19,12 +19,6 @@ npx drizzler seed                          # fill the database from drizzler.con
 
 Without an input, drizzler reads the `schema` of `drizzle.config.ts`.
 
-## Documentation
-
-- [Diagrams, DBML and docs](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/generate.md)
-- [Studio](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/studio.md)
-- [Seed](https://github.com/nakita628/drizzler/blob/main/packages/drizzler/docs/seed.md)
-
 ## License
 
 MIT
