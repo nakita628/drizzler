@@ -1,0 +1,7 @@
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "postgresql",
+  schema: "./src/adapter/secondary/persistence/rdb/schema/*.sql.ts",
+  out: "./drizzle",
+});

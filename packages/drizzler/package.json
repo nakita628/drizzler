@@ -1,0 +1,112 @@
+{
+  "name": "drizzler",
+  "version": "0.1.0",
+  "description": "Drizzler reads a Drizzle schema — one file or many, with its comments as descriptions — into ER diagrams (SVG, PNG, Mermaid) and DBML, drawing relations v2 even without foreign keys, and opens it in drizzler studio.",
+  "keywords": [
+    "dbml",
+    "drizzle",
+    "drizzle-orm",
+    "er-diagram",
+    "erd",
+    "mermaid",
+    "relations",
+    "studio"
+  ],
+  "homepage": "https://github.com/nakita628/drizzler",
+  "bugs": {
+    "url": "https://github.com/nakita628/drizzler/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nakita628/drizzler.git"
+  },
+  "bin": {
+    "drizzler": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack && vp build -c vite.studio.config.ts",
+    "test": "vp test",
+    "coverage": "vp test --coverage",
+    "release": "npm pkg fix && pnpm build && npm publish",
+    "studio:api": "hono-takibi",
+    "studio:dev": "vp dev -c vite.studio.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p src/studio/client/tsconfig.json --noEmit",
+    "check": "vp check",
+    "fix": "vp check --fix"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.1.3",
+    "@effect/platform-node": "^4.1.1",
+    "@faker-js/faker": "^10.6.0",
+    "@hono/node-server": "^2.1.5",
+    "@hono/zod-openapi": "^1.6.3",
+    "@resvg/resvg-js": "^2.6.2",
+    "effect": "^4.1.1",
+    "hono": "^4.13.16",
+    "oxc-parser": "^0.156.0",
+    "oxfmt": "^0.75.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.4",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@electric-sql/pglite": "^0.5.14",
+    "@heroui/react": "^3.2.7",
+    "@lezer/highlight": "^1.2.5",
+    "@monaco-editor/react": "^4.7.0",
+    "@softwaretechnik/dbml-renderer": "^1.0.31",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.105.0",
+    "@tanstack/react-router": "^1.170.46",
+    "@tanstack/router-plugin": "^1.168.48",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@typespec/compiler": "^1.17.0",
+    "@typespec/http": "^1.17.0",
+    "@typespec/openapi": "^1.17.0",
+    "@typespec/openapi3": "^1.17.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "@xyflow/react": "^12.12.0",
+    "drizzle-orm": "1.0.0-rc.5",
+    "hono-takibi": "^0.29.0",
+    "monaco-editor": "^0.57.0",
+    "react": "^19.3.1",
+    "react-aria-components": "^1.22.1",
+    "react-dom": "^19.3.1",
+    "react-icons": "^5.7.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "zustand": "^5.0.16"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=1.0.0-rc.5"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
+  }
+}

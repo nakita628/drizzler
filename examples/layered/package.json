@@ -1,0 +1,13 @@
+{
+  "name": "@examples/layered",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "drizzler -o docs/er.svg && drizzler -o docs/er.png && drizzler -o docs/er-dark.png --theme dark && drizzler -o docs/ER.md && drizzler -o docs/schema.dbml"
+  },
+  "devDependencies": {
+    "drizzle-kit": "1.0.0-rc.5",
+    "drizzle-orm": "1.0.0-rc.5",
+    "drizzler": "workspace:^"
+  }
+}

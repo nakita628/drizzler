@@ -1,0 +1,47 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    ":separateMultipleMajorReleases",
+    "security:openssf-scorecard"
+  ],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["* * * * 6"],
+  "dependencyDashboardAutoclose": true,
+  "osvVulnerabilityAlerts": true,
+  "platformAutomerge": false,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "schedule": ["* * * * 6"]
+  },
+  "packageRules": [
+    {
+      "matchDatasources": ["npm", "github-actions"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "matchPackageNames": ["@typespec/**"],
+      "groupName": "typespec"
+    },
+    {
+      "description": "Held back on purpose in pnpm-workspace.yaml: later versions pull in @adobe/react-spectrum.",
+      "matchPackageNames": ["@react-types/color", "@react-types/slider"],
+      "enabled": false
+    },
+    {
+      "matchUpdateTypes": ["pin", "pinDigest"],
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": false
+    }
+  ]
+}

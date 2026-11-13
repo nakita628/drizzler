@@ -1,0 +1,127 @@
+Table user {
+  id text [pk]
+  name text
+  email text
+  emailVerified boolean
+  image text
+  createdAt timestamp
+  updatedAt timestamp
+  twoFactorEnabled boolean
+  role text
+  banned boolean
+  banReason text
+  banExpires timestamp
+  username text
+  displayUsername text
+  isAnonymous boolean
+  phoneNumber text
+  phoneNumberVerified boolean
+}
+
+Table session {
+  id text [pk]
+  expiresAt timestamp
+  token text
+  createdAt timestamp
+  updatedAt timestamp
+  ipAddress text
+  userAgent text
+  userId text
+  impersonatedBy text
+  activeOrganizationId text
+}
+
+Table account {
+  id text [pk]
+  accountId text
+  providerId text
+  userId text
+  accessToken text
+  refreshToken text
+  idToken text
+  accessTokenExpiresAt timestamp
+  refreshTokenExpiresAt timestamp
+  scope text
+  password text
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table verification {
+  id text [pk]
+  identifier text
+  value text
+  expiresAt timestamp
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table twoFactor {
+  id text [pk]
+  secret text
+  backupCodes text
+  userId text
+}
+
+Table organization {
+  id text [pk]
+  name text
+  slug text
+  logo text
+  createdAt timestamp
+  metadata text
+}
+
+Table member {
+  id text [pk]
+  organizationId text
+  userId text
+  role text
+  createdAt timestamp
+}
+
+Table invitation {
+  id text [pk]
+  organizationId text
+  email text
+  role text
+  status text
+  expiresAt timestamp
+  createdAt timestamp
+  inviterId text
+}
+
+Table jwks {
+  id text [pk]
+  publicKey text
+  privateKey text
+  createdAt timestamp
+  expiresAt timestamp
+}
+
+Table deviceCode {
+  id text [pk]
+  deviceCode text
+  userCode text
+  userId text
+  expiresAt timestamp
+  status text
+  lastPolledAt timestamp
+  pollingInterval integer
+  clientId text
+  scope text
+}
+
+Ref session_userId_user_id_fk: session.userId > user.id
+
+Ref account_userId_user_id_fk: account.userId > user.id
+
+Ref twoFactor_userId_user_id_fk: twoFactor.userId > user.id
+
+Ref member_organizationId_organization_id_fk: member.organizationId > organization.id
+
+Ref member_userId_user_id_fk: member.userId > user.id
+
+Ref invitation_organizationId_organization_id_fk: invitation.organizationId > organization.id
+
+Ref invitation_inviterId_user_id_fk: invitation.inviterId > user.id

@@ -1,0 +1,122 @@
+type Row = Record<string, string | number | boolean | null>;
+
+type Field = {
+  readonly name: string;
+  /** The column builder: `integer`, `text`, `boolean`, an enum's name, ... */
+  readonly type: string;
+  readonly nullable: boolean;
+  readonly isList: boolean;
+  readonly enumName: string | null;
+};
+
+const NUMERIC =
+  /^(int|integer|smallint|bigint|serial|smallserial|bigserial|real|double|doublePrecision|float|numeric|decimal|tinyint|mediumint)$/iu;
+
+/** A cell value as the grid shows it. */
+export function displayCell(value: Row[string]) {
+  if (value === null) return "NULL";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value);
+}
+
+/** A cell value as its editor starts with; empty for NULL. */
+export function editableText(value: Row[string]) {
+  return value === null ? "" : displayCell(value);
+}
+
+/** Turns what the user typed into the JSON value the data API expects for the column. */
+export function parseCellInput(field: Field, text: string): Row[string] {
+  if (text === "" && field.nullable) return null;
+  if (text === "NULL" && field.nullable) return null;
+  if (field.enumName !== null || field.isList) return text;
+  if (field.type === "boolean") return text === "true" || text === "1";
+  if (NUMERIC.test(field.type)) {
+    const result = Number(text);
+    return text.trim() !== "" && !Number.isNaN(result) ? result : text;
+  }
+  return text;
+}
+
+/** The values of a row's key columns. */
+export function keyOf(row: Row, key: readonly string[]): Row {
+  return Object.fromEntries(key.map((name) => [name, row[name] ?? null]));
+}
+
+/**
+ * What the table calls this row. Its key, and otherwise every column of it: selection, the React
+ * key and the delete dialog all have to name the same row, and a page of a keyless table still
+ * has to draw without two rows colliding.
+ */
+export function rowId(row: Row, key: readonly string[]) {
+  return JSON.stringify(keyOf(row, key));
+}
+
+/** `id = 3, email = "a@b.c"` — the row as the delete dialog names it. */
+export function keyLabel(row: Row, key: readonly string[]) {
+  return key.map((name) => `${name} = ${displayCell(row[name] ?? null)}`).join(", ");
+}
+
+function escapeCsv(value: Row[string]) {
+  const text = value === null ? "" : String(value);
+  return /[",\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+/** Rows as CSV, with a header line. */
+export function toCsv(columns: readonly string[], rows: readonly Row[]) {
+  const escape = escapeCsv;
+  return [
+    columns.join(","),
+    ...rows.map((row) => columns.map((c) => escape(row[c] ?? null)).join(",")),
+  ].join("\n");
+}
+
+/**
+ * The rows as a spreadsheet pastes them. Tabs and newlines inside a value would end the cell or
+ * the row, so they are written as spaces rather than quoted: TSV has no quoting to speak of, and
+ * a broken paste is worse than a flattened one.
+ */
+function flattenTsv(value: Row[string]) {
+  return value === null ? "" : String(value).replaceAll(/[\t\n\r]/gu, " ");
+}
+
+/** Rows as TSV, with a header line, for pasting into a spreadsheet. */
+export function toTsv(columns: readonly string[], rows: readonly Row[]) {
+  return [
+    columns.join("\t"),
+    ...rows.map((row) => columns.map((c) => flattenTsv(row[c] ?? null)).join("\t")),
+  ].join("\n");
+}
+
+/** Rows as a pretty-printed JSON array. */
+export function toJson(columns: readonly string[], rows: readonly Row[]) {
+  return JSON.stringify(
+    rows.map((row) => Object.fromEntries(columns.map((c) => [c, row[c] ?? null]))),
+    null,
+    2,
+  );
+}
+
+/**
+ * The text split into what a case-insensitive search for `query` matched and what it did not, so
+ * a hit in the fourteenth column can be seen rather than hunted for. An empty query matches
+ * nothing: the whole page would light up, which says no more than leaving it plain.
+ */
+export function matchRuns(text: string, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (needle === "" || text === "") return [{ start: 0, text, matched: false }];
+  // Splitting on the needle leaves the untouched runs; the seam between two of them is a hit.
+  const between = text.toLowerCase().split(needle);
+  return between.flatMap((part, index) => {
+    const start = between
+      .slice(0, index)
+      .reduce((offset, earlier) => offset + earlier.length + needle.length, 0);
+    const hit = start + part.length;
+    const plain = { start, text: text.slice(start, hit), matched: false };
+    const marked = { start: hit, text: text.slice(hit, hit + needle.length), matched: true };
+    // The text after the last seam is trailing, not a hit; an empty run between two hits is not
+    // a run at all.
+    const last = index === between.length - 1;
+    if (part === "") return last ? [] : [marked];
+    return last ? [plain] : [plain, marked];
+  });
+}

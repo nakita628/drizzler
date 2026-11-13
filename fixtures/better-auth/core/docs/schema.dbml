@@ -1,0 +1,49 @@
+Table user {
+  id text [pk]
+  name text
+  email text
+  emailVerified boolean
+  image text
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table session {
+  id text [pk]
+  expiresAt timestamp
+  token text
+  createdAt timestamp
+  updatedAt timestamp
+  ipAddress text
+  userAgent text
+  userId text
+}
+
+Table account {
+  id text [pk]
+  accountId text
+  providerId text
+  userId text
+  accessToken text
+  refreshToken text
+  idToken text
+  accessTokenExpiresAt timestamp
+  refreshTokenExpiresAt timestamp
+  scope text
+  password text
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table verification {
+  id text [pk]
+  identifier text
+  value text
+  expiresAt timestamp
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Ref session_userId_user_id_fk: session.userId > user.id
+
+Ref account_userId_user_id_fk: account.userId > user.id
