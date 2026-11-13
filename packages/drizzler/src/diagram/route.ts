@@ -3,7 +3,7 @@
 // itself. Shared by the exported drawing and Studio's canvas, so the two agree.
 import { EDGE_OFFSET, GRID, NODE_ROW_HEIGHT, SELF_LOOP_GAP } from "../constants/index.js";
 import type { Box, Point, Route } from "../types/index.js";
-import { around, grow, meets, routeCost } from "./box.js";
+import { around, boundedRouteCost, grow, meets, routeCost } from "./box.js";
 
 /** An edge that crosses the gap in a channel down the canvas at `x`. */
 function throughChannel(source: Point, target: Point, x: number): Route {
@@ -94,18 +94,29 @@ export function routePoints(source: Point, target: Point, cards: readonly Box[])
     ...before.toSorted((a, b) => b - a),
     target.x - EDGE_OFFSET,
   ];
-  return [
-    direct,
-    ...channels.map((x) => throughChannel(source, target, x)),
-    ...lanes.flatMap((y) => descents.map((x) => alongLane(source, target, y, x))),
-  ]
-    .map((points) => ({ points, cost: routeCost(points, nearby) }))
-    .reduce((best, candidate) =>
-      candidate.cost.hidden < best.cost.hidden ||
-      (candidate.cost.hidden === best.cost.hidden && candidate.cost.length < best.cost.length)
-        ? candidate
-        : best,
-    ).points;
+  // A lane or channel shared by cards side by side gives the same route more than once; only its
+  // first is scored, and of two equal routes the first is kept anyway.
+  const candidates = [
+    ...unique(channels).map((x) => throughChannel(source, target, x)),
+    ...unique(lanes).flatMap((y) => unique(descents).map((x) => alongLane(source, target, y, x))),
+  ];
+  return candidates.reduce<{ readonly points: Route; readonly cost: RouteCost }>(
+    (best, points) => {
+      // A route hiding more than the best so far is given up on before it is fully scored.
+      const cost = boundedRouteCost(points, nearby, best.cost.hidden);
+      return cost.hidden < best.cost.hidden ||
+        (cost.hidden === best.cost.hidden && cost.length < best.cost.length)
+        ? { points, cost }
+        : best;
+    },
+    { points: direct, cost: routeCost(direct, nearby) },
+  ).points;
+}
+
+type RouteCost = { readonly hidden: number; readonly length: number };
+
+function unique(values: readonly number[]) {
+  return [...new Set(values)];
 }
 
 /**
