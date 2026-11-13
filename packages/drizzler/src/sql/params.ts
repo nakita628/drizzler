@@ -23,15 +23,27 @@ export function paramsByStatement<T>(statements: readonly string[], params: read
       positional: found.filter((token) => token.raw === "?").length,
     };
   });
-  // The `?` of each statement take the values after those the statements before it took.
-  return placeholders.reduce<{ readonly next: number; readonly lists: readonly (readonly T[])[] }>(
-    (state, { highest, positional }) =>
-      highest === null
-        ? {
-            next: state.next + positional,
-            lists: [...state.lists, params.slice(state.next, state.next + positional)],
-          }
-        : { next: state.next, lists: [...state.lists, params.slice(0, highest)] },
-    { next: 0, lists: [] },
-  ).lists;
+  return [...bindEach(placeholders, params)];
+}
+
+/**
+ * The values of each statement in turn: the `?` of each statement take the values after those
+ * the statements before it took.
+ *
+ * @yields The values one statement binds.
+ */
+function* bindEach<T>(
+  placeholders: readonly { readonly highest: number | null; readonly positional: number }[],
+  params: readonly T[],
+): Generator<readonly T[]> {
+  // oxlint-disable-next-line custom/no-let -- the running offset into the values; carrying it through a reduce would copy the lists once per statement
+  let next = 0;
+  for (const { highest, positional } of placeholders) {
+    if (highest === null) {
+      yield params.slice(next, next + positional);
+      next += positional;
+    } else {
+      yield params.slice(0, highest);
+    }
+  }
 }

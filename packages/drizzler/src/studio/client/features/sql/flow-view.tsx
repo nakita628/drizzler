@@ -12,7 +12,7 @@ import {
 } from "@xyflow/react";
 import type { Edge, OnSelectionChangeParams } from "@xyflow/react";
 import type { InferResponseType } from "hono/client";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { ComponentProps } from "react";
 import { LuLayoutGrid } from "react-icons/lu";
 
@@ -162,8 +162,7 @@ function Canvas({
   );
 }
 
-/** The data-flow graph of one statement: sources on the left, the result on the right. */
-export function FlowView(props: ComponentProps<typeof Canvas>) {
+function FlowViewComponent(props: ComponentProps<typeof Canvas>) {
   if (props.nodes.length === 0) {
     return (
       <div className="p-6 text-muted">
@@ -179,3 +178,9 @@ export function FlowView(props: ComponentProps<typeof Canvas>) {
     </div>
   );
 }
+
+/**
+ * The data-flow graph of one statement: sources on the left, the result on the right. Memoized,
+ * so typing in the editor above does not redraw the graph of a statement that has not changed.
+ */
+export const FlowView = memo(FlowViewComponent);

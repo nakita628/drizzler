@@ -193,7 +193,6 @@ function extractRelationsFromForeignKeyConstraints(
         toModel: tableName,
         fromField: foreignColumnsMatch[2],
         toField: columnsMatch[2],
-        // The key is required when its column is NOT NULL.
         isRequired: required.get(`${tableName}.${columnsMatch[2]}`) ?? false,
         enforced: true,
       },
@@ -384,9 +383,9 @@ function extractRelationsFromDefinitions(
   program: Program,
   text: string,
   foreignKeys: readonly Relation[],
+  required: ReturnType<typeof requiredColumns>,
+  keys: ReturnType<typeof keyedColumns>,
 ) {
-  const required = requiredColumns(program, text);
-  const keys = keyedColumns(program, text);
   const references = new Set(foreignKeys.map((r) => `${r.toModel}.${r.toField}->${r.fromModel}`));
   // Whether a column of `child` is a foreign key to the table of `parent`.
   function pointsAt(child: readonly ColumnRef[], parent: readonly ColumnRef[]) {
@@ -539,14 +538,13 @@ export function extractRelationsFromSchema(code: readonly string[]) {
     return [...fieldRelations, ...fkRelations];
   });
 
+  const keys = keyedColumns(program, text);
   const allRelations = [
     ...tableRelations,
-    ...extractRelationsFromDefinitions(program, text, tableRelations),
+    ...extractRelationsFromDefinitions(program, text, tableRelations, required, keys),
   ];
 
-  // Deduplicate relations based on fromModel.fromField -> toModel.toField
   const seen = new Set<string>();
-  const keys = keyedColumns(program, text);
   return allRelations
     .filter((r) => {
       const key = `${r.fromModel}.${r.fromField}->${r.toModel}.${r.toField}`;
@@ -576,7 +574,7 @@ export function relationFields(code: readonly string[]) {
   const all = relationDefinitions(program, text).flatMap(({ relations }) =>
     relations.map(({ table, name, target }) => ({ table, name, target })),
   );
-  return all.filter(
-    (field, at) => all.findIndex((o) => o.table === field.table && o.name === field.name) === at,
-  );
+  // The first of each table and name, in the order they are declared.
+  const byName = Map.groupBy(all, (field) => JSON.stringify([field.table, field.name]));
+  return [...byName.values()].flatMap((same) => same.slice(0, 1));
 }

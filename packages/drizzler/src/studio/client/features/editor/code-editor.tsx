@@ -10,14 +10,13 @@ export type EditorCommand = {
   readonly run: () => void;
 };
 
-/**
- * A Monaco editor in the studio's theme. `path` names its model, so two editors (the schema,
- * the SQL console) never share an undo history.
- */
 // One empty list for every editor without commands, so the prop does not change each render.
 const NO_COMMANDS: readonly EditorCommand[] = [] as const;
 
-/** A Monaco editor in the studio's theme, with keyboard commands bound once on mount. */
+/**
+ * A Monaco editor in the studio's theme, with keyboard commands bound once on mount. `path` names
+ * its model, so two editors (the schema, the SQL console) never share an undo history.
+ */
 export function CodeEditor({
   path,
   language,

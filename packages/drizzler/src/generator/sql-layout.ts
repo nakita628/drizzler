@@ -47,13 +47,13 @@ export function layoutSql(sql: string) {
   const result = tokenize(sql);
   if (!result.ok) return sql;
   const { tokens } = result;
-  // The parenthesis depth in front of each token.
-  const depths = tokens.reduce<readonly number[]>((all, token, at) => {
-    const before = at === 0 ? 0 : (all[at - 1] ?? 0) + depthChange(tokens[at - 1]);
-    return [...all, before];
-  }, []);
-  const starts = tokens.flatMap((token, at) =>
-    startsLine(tokens, at, depths[at] ?? 0) ? [token.start] : [],
+  // Walked once, keeping the parenthesis depth in front of each token.
+  const { starts } = tokens.reduce<{ readonly depth: number; readonly starts: readonly number[] }>(
+    (state, token, at) => ({
+      depth: state.depth + depthChange(token),
+      starts: startsLine(tokens, at, state.depth) ? [...state.starts, token.start] : state.starts,
+    }),
+    { depth: 0, starts: [] },
   );
   const bounds = [0, ...starts, sql.length];
   return bounds

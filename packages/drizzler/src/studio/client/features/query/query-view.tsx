@@ -41,17 +41,11 @@ export function presetQuery(code: string) {
 // What earlier studios put in the editor for a start; a browser that kept it opens empty instead.
 const FORMER_STARTER = "// `db` is Drizzle over the connected database";
 
-// The editor opens with what was last written there, else empty.
 function initialCode() {
   const stored = loadString(CODE_KEY) ?? "";
   return stored.startsWith(FORMER_STARTER) ? "" : stored;
 }
 
-/**
- * Drizzle against the connected database: a query typed as the application would write it, with
- * completion and type errors from the project's TypeScript, run through the project's own
- * drizzle-orm, its result beside the tables it touches and the SQL it sends.
- */
 // A bound value as the SQL page takes it: a scalar as it is, anything else as JSON.
 function sqlParam(value: unknown) {
   if (
@@ -73,7 +67,11 @@ function whyUnavailable(connected: boolean, missing: { readonly reason: string |
   return null;
 }
 
-/** The Query page: Drizzle code run against the database, with its result, SQL and touched tables. */
+/**
+ * Drizzle against the connected database: a query typed as the application would write it, with
+ * completion and type errors from the project's TypeScript, run through the project's own
+ * drizzle-orm, its result beside the tables it touches and the SQL it sends.
+ */
 export function QueryView() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();

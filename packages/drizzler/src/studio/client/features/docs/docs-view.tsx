@@ -11,7 +11,6 @@ type Docs = z.infer<typeof DocsSchema>;
 type Table = Docs["tables"][number];
 type Enum = Docs["enums"][number];
 
-// How the docs name an index: its SQL keyword.
 function indexLabel(type: string) {
   if (type === "id") return "PRIMARY KEY";
   if (type === "normal") return "INDEX";

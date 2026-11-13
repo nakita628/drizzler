@@ -105,9 +105,20 @@ const TEXT_PATTERNS = [
   [/^(uuid|guid)$/u, (faker) => faker.string.uuid()],
 ] as const satisfies readonly (readonly [RegExp, (faker: Faker) => string])[];
 
+// The maker each column name matched, so the patterns are tried once per name, not once per row.
+const textMakers = new Map<string, ((faker: Faker) => string) | null>();
+
+function textMaker(name: string) {
+  const known = textMakers.get(name);
+  if (known !== undefined) return known;
+  const maker = TEXT_PATTERNS.find(([pattern]) => pattern.test(name))?.[1] ?? null;
+  textMakers.set(name, maker);
+  return maker;
+}
+
 function makeText(faker: Faker, name: string) {
-  const match = TEXT_PATTERNS.find(([pattern]) => pattern.test(name));
-  return match === undefined ? faker.lorem.words({ min: 1, max: 3 }) : match[1](faker);
+  const maker = textMaker(name);
+  return maker === null ? faker.lorem.words({ min: 1, max: 3 }) : maker(faker);
 }
 
 // The column's own length (`varchar({ length: 64 })`); a rule's `length` narrows it.

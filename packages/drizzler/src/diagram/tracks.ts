@@ -48,9 +48,9 @@ function components<T>(
   linked: (a: T, b: T) => boolean,
 ): readonly (readonly T[])[] {
   return items.reduce<readonly (readonly T[])[]>((groups, item) => {
-    const joined = groups.filter((group) => group.some((other) => linked(item, other)));
-    const apart = groups.filter((group) => !joined.includes(group));
-    return [...apart, [...joined.flat(), item]];
+    const joined = new Set(groups.filter((group) => group.some((other) => linked(item, other))));
+    const apart = groups.filter((group) => !joined.has(group));
+    return [...apart, [...[...joined].flat(), item]];
   }, []);
 }
 
@@ -81,13 +81,20 @@ function leastCrossing(bundles: readonly (readonly Stretch[])[]) {
     // the right of, and with each it is drawn to the left of. Each pair is counted once.
     const leftOf = order.map((other) => crossings(bundle, other));
     const rightOf = order.map((other) => crossings(other, bundle));
-    const added = Array.from(
-      { length: order.length + 1 },
-      (_, index) =>
-        rightOf.slice(0, index).reduce((sum, count) => sum + count, 0) +
-        leftOf.slice(index).reduce((sum, count) => sum + count, 0),
+    // Put first, it is drawn to the left of them all; each step right trades the crossings with
+    // the bundle it passes as its left neighbour for those as its right. Of equal places the
+    // leftmost is kept.
+    const first = leftOf.reduce((sum, count) => sum + count, 0);
+    const best = order.reduce(
+      (state, _, index) => {
+        const added = state.added + (rightOf[index] ?? 0) - (leftOf[index] ?? 0);
+        return added < state.least
+          ? { added, least: added, at: index + 1 }
+          : { added, least: state.least, at: state.at };
+      },
+      { added: first, least: first, at: 0 },
     );
-    return order.toSpliced(added.indexOf(Math.min(...added)), 0, bundle);
+    return order.toSpliced(best.at, 0, bundle);
   }, []);
 }
 

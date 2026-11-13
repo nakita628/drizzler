@@ -62,7 +62,6 @@ const CONNECTION_LABELS = {
   connecting: "Connecting",
 } as const;
 
-// The database line: still asking, connected (to what), or why not.
 function databaseLabel(
   db: {
     readonly connected: boolean;

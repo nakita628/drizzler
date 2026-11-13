@@ -13,7 +13,7 @@ import {
   useStoreApi,
 } from "@xyflow/react";
 import type { Edge, OnSelectionChangeParams } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LuDownload, LuLayoutGrid } from "react-icons/lu";
 import { GRID, PALETTES } from "../../../../constants/index.js";
 import { layoutStorageKey, loadLayout, saveLayout } from "../../lib/layout.js";
@@ -270,12 +270,7 @@ function Canvas({
   );
 }
 
-/**
- * The ER diagram as cards on a canvas: dragged where you want them and remembered there, laid out
- * again with Auto layout, the relations of a selected card picked out. `compact` is the editor's
- * side panel: no minimap and no export.
- */
-export function SchemaCanvas({
+function SchemaCanvasComponent({
   schema,
   schemaPath,
   focus = null,
@@ -307,3 +302,11 @@ export function SchemaCanvas({
     </ReactFlowProvider>
   );
 }
+
+/**
+ * The ER diagram as cards on a canvas: dragged where you want them and remembered there, laid out
+ * again with Auto layout, the relations of a selected card picked out. `compact` is the editor's
+ * side panel: no minimap and no export. Memoized: the editor pages re-render on every keystroke,
+ * and the canvas only needs to when the schema, the highlight or the focus changed.
+ */
+export const SchemaCanvas = memo(SchemaCanvasComponent);

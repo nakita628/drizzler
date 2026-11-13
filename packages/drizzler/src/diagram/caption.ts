@@ -287,12 +287,12 @@ function inColumns<E extends CaptionedEdge>(
  */
 function clearestSpot<E extends CaptionedEdge>(
   edge: E,
+  own: readonly Wire<E>[],
   wires: readonly Wire<E>[],
   cards: readonly Box[],
   placed: readonly PlacedCaption<E>[],
 ): Box {
   const { caption } = edge;
-  const own = wires.filter((wire) => wire.edge === edge);
   // Measured once: every spot of every segment is a chip of the same size.
   const size = { width: captionWidth(caption), height: captionHeight(caption) };
   // Nothing costs less than nothing, so once a segment holds a spot that is free, the ones after it
@@ -359,21 +359,24 @@ export function placeCaptions<E extends CaptionedEdge>(
   });
   // Whichever the columns held and the loops hold are settled before the search starts.
   const first = [...loops, ...inColumns(edges, wires, cards, loops)];
-  const { placed } = edges.reduce<{
-    readonly placed: readonly PlacedCaption<E>[];
-    readonly done: ReadonlySet<E>;
-  }>(
+  const settled = new Set(first.map((caption) => caption.edge));
+  const wiresOf = Map.groupBy(wires, (wire) => wire.edge);
+  // Each edge is looked at once, however often it is listed.
+  const { placed } = [...new Set(edges)].reduce<{ readonly placed: readonly PlacedCaption<E>[] }>(
     (state, edge) =>
-      edge.caption.length === 0 || state.done.has(edge)
+      edge.caption.length === 0 || settled.has(edge)
         ? state
         : {
             placed: [
               ...state.placed,
-              { edge, caption: edge.caption, box: clearestSpot(edge, wires, cards, state.placed) },
+              {
+                edge,
+                caption: edge.caption,
+                box: clearestSpot(edge, wiresOf.get(edge) ?? [], wires, cards, state.placed),
+              },
             ],
-            done: new Set([...state.done, edge]),
           },
-    { placed: first, done: new Set(first.map((caption) => caption.edge)) },
+    { placed: first },
   );
   // In the order of the edges, whichever way each was placed.
   const byEdge = Map.groupBy(placed, (caption) => caption.edge);

@@ -11,7 +11,6 @@ function cell(value: unknown): Cell {
   return JSON.stringify(value);
 }
 
-// A result as a list: itself when it is one, a lone object as a list of one, else null.
 function listOf(value: unknown): readonly unknown[] | null {
   if (Array.isArray(value)) return value;
   return isRecord(value) ? [value] : null;

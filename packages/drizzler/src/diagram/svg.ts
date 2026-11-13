@@ -119,9 +119,11 @@ function renderEdge(edge: Edge, palette: Palette) {
 
 /** Where the dotted link from every enum-typed field to the card that lists its values runs. */
 function enumLinkEnds(nodes: readonly PlacedNode[], enums: readonly PlacedEnum[]) {
+  // The first card of each name, as a search through them in order would find it.
+  const byName = Map.groupBy(enums, (candidate) => candidate.value.name);
   return nodes.flatMap((node) =>
     node.fields.flatMap((field) => {
-      const card = enums.find((candidate) => candidate.value.name === field.type);
+      const card = byName.get(field.type)?.[0];
       if (field.kind !== "enum" || card === undefined) return [];
       return [
         {

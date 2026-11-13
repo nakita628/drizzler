@@ -4,6 +4,37 @@ import { parseSource, unwrapParens } from "../../../helper/ast.js";
 import { diagramSchema, relationFields, tableCalls } from "../../../helper/index.js";
 import { stripImports } from "../../../schema/strip-imports.js";
 
+/** How many sources each reader remembers: the saved schema and the editor's text, with room to spare. */
+const REMEMBERED = 4;
+
+/**
+ * The reader with its last few answers kept by source. Every request reads the saved schema again
+ * and parses it, though it rarely changes between requests; the answers are never modified.
+ */
+function rememberBySource<T>(read: (source: string) => T) {
+  const answers = new Map<string, T>();
+  return function remembered(source: string) {
+    const known = answers.get(source);
+    if (known !== undefined) return known;
+    const answer = read(source);
+    const oldest = answers.keys().next();
+    if (answers.size >= REMEMBERED && oldest.done !== true) answers.delete(oldest.value);
+    answers.set(source, answer);
+    return answer;
+  };
+}
+
+function parseSyntaxError(source: string) {
+  const { errors } = parseSync("schema.ts", source, { lang: "ts", sourceType: "module" });
+  const [first] = errors;
+  if (first === undefined) return null;
+  return { message: first.message, offset: first.labels[0]?.start ?? 0 };
+}
+
+const syntaxErrorOf = rememberBySource(parseSyntaxError);
+const schemaOf = rememberBySource((source) => diagramSchema(stripImports(source)));
+const relationFieldsOf = rememberBySource((source) => relationFields(stripImports(source)));
+
 /**
  * Parses a schema source with oxc and finds its first syntax error, so the editor can underline
  * it while the last good diagram stays.
@@ -19,10 +50,7 @@ import { stripImports } from "../../../schema/strip-imports.js";
  * @returns the first error's message and UTF-16 offset, or null when the source parses
  */
 export function findSyntaxError(input: { readonly source: string }) {
-  const { errors } = parseSync("schema.ts", input.source, { lang: "ts", sourceType: "module" });
-  const [first] = errors;
-  if (first === undefined) return null;
-  return { message: first.message, offset: first.labels[0]?.start ?? 0 };
+  return syntaxErrorOf(input.source);
 }
 
 /**
@@ -40,7 +68,7 @@ export function findSyntaxError(input: { readonly source: string }) {
  * @returns the models, relations and enums the diagram is drawn from
  */
 export function readSchema(input: { readonly source: string }) {
-  return diagramSchema(stripImports(input.source));
+  return schemaOf(input.source);
 }
 
 /**
@@ -82,7 +110,7 @@ export function findTableSpans(input: { readonly source: string }) {
  * @returns every relation field, by table and name, with the table it points at
  */
 export function readRelationFields(input: { readonly source: string }) {
-  return relationFields(stripImports(input.source));
+  return relationFieldsOf(input.source);
 }
 
 const WRAP_START = "async function __drizzler_query() {\n";

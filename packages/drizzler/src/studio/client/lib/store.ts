@@ -15,7 +15,6 @@ function applyTheme(theme: Theme) {
   document.documentElement.style.setProperty("color-scheme", theme);
 }
 
-// The scheme the operating system asks for, light where the browser cannot say.
 function systemTheme(): Theme {
   const prefersDark =
     typeof globalThis.matchMedia === "function" &&

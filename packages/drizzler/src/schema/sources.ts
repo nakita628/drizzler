@@ -225,22 +225,26 @@ function importedSpecifiers(program: Program) {
 export function collectSchemaFiles(inputs: readonly string[], cwd: string) {
   return visitFiles(
     inputs.flatMap((input) => expandInput(input, cwd)),
-    [],
+    new Set(),
   );
 }
 
-// Breadth first: the files waiting in `queue`, each added once and followed by what it imports.
-function visitFiles(queue: readonly string[], files: readonly string[]): readonly string[] {
-  const [file, ...rest] = queue;
-  if (file === undefined) return files;
-  if (files.includes(file)) return visitFiles(rest, files);
-  const imported = importedSpecifiers(parse(file, fs.readFileSync(file, "utf8"))).flatMap(
-    (specifier) => {
+// Breadth first, a level at a time: the files of `level` not yet `seen`, each added once, then
+// what they import, in the order a queue of them would take.
+function visitFiles(level: readonly string[], seen: Set<string>): readonly string[] {
+  if (level.length === 0) return [];
+  const fresh = level.filter((file) => {
+    if (seen.has(file)) return false;
+    seen.add(file);
+    return true;
+  });
+  const imported = fresh.flatMap((file) =>
+    importedSpecifiers(parse(file, fs.readFileSync(file, "utf8"))).flatMap((specifier) => {
       const resolved = resolveImport(specifier, file);
       return resolved !== null && isSchemaModule(resolved) ? [resolved] : [];
-    },
+    }),
   );
-  return visitFiles([...rest, ...imported], [...files, file]);
+  return [...fresh, ...visitFiles(imported, seen)];
 }
 
 /**

@@ -275,7 +275,6 @@ function dialectOf(table: Table): Dialect | null {
   return null;
 }
 
-// What the dialect's own `getTableConfig` reports of a table.
 function dialectTableConfig(table: Table) {
   if (is(table, PgTable)) return pgTableConfig(table);
   if (is(table, SQLiteTable)) return sqliteTableConfig(table);
@@ -500,10 +499,12 @@ export function readSchema(schema: Readonly<Record<string, unknown>>) {
 
     // The parent side of each key: `posts: r.many.post()` on user, matched to post's key back to
     // user by its columns, which Drizzle has filled in on both sides of the pair.
+    const tableByName = new Map(tables.map((table) => [table.name, table] as const));
+    const linksByOwner = Map.groupBy(links, (link) => link.owner);
     const withParents = tables.map((table): ModelTable => {
-      const parents = links.flatMap((link): ParentSide[] => {
-        if (link.owner !== table.name || link.through !== null) return [];
-        const child = tables.find((t) => t.name === link.target);
+      const parents = (linksByOwner.get(table.name) ?? []).flatMap((link): ParentSide[] => {
+        if (link.through !== null) return [];
+        const child = tableByName.get(link.target);
         const key = child?.foreignKeys.find(
           (fk) =>
             fk.toModel === table.name &&

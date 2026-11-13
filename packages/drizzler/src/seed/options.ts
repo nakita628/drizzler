@@ -1,12 +1,12 @@
 import type { CommonOptions, SeedConfig } from "./config.js";
 
-/** A date window as written, as dates; a missing edge is a year before the run, or the run itself. */
 // The locales to try in order; null when the config names none.
 function localesOf(locale: CommonOptions["locale"]) {
   if (locale === undefined) return null;
   return typeof locale === "string" ? [locale] : locale;
 }
 
+/** A date window as written, as dates; a missing edge is a year before the run, or the run itself. */
 function window(dates: CommonOptions["dates"]) {
   if (dates === undefined || (dates.from === undefined && dates.to === undefined)) return null;
   const to = dates.to === undefined ? new Date() : new Date(dates.to);

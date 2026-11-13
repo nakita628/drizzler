@@ -1,5 +1,5 @@
 import { Button, Dropdown, SearchField, Table } from "@heroui/react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { SortDescriptor } from "react-aria-components";
 import { LuCopy, LuDownload } from "react-icons/lu";
 
@@ -10,6 +10,10 @@ import { MarkedText } from "./marked-text.js";
 
 type Row = Record<string, string | number | boolean | null>;
 
+// One collator for the whole sort: `localeCompare` with options builds a new one per call, which
+// dominates sorting a result of thousands of rows.
+const COLLATOR = new Intl.Collator(undefined, { numeric: true });
+
 function compare(a: Row[string], b: Row[string]) {
   if (a === b) return 0;
   // NULLs go last whichever way the column is sorted, as they do in a spreadsheet.
@@ -17,15 +21,10 @@ function compare(a: Row[string], b: Row[string]) {
   if (b === null) return -1;
   return typeof a === "number" && typeof b === "number"
     ? a - b
-    : String(a).localeCompare(String(b), undefined, { numeric: true });
+    : COLLATOR.compare(String(a), String(b));
 }
 
-/**
- * The rows a statement came back with. The server has already sent everything it is going to
- * send, so the filter and the ordering are done here: a result nobody paged through is a result
- * that can be narrowed and sorted without asking the database a second question.
- */
-export function ResultTable({
+function ResultTableComponent({
   columns,
   rows,
 }: {
@@ -49,7 +48,7 @@ export function ResultTable({
           );
     if (sort === null) return kept;
     const column = String(sort.column);
-    const ordered = [...kept].toSorted((a, b) => compare(a[column] ?? null, b[column] ?? null));
+    const ordered = kept.toSorted((a, b) => compare(a[column] ?? null, b[column] ?? null));
     return sort.direction === "descending" ? ordered.toReversed() : ordered;
   }, [rows, columns, filter, sort]);
 
@@ -170,3 +169,11 @@ export function ResultTable({
     </div>
   );
 }
+
+/**
+ * The rows a statement came back with. The server has already sent everything it is going to
+ * send, so the filter and the ordering are done here: a result nobody paged through is a result
+ * that can be narrowed and sorted without asking the database a second question. Memoized: it
+ * sits under an editor that re-renders on every keystroke, and a large result is costly to redraw.
+ */
+export const ResultTable = memo(ResultTableComponent);

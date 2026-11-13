@@ -267,14 +267,26 @@ export function createLanguage(input: {
     return loaded;
   }).pipe(Semaphore.withPermit(lock));
 
-  /** The query file's text: the lines in front, the query, and the brace that closes it. */
-  function queryText(loaded: Loaded, code: string) {
-    const source = loaded.ts.sys.readFile(loaded.file) ?? "";
-    const { preamble, suffix } = input.queryPreamble({
+  // The preamble of the saved schema it was last built from: every keystroke on the Query page
+  // asks again, and the schema rarely changes between them.
+  const preambles = new Map<string, ReturnType<QueryPreamble>>();
+
+  function preambleOf(loaded: Loaded, source: string) {
+    const known = preambles.get(source);
+    if (known !== undefined) return known;
+    const made = input.queryPreamble({
       source,
       schemaImport: `./${path.basename(loaded.file)}`,
       names: schemaExports({ source }),
     });
+    preambles.clear();
+    preambles.set(source, made);
+    return made;
+  }
+
+  /** The query file's text: the lines in front, the query, and the brace that closes it. */
+  function queryText(loaded: Loaded, code: string) {
+    const { preamble, suffix } = preambleOf(loaded, loaded.ts.sys.readFile(loaded.file) ?? "");
     return { text: `${preamble}${code}${suffix}`, base: preamble.length };
   }
 
