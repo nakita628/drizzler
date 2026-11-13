@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Faker, allLocales } from "@faker-js/faker";
-import { Config, Effect, Option } from "effect";
+import { Clock, Config, Effect, Option } from "effect";
 import { emitRaw } from "../emit/index.js";
 import { makeDialect, makeSqlitePath } from "../studio/server/domain/sql.js";
 import { openDriver } from "../studio/server/services/database.js";
@@ -29,7 +29,7 @@ export type SeedOverrides = {
  * A faker speaking the configured locales, each falling back to the next, then to English, seeded
  * when the config names a seed and drawing fresh randomness otherwise.
  */
-function makeFaker(seed: number | null, locales: readonly string[] | null) {
+function makeFaker(seed: number | null, locales: readonly string[] | null, now: Date) {
   return Effect.gen(function* () {
     const definitions = (locales ?? []).map((code) => ({
       code,
@@ -55,9 +55,8 @@ function makeFaker(seed: number | null, locales: readonly string[] | null) {
     if (seed !== null) faker.seed(seed);
     // Without a `dates` window, dates fall in the year before the run. Anchored on the day, not
     // the millisecond, so two seeded runs on the same day agree.
-    const today = new Date();
     faker.setDefaultRefDate(
-      new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())),
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
     );
     return faker;
   });
@@ -114,10 +113,12 @@ function seedProgram(overrides: SeedOverrides, cwd: string) {
     const configPath = yield* resolveConfigPath(overrides.config, cwd);
     const configDir = path.dirname(configPath);
     const loaded = yield* loadSeedConfig(configPath);
-    const config = resolveSeedConfig(withOverrides(loaded, overrides));
+    // The clock is read once, here: the date window and faker's dates both start from it.
+    const now = new Date(yield* Clock.currentTimeMillis);
+    const config = resolveSeedConfig(withOverrides(loaded, overrides), now);
     const schema = yield* readSchema(config.schema);
     const tables = yield* makeSeedPlan(schema.tables);
-    const faker = yield* makeFaker(config.seed, config.locale);
+    const faker = yield* makeFaker(config.seed, config.locale, now);
     const entries = yield* generateSeedRows({ tables, config, faker });
     const report = {
       seed: config.seed,

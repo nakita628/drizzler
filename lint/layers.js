@@ -208,7 +208,7 @@ export const layerRules = {
     create(context) {
       if (TEST_FILE.test(getFilename(context))) return {};
       const fix =
-        "Domain functions must return the same answer for the same arguments. Read the clock / make the value in the usecase and pass it in.";
+        "Pure functions (the studio's domain, sql, generator, diagram, helper) must return the same answer for the same arguments. Read the clock / make the value in the caller (a usecase, core/, the CLI) and pass it in.";
       const banned = {
         Date: ["now"],
         Math: ["random"],
@@ -227,11 +227,11 @@ export const layerRules = {
           ) {
             context.report({
               node,
-              message: `\`${callee.object.name}.${callee.property.name}()\` in domain. ${fix}`,
+              message: `\`${callee.object.name}.${callee.property.name}()\` in pure code. ${fix}`,
             });
           }
           if (callee.type === "Identifier" && callee.name === "Date") {
-            context.report({ node, message: `\`Date()\` in domain. ${fix}` });
+            context.report({ node, message: `\`Date()\` in pure code. ${fix}` });
           }
         },
         NewExpression(node) {
@@ -240,7 +240,7 @@ export const layerRules = {
             node.callee.name === "Date" &&
             node.arguments.length === 0
           ) {
-            context.report({ node, message: `\`new Date()\` in domain. ${fix}` });
+            context.report({ node, message: `\`new Date()\` in pure code. ${fix}` });
           }
         },
       };
@@ -267,25 +267,25 @@ export const layerRules = {
       ]);
       const IO_OBJECTS = new Set(["console", "process", "window", "document", "globalThis"]);
       const tail =
-        "Domain functions take values and return values; do this in a service and pass the result in.";
+        "Pure functions take values and return values; do this in a service (or core/, schema/sources.ts) and pass the result in.";
       function reportAsync(node) {
         if (node.async) {
           context.report({
             node,
             message:
-              "Async function in domain. Domain is synchronous: await in the usecase and pass the value in.",
+              "Async function in pure code. Pure code is synchronous: await in the caller and pass the value in.",
           });
         }
       }
       return {
         CallExpression(node) {
           if (node.callee.type === "Identifier" && IO_CALLS.has(node.callee.name)) {
-            context.report({ node, message: `\`${node.callee.name}()\` in domain. ${tail}` });
+            context.report({ node, message: `\`${node.callee.name}()\` in pure code. ${tail}` });
           }
         },
         MemberExpression(node) {
           if (node.object.type === "Identifier" && IO_OBJECTS.has(node.object.name)) {
-            context.report({ node, message: `\`${node.object.name}\` in domain. ${tail}` });
+            context.report({ node, message: `\`${node.object.name}\` in pure code. ${tail}` });
           }
         },
         FunctionDeclaration: reportAsync,
@@ -298,7 +298,7 @@ export const layerRules = {
             if (declaration?.type === "VariableDeclaration" && declaration.kind !== "const") {
               context.report({
                 node: declaration,
-                message: `Module-level \`${declaration.kind}\` in domain: shared mutable state makes the answer depend on call order.`,
+                message: `Module-level \`${declaration.kind}\` in pure code: shared mutable state makes the answer depend on call order.`,
               });
             }
           }

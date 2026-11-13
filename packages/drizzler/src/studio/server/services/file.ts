@@ -1,3 +1,5 @@
+import type { Stats } from "node:fs";
+import { unwatchFile, watchFile as pollFile } from "node:fs";
 import path from "node:path";
 import { layer as nodeFileSystemLayer } from "@effect/platform-node/NodeFileSystem";
 import { Effect, FileSystem } from "effect";
@@ -87,4 +89,35 @@ export function exists(input: { readonly file: string }) {
       ),
     ),
   );
+}
+
+/**
+ * Calls `input.onChange` whenever a file's modification time changes, for as long as the scope it
+ * runs in stays open. The file is polled: `fs.watch` misses writes through bind mounts and editors
+ * that replace the file.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   file[input.file] --> poll[poll every input.intervalMs]
+ *   poll -- mtime changed --> change[input.onChange]
+ *   scope[scope closes] --> stop[stop polling]
+ * ```
+ *
+ * @param input.file - the path of the file to watch
+ * @param input.intervalMs - how often the file is polled
+ * @param input.onChange - called once for every change seen
+ * @returns nothing; the watch stops when the surrounding scope closes
+ */
+export function watchFile(input: {
+  readonly file: string;
+  readonly intervalMs: number;
+  readonly onChange: () => void;
+}) {
+  function listener(current: Stats, previous: Stats) {
+    if (current.mtimeMs !== previous.mtimeMs) input.onChange();
+  }
+  return Effect.acquireRelease(
+    Effect.sync(() => pollFile(input.file, { interval: input.intervalMs }, listener)),
+    () => Effect.sync(() => unwatchFile(input.file, listener)),
+  ).pipe(Effect.asVoid);
 }

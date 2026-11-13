@@ -103,23 +103,3 @@ export function configureStudio(input: {
   });
   StudioService.setStudio({ studio: input, language });
 }
-
-/**
- * Reads the schema file the studio was started with, for watching it for changes.
- *
- * ```mermaid
- * sequenceDiagram
- *   participant H as Handler
- *   participant U as StudioUseCase
- *   participant S as StudioService
- *   H->>U: readSchemaPath()
- *   U->>S: getStudio()
- *   S-->>U: studio
- *   U-->>H: schemaPath
- * ```
- *
- * @returns the absolute path of the schema file
- */
-export function readSchemaPath() {
-  return StudioService.getStudio().schemaPath;
-}

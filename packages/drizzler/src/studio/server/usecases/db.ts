@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import { analyze, paramsByStatement, splitStatements } from "../../../sql/index.js";
 import * as DocsDomain from "../domain/docs.js";
 import * as QueryDomain from "../domain/query.js";
@@ -402,9 +402,8 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
     const statements = yield* statementsOf(input.sql);
     const params = input.params.map((value) => SqlDomain.makeParam({ dialect: db.dialect, value }));
     const bound = paramsByStatement(statements, params);
-    const started = performance.now();
-    const results = yield* Effect.forEach(statements, (sql, index) =>
-      db.query({ sql, params: bound[index] ?? [] }),
+    const [took, results] = yield* Effect.timed(
+      Effect.forEach(statements, (sql, index) => db.query({ sql, params: bound[index] ?? [] })),
     );
     const result = results.at(-1) ?? { columns: [], rows: [], rowCount: 0 };
     const columns = result.columns.length > 0 ? result.columns : Object.keys(result.rows[0] ?? {});
@@ -416,7 +415,7 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
         ),
       ),
       rowCount: result.rowCount,
-      durationMs: Math.round((performance.now() - started) * 100) / 100,
+      durationMs: Math.round(Duration.toMillis(took) * 100) / 100,
     };
   });
 }

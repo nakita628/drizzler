@@ -86,10 +86,13 @@ function entries() {
       faker.seed(3);
       return yield* generateSeedRows({
         tables,
-        config: resolveSeedConfig({
-          schema,
-          models: { author: { count: 3 }, book: { count: 10 } },
-        }),
+        config: resolveSeedConfig(
+          {
+            schema,
+            models: { author: { count: 3 }, book: { count: 10 } },
+          },
+          new Date(),
+        ),
         faker,
       });
     }),

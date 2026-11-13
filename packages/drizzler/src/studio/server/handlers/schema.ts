@@ -1,12 +1,9 @@
-import fs from "node:fs";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { Effect, Match } from "effect";
 import { streamSSE } from "hono/streaming";
 import type { getSchemaEventsRoute, getSchemaRoute, putSchemaRoute } from "../routes";
 import { SnapshotSchema } from "../routes";
-import { WATCH_INTERVAL_MS } from "../constants/index.js";
 import * as SchemaUseCase from "../usecases/schema.js";
-import * as StudioUseCase from "../usecases/studio.js";
 
 /**
  * `GET /schema` handler. The schema file as it is on disk.
@@ -99,39 +96,38 @@ export const putSchemaRouteHandler: RouteHandler<typeof putSchemaRoute> = (c) =>
 
 /**
  * `GET /schema/events` handler. A `change` event whenever the schema file changes on disk, so
- * an edit made in another editor reaches the page. The file is polled: `fs.watch` misses writes
- * through bind mounts and editors that replace the file.
+ * an edit made in another editor reaches the page.
  *
  * ```mermaid
  * sequenceDiagram
  *   participant C as Client
  *   participant H as Handler
- *   participant U as StudioUseCase
- *   participant F as fs.watchFile
+ *   participant U as SchemaUseCase
  *   C->>H: GET /schema/events
- *   H->>U: readSchemaPath()
- *   U-->>H: schemaPath
- *   H->>F: watchFile(schemaPath, WATCH_INTERVAL_MS)
+ *   H->>U: watchSchema({ onChange })
  *   H-->>C: event: ready
  *   loop while the stream is open
- *     F-->>H: stats (mtime changed)
+ *     U-->>H: onChange()
  *     H-->>C: event: change
  *   end
  *   C-xH: abort
- *   H->>F: unwatchFile(schemaPath)
+ *   Note over H,U: the scope closes and the watch stops
  * ```
  */
 export const getSchemaEventsRouteHandler: RouteHandler<typeof getSchemaEventsRoute> = (c) => {
-  return streamSSE(c, async (stream) => {
-    const file = StudioUseCase.readSchemaPath();
-    function listener(current: fs.Stats, previous: fs.Stats) {
-      if (current.mtimeMs !== previous.mtimeMs) {
-        void stream.writeSSE({ event: "change", data: "{}" });
-      }
-    }
-    fs.watchFile(file, { interval: WATCH_INTERVAL_MS }, listener);
-    await stream.writeSSE({ event: "ready", data: "{}" });
-    await new Promise<void>((resolve) => stream.onAbort(resolve));
-    fs.unwatchFile(file, listener);
-  });
+  return streamSSE(c, (stream) =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* SchemaUseCase.watchSchema({
+            onChange() {
+              void stream.writeSSE({ event: "change", data: "{}" });
+            },
+          });
+          yield* Effect.promise(() => stream.writeSSE({ event: "ready", data: "{}" }));
+          yield* Effect.promise(() => new Promise<void>((resolve) => stream.onAbort(resolve)));
+        }),
+      ),
+    ),
+  );
 };

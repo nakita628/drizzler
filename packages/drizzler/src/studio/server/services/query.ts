@@ -2,7 +2,7 @@ import fs from "node:fs";
 import module from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { Effect, Result } from "effect";
+import { Duration, Effect, Result } from "effect";
 import type ts from "typescript";
 import { QueryRunError } from "../errors/index.js";
 import type { Driver } from "./database.js";
@@ -287,8 +287,7 @@ export function runQuery(input: {
     const source = transpile(input.module(schemaUrl.href), "query.ts");
     const file = path.join(queryDir(input.schemaPath), `query-${crypto.randomUUID()}.mjs`);
     const executed: ExecutedLog = new Map();
-    const started = performance.now();
-    const outcome = yield* execute({
+    const [took, outcome] = yield* execute({
       file,
       source,
       executor: makeExecutor(input.driver, executed, input.toJson),
@@ -297,11 +296,12 @@ export function runQuery(input: {
         onSuccess: (value) => ({ result: input.toJson(value), error: null }),
         onFailure: (error) => ({ result: null, error: error.message }),
       }),
+      Effect.timed,
     );
     return {
       ...outcome,
       statements: [...executed.values()],
-      durationMs: Math.round((performance.now() - started) * 100) / 100,
+      durationMs: Math.round(Duration.toMillis(took) * 100) / 100,
     };
   });
 }

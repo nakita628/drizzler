@@ -554,6 +554,55 @@ export default defineConfig({
         },
       },
       {
+        // The library's computing core is pure, as the studio's domain is: schema text in, diagrams,
+        // DBML, docs and SQL analysis out. Reading files, the clock and randomness happens in
+        // core/, schema/sources.ts, file/ and the CLI, which hand these modules plain values.
+        files: [
+          "packages/drizzler/src/sql/**",
+          "packages/drizzler/src/generator/**",
+          "packages/drizzler/src/diagram/**",
+          "packages/drizzler/src/helper/**",
+          "packages/drizzler/src/schema/paths.ts",
+          "packages/drizzler/src/schema/strip-imports.ts",
+        ],
+        rules: {
+          "custom/domain-no-nondeterminism": "error",
+          "custom/domain-no-side-effects": "error",
+          // Why: a pure module that imports I/O can start doing it unnoticed.
+          // NG:   import fs from "node:fs"  /  import { Effect } from "effect"
+          // OK:   import path from "node:path"  /  import { parseSync } from "oxc-parser"
+          "no-restricted-imports": [
+            "error",
+            {
+              paths: [
+                { name: "effect", message: "Pure modules return values; Effects belong in core/." },
+              ],
+              patterns: [
+                {
+                  group: [
+                    "node:fs",
+                    "node:fs/*",
+                    "node:child_process",
+                    "node:os",
+                    "node:http",
+                    "node:https",
+                    "node:net",
+                    "node:crypto",
+                    "@effect/*",
+                    "../file/*",
+                    "../core/*",
+                    "../emit/*",
+                    "../schema/sources.js",
+                  ],
+                  message:
+                    "Pure modules do not touch the outside world; read it in core/ or schema/sources.ts and pass the value in.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
         // Tests build fixtures, so they may log, assert types and use `!`.
         files: ["**/*.test.ts", "**/*.test.tsx"],
         rules: {
