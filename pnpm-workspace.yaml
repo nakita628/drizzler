@@ -2,6 +2,7 @@ packages:
   - packages/*
   - fixtures/*
   - examples/*
+  - test
 allowBuilds:
   better-sqlite3: true
   esbuild: true

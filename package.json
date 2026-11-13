@@ -10,17 +10,16 @@
     "example": "pnpm build && pnpm -F @examples/studio generate && pnpm -F @examples/layered generate",
     "check": "vp check",
     "test": "vp test",
-    "coverage": "vp test --coverage",
     "release": "pnpm -F drizzler release",
     "check:fix": "vp check --fix",
     "lint": "vp lint",
-    "typecheck": "pnpm -F drizzler typecheck"
+    "typecheck": "pnpm -F drizzler typecheck",
+    "test:e2e": "vp run --filter ./test test"
   },
   "dependencies": {
     "drizzler": "link:packages/drizzler"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^5.0.5",
     "better-auth": "^1.7.14",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "1.0.0-rc.5",

@@ -2,9 +2,9 @@
 node_modules
 pnpm-lock.yaml
 dist
-coverage
 .env
 .DS_Store
 local.db
 .claude
 CLAUDE.md.seed-test-*
+test/.tmp

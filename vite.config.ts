@@ -17,6 +17,11 @@ export default defineConfig({
   fmt: {
     ignorePatterns: ["packages/drizzler/src/studio/client/routeTree.gen.ts"],
   },
+  // `vp test` runs the unit tests; the end-to-end tests in test/ drive the built package and run
+  // on their own (`pnpm test:e2e`, after `pnpm build`).
+  test: {
+    exclude: ["**/node_modules/**", "**/dist/**", "test/**"],
+  },
   lint: {
     // Only the plugins listed here are on (the default eslint..oxc have to be listed too).
     plugins: [
@@ -43,7 +48,6 @@ export default defineConfig({
     ignorePatterns: [
       "**/node_modules/**",
       "**/dist/**",
-      "**/coverage/**",
       "**/*.gen.ts",
       // Generated from main.tsp by hono-takibi.
       "packages/drizzler/src/studio/server/routes/index.ts",

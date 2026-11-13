@@ -42,7 +42,6 @@
   "scripts": {
     "build": "vp pack && vp build -c vite.studio.config.ts",
     "test": "vp test",
-    "coverage": "vp test --coverage",
     "release": "npm pkg fix && pnpm build && npm publish",
     "studio:api": "hono-takibi",
     "studio:dev": "vp dev -c vite.studio.config.ts",

@@ -23,4 +23,7 @@ jobs:
 
       - run: vp check
 
-      - run: vp test --coverage
+      - run: vp test
+
+      # test/ drives the packaged CLI from dist, so it runs after the build.
+      - run: vp run --filter ./test test

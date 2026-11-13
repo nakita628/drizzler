@@ -1,0 +1,14 @@
+{
+  "name": "@test/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vp test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "drizzle-orm": "1.0.0-rc.5",
+    "drizzler": "workspace:^",
+    "typescript": "^6.0.3"
+  }
+}
