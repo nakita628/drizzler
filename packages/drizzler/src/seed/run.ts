@@ -5,7 +5,14 @@ import { emitRaw } from "../emit/index.js";
 import { TOKEN_ENV, makeConnection, makeDialect } from "../studio/server/domain/sql.js";
 import { openDriver } from "../studio/server/services/database.js";
 import { readEnv } from "../studio/server/services/env.js";
-import type { SeedConfig } from "./config.js";
+import type { SeedOverrides } from "./overrides.js";
+import {
+  pickDatabaseUrl,
+  resolveLocales,
+  seedFailureMessage,
+  startOfUtcDay,
+  withOverrides,
+} from "./overrides.js";
 import { SeedConfigError, SeedDatabaseError } from "./errors.js";
 import { generateSeedRows } from "./generate/index.js";
 import { loadSeedConfig, resolveConfigPath } from "./load-config.js";
@@ -16,15 +23,7 @@ import { readSchema } from "./schema.js";
 import { makeSeedSql } from "./sql.js";
 import { seedWithDriver } from "./write.js";
 
-export type SeedOverrides = {
-  readonly config: string | null;
-  readonly url: string | null;
-  readonly output: string | null;
-  readonly seed: number | null;
-  readonly count: number | null;
-  readonly locale: string | null;
-  readonly reset: boolean;
-};
+export type { SeedOverrides } from "./overrides.js";
 
 // faker's locales by name (`ja`, `pt_BR`), for the codes a config gives.
 const LOCALES = new Map(Object.entries(allLocales));
@@ -35,63 +34,23 @@ const LOCALES = new Map(Object.entries(allLocales));
  */
 function makeFaker(seed: number | null, locales: readonly string[] | null, now: Date) {
   return Effect.gen(function* () {
-    const definitions = (locales ?? []).map((code) => ({
-      code,
-      definition: LOCALES.get(code.replaceAll("-", "_")),
-    }));
-    const unknown = definitions.filter((entry) => entry.definition === undefined);
-    if (unknown.length > 0) {
+    const resolved = resolveLocales(locales ?? [], LOCALES);
+    if ("unknown" in resolved) {
       return yield* new SeedConfigError({
-        message: `Unknown faker locale: ${unknown.map((entry) => entry.code).join(", ")}.\n   Use one of ${Object.keys(allLocales).join(", ")}.`,
+        message: `Unknown faker locale: ${resolved.unknown.join(", ")}.\n   Use one of ${Object.keys(allLocales).join(", ")}.`,
       });
     }
     const faker = new Faker({
-      locale: [
-        ...definitions.flatMap((entry) =>
-          entry.definition === undefined ? [] : [entry.definition],
-        ),
-        allLocales.en,
-        allLocales.base,
-      ],
+      locale: [...resolved.definitions, allLocales.en, allLocales.base],
     });
     if (seed !== null) faker.seed(seed);
-    // Without a `dates` window, dates fall in the year before the run. Anchored on the day, not
-    // the millisecond, so two seeded runs on the same day agree.
-    faker.setDefaultRefDate(
-      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
-    );
+    // Without a `dates` window, dates fall in the year before the run.
+    faker.setDefaultRefDate(startOfUtcDay(now));
     return faker;
   });
 }
 
-/**
- * The config with the command line laid over it. `--count` is the count of every faker model, the
- * per-model counts of the config included; models given as `data` keep their rows.
- */
-function withOverrides(config: SeedConfig, overrides: SeedOverrides): SeedConfig {
-  const models =
-    overrides.count === null
-      ? config.models
-      : Object.fromEntries(
-          Object.entries(config.models ?? {}).map(([name, rule]) => [
-            name,
-            rule.data === undefined ? { ...rule, count: overrides.count ?? undefined } : rule,
-          ]),
-        );
-  return {
-    ...config,
-    ...(models === undefined ? {} : { models }),
-    ...(overrides.output === null ? {} : { output: overrides.output }),
-    ...(overrides.seed === null ? {} : { seed: overrides.seed }),
-    ...(overrides.count === null ? {} : { count: overrides.count }),
-    ...(overrides.locale === null
-      ? {}
-      : { locale: overrides.locale.split(",").map((s) => s.trim()) }),
-    ...(overrides.reset ? { reset: true } : {}),
-  };
-}
-
-/** The database URL: `--url`, the config's `url`, then DATABASE_URL; and the directory a relative SQLite file is read from. */
+/** The database to seed, with DATABASE_URL read from the environment; fails when none names one. */
 function databaseUrl(
   overrides: SeedOverrides,
   configUrl: string | null,
@@ -99,10 +58,15 @@ function databaseUrl(
   cwd: string,
 ) {
   return Effect.gen(function* () {
-    if (overrides.url !== null) return { url: overrides.url, base: cwd };
-    if (configUrl !== null) return { url: configUrl, base: configDir };
     const env = yield* Config.option(Config.String("DATABASE_URL"));
-    if (Option.isSome(env)) return { url: env.value, base: cwd };
+    const picked = pickDatabaseUrl({
+      overrideUrl: overrides.url,
+      configUrl,
+      envUrl: Option.getOrNull(env),
+      configDir,
+      cwd,
+    });
+    if (picked !== null) return picked;
     return yield* new SeedDatabaseError({
       message:
         "No database to seed.\n   Pass --url, set `url` in drizzler.config.ts or DATABASE_URL, or pass --sql <file> to write the rows as SQL instead.",
@@ -161,12 +125,9 @@ function seedProgram(overrides: SeedOverrides, cwd: string) {
       ),
       (driver) =>
         seedWithDriver({ driver, entries, reset: config.reset }).pipe(
-          Effect.mapError((error) =>
-            /unique|duplicate/iu.test(error.message) && !config.reset
-              ? new SeedDatabaseError({
-                  message: `${error.message}\n   The tables already hold rows; pass --reset to empty the seeded tables first.`,
-                })
-              : error,
+          Effect.mapError(
+            (error) =>
+              new SeedDatabaseError({ message: seedFailureMessage(error.message, config.reset) }),
           ),
         ),
       (driver) => driver.close,
@@ -189,20 +150,4 @@ export function runSeed(overrides: SeedOverrides, cwd: string) {
 
 export type SeedReport = Effect.Success<ReturnType<typeof runSeed>>;
 
-/** The lines `drizzler seed` prints when it is done. */
-export function seedBanner(report: SeedReport) {
-  const width = Math.max(...report.tables.map((t) => t.name.length), 1);
-  const rows = report.tables.map(
-    (t) => `   ${t.name.padEnd(width)}  ${String(t.rows).padStart(6)} rows`,
-  );
-  const target =
-    report.target.kind === "sql"
-      ? `   SQL: ${report.target.path}`
-      : `   Database: ${report.target.dialect}, ${report.target.statements} statements in one transaction`;
-  return [
-    `💧 Seeded ${report.tables.reduce((sum, t) => sum + t.rows, 0)} rows (seed ${report.seed ?? "random"}, locale ${report.locale.length === 0 ? "en" : report.locale.join(", ")})`,
-    `   Config: ${report.configPath}`,
-    target,
-    ...rows,
-  ].join("\n");
-}
+export { seedBanner } from "./report.js";

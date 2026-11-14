@@ -11,6 +11,8 @@
 //   domain-import-allowlist    domain imports only zod, other domain modules and the library's types
 //   domain-no-nondeterminism   domain does not read the clock or make random values
 //   domain-no-side-effects     domain does no I/O, is not async and keeps no module state
+//   pure-no-throw              pure code returns its failures; it does not throw, catch or JSON.parse
+//   effect-compute-only        a module that uses Effect only as an error channel uses no Effect I/O
 //   handler-one-usecase        a handler calls at most one usecase
 //   handler-request-valid      a handler reads its input only as `const data = c.req.valid(...)`
 //   handler-response-shape     a 2xx body is parsed with its generated schema; a problem body is not
@@ -302,6 +304,87 @@ export const layerRules = {
               });
             }
           }
+        },
+      };
+    },
+  },
+
+  // Why: a pure function's failure is part of its answer. A throw leaves the type, and a caller
+  //      that forgets a try / catch crashes; JSON.parse throws on text that is not JSON.
+  //   NG: throw new Error("bad") / try { … } catch { … } / JSON.parse(text)
+  //   OK: return { error: "bad" } / return null, and parse JSON in the I/O layer (Effect.try)
+  "pure-no-throw": {
+    meta: {
+      docs: { description: "pure code returns failures; it does not throw, catch or JSON.parse" },
+    },
+    create(context) {
+      if (TEST_FILE.test(getFilename(context))) return {};
+      const tail =
+        "Pure code returns its failure as a value (`{ error }`, null) so it shows in the type. Parse JSON, and run code that throws, in the I/O layer (Effect.try) and pass the value in.";
+      return {
+        ThrowStatement(node) {
+          context.report({ node, message: `\`throw\` in pure code. ${tail}` });
+        },
+        TryStatement(node) {
+          context.report({ node, message: `\`try\` in pure code. ${tail}` });
+        },
+        CallExpression(node) {
+          if (isCallOn(node, "JSON", "parse")) {
+            context.report({
+              node,
+              message: `\`JSON.parse\` throws on text that is not JSON. ${tail}`,
+            });
+          }
+        },
+      };
+    },
+  },
+
+  // Why: some pure modules use Effect only as a typed error channel (\`yield* new XxxError()\`) over
+  //      values they are handed. Effect can also do I/O; this keeps them to the combinators that
+  //      compute, so one cannot start reading the clock, the environment or a file unnoticed.
+  //   NG: Effect.sync(() => Date.now()) / Effect.promise(...) / Effect.log(...) / import { Clock } from "effect"
+  //   OK: Effect.gen(function* () { … yield* new SeedConfigError({ … }) }) / Effect.forEach(xs, f)
+  "effect-compute-only": {
+    meta: { docs: { description: "a computing module uses only Effect's pure combinators" } },
+    create(context) {
+      if (TEST_FILE.test(getFilename(context))) return {};
+      const COMBINATORS = new Set([
+        "gen",
+        "succeed",
+        "fail",
+        "map",
+        "flatMap",
+        "andThen",
+        "forEach",
+        "all",
+        "as",
+        "asVoid",
+        "void",
+        "mapError",
+        "filterOrFail",
+        "zip",
+        "tap",
+      ]);
+      const tail =
+        "This module computes: Effect is only its error channel. Do the I/O in the caller (seed/run.ts, a service) and pass the value in.";
+      return {
+        ImportDeclaration(node) {
+          if (sourceOf(node) !== "effect" || node.importKind === "type") return;
+          for (const specifier of node.specifiers) {
+            if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue;
+            const name = specifier.imported.name ?? specifier.imported.value;
+            if (name === "Effect") continue;
+            context.report({
+              node: specifier,
+              message: `\`${name}\` from effect in a computing module. ${tail}`,
+            });
+          }
+        },
+        MemberExpression(node) {
+          const method = effectMethod(node);
+          if (method === null || COMBINATORS.has(method)) return;
+          context.report({ node, message: `\`Effect.${method}\` in a computing module. ${tail}` });
         },
       };
     },

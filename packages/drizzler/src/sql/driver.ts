@@ -285,3 +285,53 @@ export function failedStatement(cause: string, sql: string) {
 export function batchFailureIndex(error: unknown) {
   return isRecord(error) && typeof error.statementIndex === "number" ? error.statementIndex : null;
 }
+
+/** A parameter as a driver takes it: SQLite has no boolean, so it gets 1 or 0. */
+export function driverParam(dialect: "sqlite" | "postgresql" | "mysql", param: unknown) {
+  if (dialect !== "sqlite" || typeof param !== "boolean") return param;
+  return param ? 1 : 0;
+}
+
+/**
+ * What a query threw, with the causes it wraps, each on its own line: Drizzle reports a rejected
+ * statement as `Failed query: ...` and keeps the database's own words in `cause`. A cause the
+ * message already says is not repeated.
+ */
+export function causeLines(thrown: unknown): string {
+  if (!(thrown instanceof Error)) return String(thrown);
+  const cause = thrown.cause === undefined ? null : causeLines(thrown.cause);
+  return cause === null || thrown.message.includes(cause)
+    ? thrown.message
+    : `${thrown.message}\n${cause}`;
+}
+
+/** SQLite's proxy driver: the rows of `all` / `get`, as arrays or, for `rowMode: "object"`, by name. */
+export function sqliteProxyRows(
+  result: DriverArrayResult,
+  rowMode: "array" | "object" | undefined,
+) {
+  return rowMode === "object" ? rowsByName(result.columns, result.rows) : result.rows;
+}
+
+/** SQLite's proxy driver: what `run` answers, as node:sqlite does. */
+export function sqliteProxyRun(result: DriverArrayResult) {
+  return { changes: result.rowCount, lastInsertRowid: result.insertId ?? 0 };
+}
+
+/**
+ * PostgreSQL's and MySQL's proxy driver: what the callback answers. `all` takes the rows as
+ * arrays; `execute` takes them by name, and MySQL's as mysql2 does, in a list with the write's
+ * counts beside it.
+ */
+export function proxyCallbackResult(
+  dialect: "postgresql" | "mysql",
+  method: "all" | "execute",
+  result: DriverArrayResult,
+) {
+  if (method === "all") return { rows: result.rows };
+  const rows = rowsByName(result.columns, result.rows);
+  if (dialect === "mysql") {
+    return { rows: [rows], affectedRows: result.rowCount, insertId: result.insertId ?? 0 };
+  }
+  return { rows };
+}

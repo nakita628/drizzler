@@ -10,7 +10,7 @@ import {
   isGlob,
   isSchemaModule,
   moduleCandidates,
-  parseJsonc,
+  stripJsonc,
   parseModule,
 } from "./paths.js";
 import type { PathAliases } from "./paths.js";
@@ -86,7 +86,8 @@ function readAliases(file: string, depth = 0): PathAliases | null {
   // left to Node.
   const config = (() => {
     try {
-      return parseJsonc(fs.readFileSync(file, "utf8"));
+      const parsed: unknown = JSON.parse(stripJsonc(fs.readFileSync(file, "utf8")));
+      return parsed;
     } catch {
       return null;
     }

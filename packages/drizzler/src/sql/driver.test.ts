@@ -15,6 +15,11 @@ import {
   readPgResult,
   rowsByName,
   bindError,
+  causeLines,
+  driverParam,
+  proxyCallbackResult,
+  sqliteProxyRows,
+  sqliteProxyRun,
 } from "./driver.js";
 
 describe("bindError", () => {
@@ -215,5 +220,42 @@ describe("errors", () => {
     );
     expect(batchFailureIndex({ statementIndex: 2 })).toBe(2);
     expect(batchFailureIndex(new Error("x"))).toBeNull();
+  });
+});
+
+describe("Drizzle's proxy drivers", () => {
+  const rows = { columns: ["id", "name"], rows: [[1, "Ada"]], rowCount: 1, insertId: null };
+  const write = { columns: [], rows: [], rowCount: 2, insertId: 7 };
+
+  it("binds a boolean as 1 / 0 on SQLite only", () => {
+    expect(driverParam("sqlite", true)).toBe(1);
+    expect(driverParam("sqlite", false)).toBe(0);
+    expect(driverParam("postgresql", true)).toBe(true);
+  });
+
+  it("answers SQLite's all / get / run", () => {
+    expect(sqliteProxyRows(rows, undefined)).toStrictEqual([[1, "Ada"]]);
+    expect(sqliteProxyRows(rows, "object")).toStrictEqual([{ id: 1, name: "Ada" }]);
+    expect(sqliteProxyRun(write)).toStrictEqual({ changes: 2, lastInsertRowid: 7 });
+  });
+
+  it("answers PostgreSQL's and MySQL's callback", () => {
+    expect(proxyCallbackResult("postgresql", "all", rows)).toStrictEqual({ rows: [[1, "Ada"]] });
+    expect(proxyCallbackResult("postgresql", "execute", rows)).toStrictEqual({
+      rows: [{ id: 1, name: "Ada" }],
+    });
+    expect(proxyCallbackResult("mysql", "execute", write)).toStrictEqual({
+      rows: [[]],
+      affectedRows: 2,
+      insertId: 7,
+    });
+  });
+
+  it("writes a query's causes on lines of their own, once", () => {
+    const thrown = new Error("Failed query: select 1", { cause: new Error("no such table: x") });
+    expect(causeLines(thrown)).toBe("Failed query: select 1\nno such table: x");
+    expect(
+      causeLines(new Error("no such table: x", { cause: new Error("no such table: x") })),
+    ).toBe("no such table: x");
   });
 });

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { isSchemaModule, parseJsonc } from "./paths.js";
+import { isSchemaModule, stripJsonc } from "./paths.js";
 import {
   collectSchemaFiles,
   drizzleConfigSchema,
@@ -43,14 +43,16 @@ describe("isSchemaModule", () => {
   });
 });
 
-describe("parseJsonc", () => {
+describe("stripJsonc", () => {
   it("reads comments and trailing commas, and keeps slashes inside strings", () => {
     expect(
-      parseJsonc(`{
+      JSON.parse(
+        stripJsonc(`{
         // a comment
         "paths": { "#/*": ["./src/*"], }, /* another */
         "url": "http://x//y",
       }`),
+      ),
     ).toStrictEqual({ paths: { "#/*": ["./src/*"] }, url: "http://x//y" });
   });
 });

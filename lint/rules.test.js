@@ -137,3 +137,52 @@ describe("domain-no-nondeterminism and domain-no-side-effects", () => {
     expect(lint(name, code)).toBe(0);
   });
 });
+
+describe("pure-no-throw", () => {
+  const file = "packages/drizzler/src/sql/x.ts";
+
+  it.each([
+    ["a throw", 'export function f() { throw new Error("bad"); }'],
+    ["a try", "export function f() { try { g(); } catch { return null; } }"],
+    ["a JSON.parse", "export function f(text) { return JSON.parse(text); }"],
+  ])("reports %s", (_, code) => {
+    expect(lint("pure-no-throw", code, file)).toBe(1);
+  });
+
+  it.each([
+    ["a failure returned as a value", 'export function f() { return { error: "bad" }; }'],
+    ["JSON.stringify", "export function f(value) { return JSON.stringify(value); }"],
+    ["a test file", 'throw new Error("bad");'],
+  ])("leaves alone %s", (label, code) => {
+    expect(lint("pure-no-throw", code, label === "a test file" ? "src/x.test.ts" : file)).toBe(0);
+  });
+});
+
+describe("effect-compute-only", () => {
+  const file = "packages/drizzler/src/seed/generate/x.ts";
+
+  it.each([
+    ["an Effect that runs a function", "const x = Effect.sync(() => Date.now());"],
+    ["an Effect over a Promise", "const x = Effect.promise(() => fetch(url));"],
+    ["a log", 'const x = Effect.log("hi");'],
+    ["the clock from effect", 'import { Clock } from "effect";'],
+    ["the environment from effect", 'import { Config } from "effect";'],
+  ])("reports %s", (_, code) => {
+    expect(lint("effect-compute-only", code, file)).toBe(1);
+  });
+
+  it.each([
+    ["Effect itself", 'import { Effect } from "effect";'],
+    ["a type from effect", 'import type { Option } from "effect";'],
+    [
+      "the error channel",
+      "const x = Effect.gen(function* () { return yield* Effect.forEach(xs, (x) => Effect.succeed(x)); });",
+    ],
+    ["a failure", "const x = Effect.fail(new SeedConfigError({ message }));"],
+    ["a test file", "const x = Effect.sync(() => Date.now());"],
+  ])("leaves alone %s", (label, code) => {
+    expect(
+      lint("effect-compute-only", code, label === "a test file" ? "src/x.test.ts" : file),
+    ).toBe(0);
+  });
+});
