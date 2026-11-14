@@ -3,6 +3,7 @@ import * as QueryDomain from "../domain/query.js";
 import * as SqlDomain from "../domain/sql.js";
 import * as DatabaseService from "../services/database.js";
 import type { Database } from "../services/database.js";
+import * as EnvService from "../services/env.js";
 import * as StudioService from "../services/studio.js";
 import * as TypeScriptService from "../services/typescript.js";
 
@@ -14,13 +15,15 @@ import * as TypeScriptService from "../services/typescript.js";
  * sequenceDiagram
  *   participant C as Caller
  *   participant U as StudioUseCase
+ *   participant E as EnvService
  *   participant D as SqlDomain
  *   participant S as DatabaseService
  *   C->>U: connectDatabase({ url, cwd })
  *   alt no url
  *     U-->>C: not connected, no error
  *   else url
- *     U->>D: makeConnection / makeDialect / makeRedactedUrl
+ *     U->>E: readEnv({ names: TOKEN_ENV })
+ *     U->>D: makeConnection({ url, env }) / makeDialect / makeRedactedUrl
  *     U->>S: openDriver({ connection, cwd })
  *     alt opened
  *       U-->>C: connected, with the driver
@@ -44,10 +47,9 @@ export function connectDatabase(input: { readonly url: string | null; readonly c
   }
   const dialect = SqlDomain.makeDialect({ url });
   const redacted = SqlDomain.makeRedactedUrl({ url });
-  return DatabaseService.openDriver({
-    connection: SqlDomain.makeConnection({ url }),
-    cwd: input.cwd,
-  }).pipe(
+  return EnvService.readEnv({ names: Object.values(SqlDomain.TOKEN_ENV).flat() }).pipe(
+    Effect.map((env) => SqlDomain.makeConnection({ url, env })),
+    Effect.flatMap((connection) => DatabaseService.openDriver({ connection, cwd: input.cwd })),
     Effect.match({
       onSuccess: (driver): Database => ({
         driver,

@@ -4,6 +4,7 @@ import {
   makeExplainStatement,
   makeCell,
   makeDeleteStatement,
+  makeConnection,
   makeConnectionKind,
   makeD1Target,
   makeDialect,
@@ -62,6 +63,76 @@ describe("makeConnectionKind", () => {
     ["https://app-ada.turso.io", null],
   ] as const)("reads %s as %s", (url, kind) => {
     expect(makeConnectionKind({ url })).toBe(kind);
+  });
+});
+
+describe("makeConnection", () => {
+  const none = { TURSO_AUTH_TOKEN: null, CLOUDFLARE_D1_TOKEN: null, CLOUDFLARE_API_TOKEN: null };
+
+  it("opens a SQLite file, and Neon with TLS", () => {
+    expect(makeConnection({ url: "file:./dev.db", env: none })).toStrictEqual({
+      kind: "sqlite",
+      file: "./dev.db",
+    });
+    expect(
+      makeConnection({ url: "postgres://u:p@ep-1.us-east-2.aws.neon.tech/app", env: none }),
+    ).toStrictEqual({
+      kind: "postgresql",
+      url: "postgres://u:p@ep-1.us-east-2.aws.neon.tech/app",
+      tls: true,
+    });
+  });
+
+  it("takes Turso's token from the URL first, then TURSO_AUTH_TOKEN", () => {
+    const env = { ...none, TURSO_AUTH_TOKEN: "from-env" };
+    expect(makeConnection({ url: "libsql://app.turso.io?authToken=abc", env })).toStrictEqual({
+      kind: "libsql",
+      url: "libsql://app.turso.io",
+      authToken: "abc",
+    });
+    expect(makeConnection({ url: "libsql://app.turso.io", env })).toStrictEqual({
+      kind: "libsql",
+      url: "libsql://app.turso.io",
+      authToken: "from-env",
+    });
+    expect(makeConnection({ url: "libsql://app.turso.io", env: none })).toMatchObject({
+      authToken: null,
+    });
+  });
+
+  it("gives D1's endpoint, with the token from the URL, CLOUDFLARE_D1_TOKEN, then CLOUDFLARE_API_TOKEN", () => {
+    const endpoint = "https://api.cloudflare.com/client/v4/accounts/acc/d1/database/db/raw";
+    expect(makeConnection({ url: "d1://acc/db?token=url", env: none })).toStrictEqual({
+      kind: "d1",
+      endpoint,
+      token: "url",
+    });
+    expect(
+      makeConnection({
+        url: "d1://acc/db",
+        env: { ...none, CLOUDFLARE_D1_TOKEN: "d1", CLOUDFLARE_API_TOKEN: "api" },
+      }),
+    ).toMatchObject({ token: "d1" });
+    expect(
+      makeConnection({ url: "d1://acc/db", env: { ...none, CLOUDFLARE_API_TOKEN: "api" } }),
+    ).toMatchObject({ token: "api" });
+  });
+
+  it("says why it cannot open a D1 URL without both ids or a token, or an unknown URL", () => {
+    expect(makeConnection({ url: "d1://acc", env: none })).toMatchObject({
+      kind: "unsupported",
+      reason: expect.stringContaining("d1://<account id>/<database id>"),
+    });
+    expect(
+      makeConnection({ url: "d1://acc/db", env: { ...none, CLOUDFLARE_D1_TOKEN: "" } }),
+    ).toMatchObject({
+      kind: "unsupported",
+      reason: expect.stringContaining("CLOUDFLARE_D1_TOKEN"),
+    });
+    expect(makeConnection({ url: "redis://h", env: none })).toMatchObject({
+      kind: "unsupported",
+      reason: expect.stringContaining("libsql://"),
+    });
   });
 });
 

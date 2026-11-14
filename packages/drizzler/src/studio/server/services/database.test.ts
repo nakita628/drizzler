@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vite-plus/test";
-import { makeConnection } from "../domain/sql.js";
 import type { Driver } from "./database.js";
 import { openDriver } from "./database.js";
 
@@ -17,6 +16,8 @@ function run<A, E>(effect: Effect.Effect<A, E>) {
 function fail<A, E>(effect: Effect.Effect<A, E>) {
   return Effect.runPromise(Effect.flip(effect));
 }
+
+const ENDPOINT = "https://api.cloudflare.com/client/v4/accounts/acc-1/d1/database/db-2/raw";
 
 const SETUP = [
   "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)",
@@ -184,7 +185,7 @@ describe("Cloudflare D1 (HTTP API)", () => {
     () =>
       run(
         openDriver({
-          connection: makeConnection({ url: "d1://acc-1/db-2?token=secret" }),
+          connection: { kind: "d1", endpoint: ENDPOINT, token: "secret" },
           cwd: ".",
         }),
       ),
@@ -192,10 +193,7 @@ describe("Cloudflare D1 (HTTP API)", () => {
   );
 
   it("posts to the database's /raw endpoint with the token, a batch as one request", () => {
-    expect(calls[0]).toMatchObject({
-      url: "https://api.cloudflare.com/client/v4/accounts/acc-1/d1/database/db-2/raw",
-      body: { sql: "SELECT 1", params: [] },
-    });
+    expect(calls[0]).toMatchObject({ url: ENDPOINT, body: { sql: "SELECT 1", params: [] } });
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer secret");
     expect(calls[1]?.body).toStrictEqual({
       batch: SETUP.map((sql) => ({ sql, params: [] })),
@@ -203,53 +201,53 @@ describe("Cloudflare D1 (HTTP API)", () => {
   });
 });
 
-describe("Cloudflare D1, before it connects", () => {
+describe("Cloudflare D1, when Cloudflare refuses", () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
-  it("needs both ids in the URL", async () => {
-    const error = await fail(
-      openDriver({ connection: makeConnection({ url: "d1://acc-1" }), cwd: "." }),
-    );
-    expect(error.reason).toContain("d1://<account id>/<database id>");
-  });
-
-  it("needs a token, from the URL or the environment", async () => {
-    vi.stubEnv("CLOUDFLARE_D1_TOKEN", "");
-    vi.stubEnv("CLOUDFLARE_API_TOKEN", "");
-    const error = await fail(
-      openDriver({ connection: makeConnection({ url: "d1://acc/db" }), cwd: "." }),
-    );
-    expect(error.reason).toContain("CLOUDFLARE_D1_TOKEN");
-  });
-
-  it("takes the token from CLOUDFLARE_D1_TOKEN, and says what Cloudflare refused", async () => {
-    vi.stubEnv("CLOUDFLARE_D1_TOKEN", "from-env");
-    const fetch = vi.fn<(input: string, init: RequestInit) => Promise<Response>>(async () =>
-      Response.json(
-        { success: false, errors: [{ code: 10000, message: "Authentication error" }], result: [] },
-        { status: 403 },
+  it("does not connect, and says what Cloudflare refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<(input: string, init: RequestInit) => Promise<Response>>(async () =>
+        Response.json(
+          {
+            success: false,
+            errors: [{ code: 10000, message: "Authentication error" }],
+            result: [],
+          },
+          { status: 403 },
+        ),
       ),
     );
-    vi.stubGlobal("fetch", fetch);
     const error = await fail(
-      openDriver({ connection: makeConnection({ url: "d1://acc/db" }), cwd: "." }),
+      openDriver({ connection: { kind: "d1", endpoint: ENDPOINT, token: "bad" }, cwd: "." }),
     );
     expect(error.reason).toBe("Authentication error (10000)");
-    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("authorization")).toBe(
-      "Bearer from-env",
+  });
+
+  it("says what came back when it is not JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<(input: string, init: RequestInit) => Promise<Response>>(
+        async () => new Response("<html>Bad gateway</html>", { status: 502 }),
+      ),
     );
+    const error = await fail(
+      openDriver({ connection: { kind: "d1", endpoint: ENDPOINT, token: "t" }, cwd: "." }),
+    );
+    expect(error.reason).toBe("Cloudflare's API answered 502: <html>Bad gateway</html>");
   });
 });
 
-describe("an unknown URL", () => {
-  it("lists the URLs drizzler opens", async () => {
+describe("an unsupported connection", () => {
+  it("fails with the reason makeConnection gave", async () => {
     const error = await fail(
-      openDriver({ connection: makeConnection({ url: "redis://h" }), cwd: "." }),
+      openDriver({
+        connection: { kind: "unsupported", reason: "Unsupported database URL." },
+        cwd: ".",
+      }),
     );
-    expect(error.reason).toContain("libsql://");
-    expect(error.reason).toContain("d1://");
+    expect(error.reason).toBe("Unsupported database URL.");
   });
 });

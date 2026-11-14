@@ -196,50 +196,96 @@ export function makeRedactedUrl(input: z.infer<typeof Url>) {
     .replace(/([?&](?:authToken|token|password)=)[^&#]*/giu, "$1****");
 }
 
-/** What `openDriver` needs to reach a database, decided from its URL. */
+/** What `openDriver` needs to reach a database, decided from its URL and the environment. */
 export type Connection =
   | { readonly kind: "sqlite"; readonly file: string }
   | { readonly kind: "libsql"; readonly url: string; readonly authToken: string | null }
-  | {
-      readonly kind: "d1";
-      readonly accountId: string;
-      readonly databaseId: string;
-      readonly token: string | null;
-    }
+  | { readonly kind: "d1"; readonly endpoint: string; readonly token: string }
   | { readonly kind: "postgresql"; readonly url: string; readonly tls: boolean }
   | { readonly kind: "mysql"; readonly url: string; readonly tls: boolean }
   | { readonly kind: "unsupported"; readonly reason: string };
 
+/**
+ * The environment variables a token may come from when the URL carries none, first one first:
+ * read by the caller and handed to makeConnection as `env`.
+ */
+export const TOKEN_ENV = {
+  libsql: ["TURSO_AUTH_TOKEN"],
+  d1: ["CLOUDFLARE_D1_TOKEN", "CLOUDFLARE_API_TOKEN"],
+} as const;
+
 const UNSUPPORTED =
   "Unsupported database URL. Use file:./dev.db (SQLite), libsql://... (Turso), d1://<account id>/<database id> (Cloudflare D1), postgres://... or mysql://...";
 
+const MakeConnectionInput = z
+  .object({
+    url: z.string().meta({ description: "A connection URL", example: "d1://acc/db" }),
+    env: z
+      .record(z.string(), z.string().nullable())
+      .readonly()
+      .meta({
+        description: "The TOKEN_ENV variables by name; null or empty for one that is not set",
+        example: { CLOUDFLARE_D1_TOKEN: "secret" },
+      }),
+  })
+  .readonly()
+  .meta({ description: "A connection URL and the environment's tokens" });
+
+/** The first of the variables that holds a value. */
+function envToken(env: Readonly<Record<string, string | null>>, names: readonly string[]) {
+  return names.map((name) => env[name]).find((value) => !!value) ?? null;
+}
+
 /**
  * How to reach the database at a URL: the driver, and what it is given — the SQLite file, the
- * Turso URL and token, the D1 account and database, or the URL and whether TLS must be turned on.
- * A token missing from the URL is left null for the environment to give.
+ * Turso URL and token, D1's endpoint and token, or the URL and whether TLS must be turned on. A
+ * token the URL does not carry is taken from `env` (see TOKEN_ENV).
  *
- * @param input - The connection `url`.
- * @returns The connection, or `unsupported` with the reason.
+ * @param input - The connection `url`, and the `env` values of TOKEN_ENV's variables.
+ * @returns The connection, or `unsupported` with the reason it cannot be opened.
  * @example
  * ```ts
- * makeConnection({ url: "d1://acc/db" });
- * // => { kind: "d1", accountId: "acc", databaseId: "db", token: null }
+ * makeConnection({ url: "d1://acc/db", env: { CLOUDFLARE_D1_TOKEN: "secret" } });
+ * // => { kind: "d1", endpoint: "https://api.cloudflare.com/client/v4/accounts/acc/d1/database/db/raw", token: "secret" }
  * ```
  */
-export function makeConnection(input: z.infer<typeof Url>): Connection {
-  const { url } = input;
-  const kind = makeConnectionKind(input);
-  if (kind === "sqlite") return { kind, file: makeSqlitePath(input) };
-  if (kind === "libsql") return { kind, ...makeLibsqlTarget(input) };
-  if (kind === "postgresql" || kind === "mysql") return { kind, url, tls: makeTlsRequired(input) };
+export function makeConnection(input: z.infer<typeof MakeConnectionInput>): Connection {
+  const { url, env } = input;
+  const kind = makeConnectionKind({ url });
+  if (kind === "sqlite") return { kind, file: makeSqlitePath({ url }) };
+  if (kind === "postgresql" || kind === "mysql")
+    return { kind, url, tls: makeTlsRequired({ url }) };
+  if (kind === "libsql") {
+    const target = makeLibsqlTarget({ url });
+    return {
+      kind,
+      url: target.url,
+      authToken: target.authToken ?? envToken(env, TOKEN_ENV.libsql),
+    };
+  }
   if (kind === "d1") {
-    const target = makeD1Target(input);
-    return target === null
-      ? {
-          kind: "unsupported",
-          reason: "A D1 URL names the account and the database: d1://<account id>/<database id>",
-        }
-      : { kind, ...target };
+    const target = makeD1Target({ url });
+    if (target === null) {
+      return {
+        kind: "unsupported",
+        reason: "A D1 URL names the account and the database: d1://<account id>/<database id>",
+      };
+    }
+    const token = target.token ?? envToken(env, TOKEN_ENV.d1);
+    if (token === null) {
+      return {
+        kind: "unsupported",
+        reason:
+          "D1 needs a Cloudflare API token with D1 edit access: set CLOUDFLARE_D1_TOKEN, or add ?token=... to the URL.",
+      };
+    }
+    const account = encodeURIComponent(target.accountId);
+    const database = encodeURIComponent(target.databaseId);
+    return {
+      kind,
+      endpoint: `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${database}/raw`,
+      token,
+    };
   }
   return { kind: "unsupported", reason: UNSUPPORTED };
 }
