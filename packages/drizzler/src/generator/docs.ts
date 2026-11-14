@@ -1,6 +1,9 @@
 import { diagramSchema, relationFields } from "../helper/index.js";
 import { makeDocs } from "../studio/server/domain/docs.js";
 import type { QueryExampleSql } from "./query-examples.js";
+import type { DiagramTheme } from "../types/index.js";
+import type { SchemaDdl } from "./query-probe.js";
+import { neighborhood, schemaSvg } from "./er.js";
 import { layoutSql } from "./sql-layout.js";
 
 type Docs = ReturnType<typeof makeDocs>;
@@ -302,4 +305,55 @@ export function docsMarkdown(
       ? []
       : ["## Enums", ...docs.enums.map((value) => enumSection(value, ddl))]),
   ].join("\n\n")}\n`;
+}
+
+/**
+ * What the docs show of the schema's SQL, from loading it: each query's SQL and the tables'
+ * definitions, or none of them with a note saying why (`null` when the schema's files were not
+ * given, `{ error }` when loading failed). A missing definition alone is noted on its own.
+ */
+export function docsSql(
+  loaded:
+    | { readonly queries: readonly QueryExampleSql[]; readonly ddl: SchemaDdl }
+    | { readonly error: string }
+    | null,
+) {
+  if (loaded === null) {
+    return { queries: null, ddl: null, notes: ["the schema's files were not given"] };
+  }
+  if ("error" in loaded) {
+    return {
+      queries: null,
+      ddl: null,
+      notes: [`The queries and tables are shown without their SQL: ${loaded.error}`],
+    };
+  }
+  const { queries, ddl } = loaded;
+  return {
+    queries,
+    ddl: ddl.error === null ? ddl.statements : null,
+    notes:
+      ddl.error === null
+        ? []
+        : [`The tables are shown without their SQL definitions: ${ddl.error}`],
+  };
+}
+
+/**
+ * The diagrams the docs hold, by file: the ER diagram of the whole schema, then one per table,
+ * of it and the tables it joins (or of it alone).
+ */
+export function docsDiagrams(schema: ReturnType<typeof diagramSchema>, theme?: DiagramTheme) {
+  return [
+    [DOCS_FILES.diagram, schemaSvg(schema, theme)] as const,
+    ...schema.models.map(
+      (model) =>
+        [tableDiagramPath(model.name), schemaSvg(neighborhood(schema, model.name), theme)] as const,
+    ),
+  ];
+}
+
+/** The diagrams in the tables directory that no table draws any more: a docs directory written again keeps no stale one. */
+export function staleDiagrams(names: readonly string[], keep: ReadonlySet<string>) {
+  return names.filter((name) => name.endsWith(".svg") && !keep.has(name));
 }

@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState } from "react";
 import { LuPlay } from "react-icons/lu";
 
 import { DiagnosticsList } from "../../components/diagnostics-list.js";
-import { fieldTypeLabel } from "../diagram/labels.js";
 import { ResultTable } from "../../components/result-table.js";
 import { SplitPane } from "../../components/split-pane.js";
 import { useDebounced } from "../../lib/debounce.js";
@@ -13,6 +12,9 @@ import { SchemaCanvas } from "../diagram/canvas.js";
 import { useSavedDiagram } from "../diagram/saved-diagram.js";
 import { useAnalysis } from "./analysis.js";
 import { ColumnsView } from "./columns-view.js";
+import { canvasHighlight, highlightOf, modelOfTable } from "./highlight.js";
+import type { Tab } from "./labels.js";
+import { editorTables, rowSummary, statementLabel, tabOf, textToRun } from "./labels.js";
 import { FlowView } from "./flow-view.js";
 import { ParamsPanel } from "./params-panel.js";
 import { bindValues, paramInputsOf } from "./params.js";
@@ -25,77 +27,9 @@ const PANES_KEY = "drizzler-studio:sql-panes";
 const EDITOR_KEY = "drizzler-studio:sql-editor-height";
 const ANALYZE_DEBOUNCE_MS = 250;
 
-type Tab = "flow" | "columns" | "type" | "result" | "plan";
-
-// The server sends only the first page of a large result, so the count of what matched and the
-// number of rows on screen can differ; say so rather than showing a wrong total.
-function rowSummary(shown: number, matched: number) {
-  const rows = `${matched.toLocaleString()} ${matched === 1 ? "row" : "rows"}`;
-  return shown < matched ? `first ${shown.toLocaleString()} of ${rows}` : rows;
-}
-
 function problemDetail(error: unknown) {
   if (error instanceof Error) return error.message;
   return "The statement could not be run.";
-}
-
-function statementLabel(
-  statement: { readonly text: string; readonly kind: string },
-  index: number,
-) {
-  const first = statement.text.trim().split("\n")[0]?.trim() ?? "";
-  const short = first.length > 28 ? `${first.slice(0, 27)}…` : first;
-  return `${index + 1} · ${short === "" ? statement.kind : short}`;
-}
-
-/** The tables a statement touches and the columns it reads from each, keyed by lowercased table name. */
-function highlightOf(
-  statement: {
-    readonly tables: readonly { readonly name: string; readonly columnsUsed: readonly string[] }[];
-  } | null,
-) {
-  if (statement === null || statement.tables.length === 0) return null;
-  const map = new Map<string, Set<string>>();
-  for (const table of statement.tables) {
-    const key = table.name.toLowerCase();
-    const used = map.get(key) ?? new Set<string>();
-    for (const column of table.columnsUsed) used.add(column.toLowerCase());
-    map.set(key, used);
-  }
-  return map;
-}
-
-/**
- * The highlight as the canvas keys it: by the table's export and the columns' properties, read
- * back from the names the database knows that the analysis reports.
- */
-function canvasHighlight(
-  byName: ReadonlyMap<string, ReadonlySet<string>> | null,
-  schema: {
-    readonly models: readonly {
-      readonly name: string;
-      readonly dbName: string | null;
-      readonly fields: readonly { readonly name: string; readonly dbName?: string | null }[];
-    }[];
-  } | null,
-) {
-  if (byName === null || schema === null) return null;
-  const tables = schema.models.flatMap((model) => {
-    const used = byName.get((model.dbName ?? model.name).toLowerCase());
-    if (used === undefined) return [];
-    const columns = model.fields
-      .filter((field) => used.has((field.dbName ?? field.name).toLowerCase()))
-      .map((field) => field.name);
-    return [[model.name, new Set(columns)] as const];
-  });
-  return tables.length === 0 ? null : new Map(tables);
-}
-
-function tabOf(key: string | number): Tab {
-  const name = String(key);
-  return name === "columns" || name === "type" || name === "result" || name === "plan"
-    ? name
-    : "flow";
 }
 
 /** The SQL page: the editor and what the analysis says on the left, the tables it runs against on the right. */
@@ -146,16 +80,7 @@ export function SqlView({
   );
 
   // The database knows tables by their names; the pages know them by their exports.
-  const modelOf = useCallback(
-    (table: string) => {
-      const key = table.toLowerCase();
-      return (
-        schema?.models.find((model) => (model.dbName ?? model.name).toLowerCase() === key)?.name ??
-        null
-      );
-    },
-    [schema],
-  );
+  const modelOf = useCallback((table: string) => modelOfTable(schema, table), [schema]);
 
   const run = usePostDbSql({
     mutation: {
@@ -172,14 +97,14 @@ export function SqlView({
 
   const execute = useCallback(() => {
     if (run.isPending || sql.trim() === "" || database?.connected !== true) return;
-    const text = statement === null || statements.length <= 1 ? sql : statement.text;
+    const text = textToRun(sql, statement, statements.length);
     run.mutate({ json: { sql: text, params: [...params] } });
     setTab("result");
   }, [run, sql, database, statement, statements.length, params]);
 
   const runExplain = useCallback(() => {
     if (explain.isPending || sql.trim() === "" || database?.connected !== true) return;
-    const text = statement === null || statements.length <= 1 ? sql : statement.text;
+    const text = textToRun(sql, statement, statements.length);
     explain.mutate({ json: { sql: text, params: [...params] } });
   }, [explain, sql, database, statement, statements.length, params]);
 
@@ -189,18 +114,7 @@ export function SqlView({
 
   // Completion and hovers offer the names the database knows — the table and column names over
   // the exports and properties — with the column type beside each one.
-  const tables = useMemo(
-    () =>
-      (schema?.models ?? []).map((model) => ({
-        name: model.dbName ?? model.name,
-        detail: `table ${model.name}`,
-        columns: model.fields.map((field) => ({
-          name: field.dbName ?? field.name,
-          detail: fieldTypeLabel(field),
-        })),
-      })),
-    [schema],
-  );
+  const tables = useMemo(() => editorTables(schema?.models ?? []), [schema]);
 
   function analysisStatus() {
     if (analysis.isError) return "The analysis failed.";

@@ -109,6 +109,11 @@ export default defineConfig({
       // Rules turned on: prevent bugs
       // =========================================================================
 
+      // Why: a comment that went through a script's escaping shows `\`` and its code spans break.
+      // NG:   `// What \`drizzler seed\` decides`
+      // OK:   // What `drizzler seed` decides
+      "custom/no-escaped-backtick-in-comment": "error",
+
       // Why: `var` is function-scoped and hoisted.
       // NG:   var count = 0
       // OK:   const count = 0
@@ -466,6 +471,183 @@ export default defineConfig({
     },
     // When overrides set the same rule, the later one wins.
     overrides: [
+      {
+        // Why: a caught failure becomes text in one place (helper/error-message.ts); the client is
+        //      its own bundle and keeps its own (studio/client/lib/problem.ts).
+        // NG:   error instanceof Error ? error.message : String(error)
+        // OK:   errorMessage(error)
+        files: ["packages/drizzler/src/**"],
+        rules: { "custom/use-error-message": "error" },
+      },
+      {
+        files: ["packages/drizzler/src/studio/client/**"],
+        rules: { "custom/use-error-message": "off" },
+      },
+      // ---------------------------------------------------------------------
+      // Pure by default: every module of the library takes values and returns values. The modules
+      // that touch the outside world are named in the next block; a new module is pure unless it
+      // is added there, so I/O cannot slip into one unnoticed. See ./lint/layers.js.
+      // ---------------------------------------------------------------------
+      {
+        files: ["packages/drizzler/src/**"],
+        rules: {
+          "custom/domain-no-nondeterminism": "error",
+          "custom/domain-no-side-effects": "error",
+          "custom/pure-no-throw": "error",
+          // Why: a pure module that imports I/O can start doing it unnoticed.
+          // NG:   import fs from "node:fs"  /  import { Effect } from "effect"
+          // OK:   import path from "node:path"  /  import { parseSync } from "oxc-parser"
+          "no-restricted-imports": [
+            "error",
+            {
+              paths: [
+                { name: "effect", message: "Pure modules return values; Effects belong in core/." },
+              ],
+              patterns: [
+                {
+                  group: [
+                    "node:fs",
+                    "node:fs/*",
+                    "node:child_process",
+                    "node:os",
+                    "node:http",
+                    "node:https",
+                    "node:net",
+                    "node:crypto",
+                    // Effect's modules can do I/O; its Schema decodes values synchronously,
+                    // so a pure module may check a value with it (seed/config-schema.ts).
+                    "effect/*",
+                    "!effect/Schema",
+                    "!effect/SchemaIssue",
+                    "@effect/*",
+                    "../file/*",
+                    "../core/*",
+                    "../emit/*",
+                    "../schema/sources.js",
+                  ],
+                  message:
+                    "Pure modules do not touch the outside world; read it in core/ or schema/sources.ts and pass the value in.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        // The modules that do I/O, read the clock or the environment, or run Effects: the CLI, the
+        // file and module loading, the studio's server edge, layers and client, and the seeder's
+        // loading and writing. Effect failures are tagged error classes, kept with them. Tests set
+        // up fixtures on disk and run Effects, so they are here too.
+        files: [
+          "packages/drizzler/src/**/*.test.ts",
+          "packages/drizzler/src/**/*.test.tsx",
+          "packages/drizzler/src/index.ts",
+          "packages/drizzler/src/cli/index.ts",
+          "packages/drizzler/src/core/**",
+          "packages/drizzler/src/emit/**",
+          "packages/drizzler/src/file/**",
+          "packages/drizzler/src/format/**",
+          "packages/drizzler/src/schema/sources.ts",
+          "packages/drizzler/src/seed/errors.ts",
+          "packages/drizzler/src/seed/load-config.ts",
+          "packages/drizzler/src/seed/resolve.ts",
+          "packages/drizzler/src/seed/run.ts",
+          "packages/drizzler/src/seed/write.ts",
+          "packages/drizzler/src/studio/index.ts",
+          "packages/drizzler/src/studio/client/**",
+          "packages/drizzler/src/studio/server/index.ts",
+          "packages/drizzler/src/studio/server/errors/**",
+          "packages/drizzler/src/studio/server/handlers/**",
+          "packages/drizzler/src/studio/server/services/**",
+          "packages/drizzler/src/studio/server/usecases/**",
+        ],
+        rules: {
+          "custom/domain-no-nondeterminism": "off",
+          "custom/domain-no-side-effects": "off",
+          "custom/pure-no-throw": "off",
+          "no-restricted-imports": "off",
+        },
+      },
+      {
+        // The client's logic modules (the .ts files beside its components) are pure too: values in,
+        // values out, with no browser, framework or network in them, so they test without a DOM.
+        // The ones that touch the browser or hold React state are named in the next block.
+        files: ["packages/drizzler/src/studio/client/**/*.ts"],
+        rules: {
+          "custom/domain-no-nondeterminism": "error",
+          "custom/domain-no-side-effects": "error",
+          "custom/pure-no-throw": "error",
+          // Why: a logic module that imports the framework or the API starts doing I/O unnoticed.
+          // NG:   import { useState } from "react"  /  import { dbClient } from "../../api/index.js"
+          // OK:   import type { Edge } from "@xyflow/react"  /  import { displayCell } from "./cells.js"
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  group: [
+                    "react",
+                    "react-dom",
+                    "react-dom/*",
+                    "@tanstack/*",
+                    "zustand",
+                    "zustand/*",
+                    "monaco-editor",
+                    "monaco-editor/*",
+                    "@monaco-editor/*",
+                    "@codemirror/*",
+                    "@heroui/*",
+                    "@xyflow/*",
+                    "**/api/index.js",
+                    "**/hooks/index.js",
+                  ],
+                  allowTypeImports: true,
+                  message:
+                    "A client logic module takes values and returns values; the component or hook that uses it brings the framework, the browser and the API.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        // The client modules that touch the browser (the DOM, storage, the clipboard, timers),
+        // hold React or store state, or set up the editors; and the generated API client and hooks.
+        files: [
+          "packages/drizzler/src/studio/client/**/*.test.ts",
+          "packages/drizzler/src/studio/client/api/**",
+          "packages/drizzler/src/studio/client/hooks/**",
+          "packages/drizzler/src/studio/client/vite-env.d.ts",
+          "packages/drizzler/src/studio/client/features/diagram/export.ts",
+          "packages/drizzler/src/studio/client/features/diagram/geometry.ts",
+          "packages/drizzler/src/studio/client/features/diagram/saved-diagram.ts",
+          "packages/drizzler/src/studio/client/features/editor/language.ts",
+          "packages/drizzler/src/studio/client/features/editor/monaco.ts",
+          "packages/drizzler/src/studio/client/features/editor/monaco-features.ts",
+          "packages/drizzler/src/studio/client/features/query/touched.ts",
+          "packages/drizzler/src/studio/client/features/sql/analysis.ts",
+          "packages/drizzler/src/studio/client/lib/copy.ts",
+          "packages/drizzler/src/studio/client/lib/debounce.ts",
+          "packages/drizzler/src/studio/client/lib/download.ts",
+          "packages/drizzler/src/studio/client/lib/events.ts",
+          "packages/drizzler/src/studio/client/lib/layout.ts",
+          "packages/drizzler/src/studio/client/lib/storage.ts",
+          "packages/drizzler/src/studio/client/lib/store.ts",
+        ],
+        rules: {
+          "custom/domain-no-nondeterminism": "off",
+          "custom/domain-no-side-effects": "off",
+          "custom/pure-no-throw": "off",
+          "no-restricted-imports": "off",
+        },
+      },
+      {
+        // Why off: the SQL parser is recursive descent; a statement that does not parse unwinds by
+        // `throw new ParseFailure`, caught in readStatement, which returns it as an `invalid`
+        // statement. Nothing escapes the module: parseStatements returns values.
+        files: ["packages/drizzler/src/sql/parse.ts"],
+        rules: { "custom/pure-no-throw": "off" },
+      },
       // ---------------------------------------------------------------------
       // The studio's API: handlers -> usecases -> services (and usecases -> domain).
       // See ./lint/layers.js for each rule's Why / NG / OK.
@@ -529,6 +711,7 @@ export default defineConfig({
         files: ["packages/drizzler/src/studio/server/services/**"],
         rules: {
           "custom/no-service-to-service": "error",
+          "custom/service-does-io": "error",
           "custom/require-diagram": "error",
           "custom/layer-function-shape": "error",
           "no-restricted-imports": [
@@ -552,55 +735,6 @@ export default defineConfig({
           "custom/domain-no-nondeterminism": "error",
           "custom/domain-no-side-effects": "error",
           "custom/layer-function-shape": "error",
-        },
-      },
-      {
-        // The library's computing core is pure, as the studio's domain is: schema text in, diagrams,
-        // DBML, docs and SQL analysis out. Reading files, the clock and randomness happens in
-        // core/, schema/sources.ts, file/ and the CLI, which hand these modules plain values.
-        files: [
-          "packages/drizzler/src/sql/**",
-          "packages/drizzler/src/generator/**",
-          "packages/drizzler/src/diagram/**",
-          "packages/drizzler/src/helper/**",
-          "packages/drizzler/src/schema/paths.ts",
-          "packages/drizzler/src/schema/strip-imports.ts",
-        ],
-        rules: {
-          "custom/domain-no-nondeterminism": "error",
-          "custom/domain-no-side-effects": "error",
-          // Why: a pure module that imports I/O can start doing it unnoticed.
-          // NG:   import fs from "node:fs"  /  import { Effect } from "effect"
-          // OK:   import path from "node:path"  /  import { parseSync } from "oxc-parser"
-          "no-restricted-imports": [
-            "error",
-            {
-              paths: [
-                { name: "effect", message: "Pure modules return values; Effects belong in core/." },
-              ],
-              patterns: [
-                {
-                  group: [
-                    "node:fs",
-                    "node:fs/*",
-                    "node:child_process",
-                    "node:os",
-                    "node:http",
-                    "node:https",
-                    "node:net",
-                    "node:crypto",
-                    "@effect/*",
-                    "../file/*",
-                    "../core/*",
-                    "../emit/*",
-                    "../schema/sources.js",
-                  ],
-                  message:
-                    "Pure modules do not touch the outside world; read it in core/ or schema/sources.ts and pass the value in.",
-                },
-              ],
-            },
-          ],
         },
       },
       {

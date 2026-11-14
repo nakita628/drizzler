@@ -90,6 +90,36 @@ export function makeSchemaDialect(input: z.infer<typeof MakeSchemaDialectInput>)
   return null;
 }
 
+const MakeWorkingDialectInput = z
+  .object({
+    purpose: z
+      .enum(["query", "sql"])
+      .meta({ description: "What the dialect is for: typing Drizzle code, or analysing SQL" }),
+    connected: Dialect.nullable().meta({ description: "The connected database's dialect" }),
+    source: z.string().meta({ description: "The saved schema's source" }),
+  })
+  .readonly()
+  .meta({ description: "What the studio knows of the dialect" });
+
+/**
+ * The dialect the studio works in for a purpose. Drizzle code on the Query page is written against
+ * the schema, so the schema's builders decide, then the database; PostgreSQL when neither says.
+ * SQL on the SQL page runs on the database, so it decides, then the schema; SQLite when neither.
+ *
+ * @param input - The `purpose`, the `connected` database's dialect and the schema's `source`.
+ * @returns The dialect.
+ * @example
+ * ```ts
+ * makeWorkingDialect({ purpose: "sql", connected: "mysql", source: 'pgTable("user", {})' }); // => "mysql"
+ * makeWorkingDialect({ purpose: "query", connected: "mysql", source: 'pgTable("user", {})' }); // => "postgresql"
+ * ```
+ */
+export function makeWorkingDialect(input: z.infer<typeof MakeWorkingDialectInput>): Dialect {
+  const schema = makeSchemaDialect({ source: input.source });
+  if (input.purpose === "query") return schema ?? input.connected ?? "postgresql";
+  return input.connected ?? schema ?? "sqlite";
+}
+
 /** The names a query has in scope: every export of the schema, and the operators it does not shadow. */
 function scope(names: readonly string[]) {
   const tables = names.filter((name) => name !== "db");

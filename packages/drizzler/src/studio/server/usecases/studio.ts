@@ -3,6 +3,7 @@ import * as QueryDomain from "../domain/query.js";
 import * as SqlDomain from "../domain/sql.js";
 import * as DatabaseService from "../services/database.js";
 import type { Database } from "../services/database.js";
+import * as EnvService from "../services/env.js";
 import * as StudioService from "../services/studio.js";
 import * as TypeScriptService from "../services/typescript.js";
 
@@ -14,14 +15,16 @@ import * as TypeScriptService from "../services/typescript.js";
  * sequenceDiagram
  *   participant C as Caller
  *   participant U as StudioUseCase
+ *   participant E as EnvService
  *   participant D as SqlDomain
  *   participant S as DatabaseService
  *   C->>U: connectDatabase({ url, cwd })
  *   alt no url
  *     U-->>C: not connected, no error
  *   else url
- *     U->>D: makeDialect / makeSqlitePath / makeRedactedUrl
- *     U->>S: openDriver({ dialect, url, file, cwd })
+ *     U->>E: readEnv({ names: TOKEN_ENV })
+ *     U->>D: makeConnection({ url, env }) / makeDialect / makeRedactedUrl
+ *     U->>S: openDriver({ connection, cwd })
  *     alt opened
  *       U-->>C: connected, with the driver
  *     else DatabaseUnavailableError
@@ -30,7 +33,7 @@ import * as TypeScriptService from "../services/typescript.js";
  *   end
  * ```
  *
- * @param input.url - the database URL (`file:./dev.db`, `postgres://...`, `mysql://...`), or null for none
+ * @param input.url - the database URL (`file:./dev.db`, `libsql://...`, `d1://...`, `postgres://...`, `mysql://...`), or null for none
  * @param input.cwd - the project directory the drivers are loaded from
  * @returns the connection (null when there is none) and the status the banner and the pages show
  */
@@ -44,12 +47,9 @@ export function connectDatabase(input: { readonly url: string | null; readonly c
   }
   const dialect = SqlDomain.makeDialect({ url });
   const redacted = SqlDomain.makeRedactedUrl({ url });
-  return DatabaseService.openDriver({
-    dialect,
-    url,
-    file: SqlDomain.makeSqlitePath({ url }),
-    cwd: input.cwd,
-  }).pipe(
+  return EnvService.readEnv({ names: Object.values(SqlDomain.TOKEN_ENV).flat() }).pipe(
+    Effect.map((env) => SqlDomain.makeConnection({ url, env })),
+    Effect.flatMap((connection) => DatabaseService.openDriver({ connection, cwd: input.cwd })),
     Effect.match({
       onSuccess: (driver): Database => ({
         driver,
@@ -76,7 +76,7 @@ export function connectDatabase(input: { readonly url: string | null; readonly c
  *   participant S as StudioService
  *   C->>U: configureStudio({ schemaPath, cwd, database })
  *   U->>T: createLanguage({ schemaPath, queryPreamble })
- *   Note over T,Q: on each query: makeSchemaDialect, makeTypePreamble
+ *   Note over T,Q: on each query: makeWorkingDialect, makeTypePreamble
  *   U->>S: setStudio({ studio, language })
  *   U-->>C: done
  * ```
@@ -91,12 +91,12 @@ export function configureStudio(input: {
   readonly cwd: string;
   readonly database: Database;
 }) {
-  const fallback = input.database.status.dialect;
+  const connected = input.database.status.dialect;
   const language = TypeScriptService.createLanguage({
     schemaPath: input.schemaPath,
     queryPreamble: ({ source, schemaImport, names }) =>
       QueryDomain.makeTypePreamble({
-        dialect: QueryDomain.makeSchemaDialect({ source }) ?? fallback ?? "postgresql",
+        dialect: QueryDomain.makeWorkingDialect({ purpose: "query", connected, source }),
         schemaImport,
         names,
       }),

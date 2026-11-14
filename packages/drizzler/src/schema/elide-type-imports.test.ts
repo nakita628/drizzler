@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { elideTypeOnlyImports } from "./schema-sql.js";
+import { elideTypeOnlyImports } from "./strip-imports.js";
 
 describe("elideTypeOnlyImports", () => {
   it("blanks an import that brings in only types, keeping every position after it", () => {

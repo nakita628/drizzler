@@ -20,7 +20,7 @@ import {
   toJson,
   toTsv,
 } from "../features/data/cells.js";
-import { PAGE_SIZE } from "../features/data/paging.js";
+import { PAGE_SIZE, pageWindow, rowIdentity } from "../features/data/paging.js";
 import { FieldIcon } from "../features/diagram/field-icon.js";
 import { columnTypeLabel, iconField, optionsFor } from "../features/data/table.js";
 import type { GridColumn, GridEnum } from "../features/data/table.js";
@@ -319,15 +319,13 @@ export function DataGrid({
   const names = fields.map((f) => f.name);
   const primaryKey = new Set(columns.filter((c) => c.primaryKey).map((c) => c.name));
   const editable = rowKey.length > 0;
-  // A table without a key still has to draw without two rows colliding, so it is identified by
-  // everything it holds — enough for React and for the grid, not enough to write back through.
-  const identity = editable ? rowKey : columns.map((f) => f.name);
-  const from = total === 0 ? 0 : skip + 1;
-  const to = Math.min(skip + rows.length, total);
+  const identity = rowIdentity(
+    rowKey,
+    columns.map((f) => f.name),
+  );
   // With a table of any size the two arrows matter more than the two steps: the last page is
   // otherwise fifty clicks away.
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const page = Math.floor(skip / PAGE_SIZE) + 1;
+  const { from, to, page, pages } = pageWindow({ skip, rowCount: rows.length, total });
 
   function commitEdit(row: Row, field: Field, text: string) {
     setEditing(null);

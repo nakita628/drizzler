@@ -81,3 +81,27 @@ export function stripImports(source: string) {
   );
   return codeStart === -1 ? [] : lines.slice(codeStart);
 }
+
+/**
+ * The source with each import that brings in only types blanked out: `import { type X } from
+ * "pkg"` names no value, and TypeScript drops it, but Node's type stripping keeps it as
+ * `import {} from "pkg"`, which still loads `pkg` (a types-only subpath fails to resolve). The
+ * import is replaced by spaces, so every position after it stays where it was.
+ */
+export function elideTypeOnlyImports(source: string, file = "schema.ts") {
+  const lang = /\.(c|m)?tsx$/u.test(file) ? "tsx" : "ts";
+  const { program } = parseSync(file, source, { lang, sourceType: "module" });
+  const spans = program.body.flatMap((stmt) =>
+    stmt.type === "ImportDeclaration" &&
+    stmt.importKind !== "type" &&
+    stmt.specifiers.length > 0 &&
+    stmt.specifiers.every((s) => s.type === "ImportSpecifier" && s.importKind === "type")
+      ? [[stmt.start, stmt.end] as const]
+      : [],
+  );
+  return spans.reduceRight(
+    (text, [start, end]) =>
+      text.slice(0, start) + text.slice(start, end).replace(/[^\n]/gu, " ") + text.slice(end),
+    source,
+  );
+}

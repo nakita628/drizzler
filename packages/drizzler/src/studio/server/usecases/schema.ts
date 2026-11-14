@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
 import * as ParseDomain from "../domain/parse.js";
-import * as ParseService from "../services/parse.js";
+import * as SchemaReader from "../../../helper/schema-reader.js";
 import { WATCH_INTERVAL_MS } from "../constants/index.js";
 import { readText, watchFile, writeText } from "../services/file.js";
 import { getStudio } from "../services/studio.js";
@@ -13,7 +13,7 @@ function snapshot(schemaPath: string, source: string) {
     source,
     parseError: ParseDomain.makeParseError({
       source,
-      error: ParseService.findSyntaxError({ source }),
+      error: SchemaReader.findSyntaxError({ source }),
     }),
   };
 }
@@ -28,7 +28,7 @@ function snapshot(schemaPath: string, source: string) {
  * sequenceDiagram
  *   participant U as SchemaUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as ParseDomain
  *   U->>F: readText({ file: schemaPath })
  *   F-->>U: source
@@ -56,7 +56,7 @@ export function readSchema() {
  * sequenceDiagram
  *   participant U as SchemaUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as ParseDomain
  *   U->>F: writeText({ file: schemaPath, text: source })
  *   U->>P: findSyntaxError(source)

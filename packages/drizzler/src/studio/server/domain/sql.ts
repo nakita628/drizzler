@@ -45,8 +45,38 @@ const Url = z
   .readonly()
   .meta({ description: "A connection URL" });
 
+export const ConnectionKind = z
+  .enum(["sqlite", "libsql", "d1", "postgresql", "mysql"])
+  .meta({ description: "How the studio reaches a database: the driver it opens" });
+export type ConnectionKind = z.infer<typeof ConnectionKind>;
+
 /**
- * The dialect a connection URL speaks; null for a scheme drizzler does not know.
+ * How a connection URL is reached: a local SQLite file, Turso (libSQL), Cloudflare D1 over its
+ * HTTP API, PostgreSQL or MySQL; null for a scheme drizzler does not know.
+ *
+ * @param input - The connection `url`.
+ * @returns The connection kind, or null.
+ * @example
+ * ```ts
+ * makeConnectionKind({ url: "libsql://app-ada.turso.io" }); // => "libsql"
+ * makeConnectionKind({ url: "d1://account/database" }); // => "d1"
+ * ```
+ */
+export function makeConnectionKind(input: z.infer<typeof Url>): ConnectionKind | null {
+  const { url } = input;
+  if (/^postgres(ql)?:\/\//u.test(url)) return "postgresql";
+  if (/^(mysql|mariadb):\/\//u.test(url)) return "mysql";
+  if (url.startsWith("libsql://")) return "libsql";
+  if (url.startsWith("d1://")) return "d1";
+  if (/^(file|sqlite):/u.test(url) || /\.(db|sqlite3?)$/u.test(url) || url === ":memory:") {
+    return "sqlite";
+  }
+  return null;
+}
+
+/**
+ * The dialect a connection URL speaks; null for a scheme drizzler does not know. Turso and D1
+ * speak SQLite.
  *
  * @param input - The connection `url`.
  * @returns `"postgresql"`, `"mysql"` or `"sqlite"`, or null.
@@ -54,16 +84,13 @@ const Url = z
  * ```ts
  * makeDialect({ url: "postgres://localhost/app" }); // => "postgresql"
  * makeDialect({ url: "file:./dev.db" }); // => "sqlite"
+ * makeDialect({ url: "libsql://app-ada.turso.io" }); // => "sqlite"
  * ```
  */
 export function makeDialect(input: z.infer<typeof Url>): Dialect | null {
-  const { url } = input;
-  if (/^postgres(ql)?:\/\//u.test(url)) return "postgresql";
-  if (/^(mysql|mariadb):\/\//u.test(url)) return "mysql";
-  if (/^(file|sqlite):/u.test(url) || /\.(db|sqlite3?)$/u.test(url) || url === ":memory:") {
-    return "sqlite";
-  }
-  return null;
+  const kind = makeConnectionKind(input);
+  if (kind === "libsql" || kind === "d1") return "sqlite";
+  return kind;
 }
 
 /**
@@ -80,19 +107,187 @@ export function makeSqlitePath(input: z.infer<typeof Url>) {
   return input.url.replace(/^(file|sqlite):(\/\/)?/u, "");
 }
 
+function parseUrl(url: string) {
+  return URL.canParse(url) ? new URL(url) : null;
+}
+
 /**
- * The URL with its password replaced, for showing on the page.
+ * A Turso URL split into what `@libsql/client` takes: the URL without its `authToken`, and the
+ * token, which may also come from the environment.
+ *
+ * @param input - The `libsql://` connection `url`.
+ * @returns The `url` to connect to and its `authToken` (null when the URL has none).
+ * @example
+ * ```ts
+ * makeLibsqlTarget({ url: "libsql://app-ada.turso.io?authToken=abc" });
+ * // => { url: "libsql://app-ada.turso.io", authToken: "abc" }
+ * ```
+ */
+export function makeLibsqlTarget(input: z.infer<typeof Url>) {
+  const parsed = parseUrl(input.url);
+  if (parsed === null) return { url: input.url, authToken: null };
+  const authToken = parsed.searchParams.get("authToken");
+  parsed.searchParams.delete("authToken");
+  return { url: parsed.toString().replace(/\/(\?|$)/u, "$1"), authToken: authToken || null };
+}
+
+/**
+ * The Cloudflare account and D1 database a `d1://<account id>/<database id>` URL names, and the
+ * API token it carries in `?token=` (null when it carries none: the environment may have one).
+ *
+ * @param input - The `d1://` connection `url`.
+ * @returns The `accountId`, `databaseId` and `token`, or null when the URL does not name both ids.
+ * @example
+ * ```ts
+ * makeD1Target({ url: "d1://0123abcd/5678-ef90?token=secret" });
+ * // => { accountId: "0123abcd", databaseId: "5678-ef90", token: "secret" }
+ * ```
+ */
+export function makeD1Target(input: z.infer<typeof Url>) {
+  const parsed = parseUrl(input.url);
+  if (parsed === null) return null;
+  const accountId = decodeURIComponent(parsed.hostname);
+  const databaseId = decodeURIComponent(parsed.pathname.replace(/^\/|\/$/gu, ""));
+  if (accountId === "" || databaseId === "" || databaseId.includes("/")) return null;
+  return { accountId, databaseId, token: parsed.searchParams.get("token") || null };
+}
+
+// Hosted databases that refuse a connection without TLS, by host name: Neon, and PlanetScale's
+// MySQL and PostgreSQL.
+const TLS_HOSTS = [".neon.tech", ".psdb.cloud"] as const;
+
+/**
+ * Whether the connection must turn TLS on itself: the host is one that refuses plain connections,
+ * and the URL says nothing of TLS (`sslmode` / `ssl`), so the driver would otherwise go without.
+ *
+ * @param input - The PostgreSQL or MySQL connection `url`.
+ * @returns True when the driver should be told to use TLS.
+ * @example
+ * ```ts
+ * makeTlsRequired({ url: "postgres://ada@ep-cool-1.us-east-2.aws.neon.tech/app" }); // => true
+ * makeTlsRequired({ url: "postgres://ada@localhost/app" }); // => false
+ * ```
+ */
+export function makeTlsRequired(input: z.infer<typeof Url>) {
+  const parsed = parseUrl(input.url);
+  if (parsed === null) return false;
+  const host = parsed.hostname.toLowerCase();
+  if (!TLS_HOSTS.some((suffix) => host.endsWith(suffix))) return false;
+  return !parsed.searchParams.has("sslmode") && !parsed.searchParams.has("ssl");
+}
+
+/**
+ * The URL with its secrets replaced, for showing on the page: the password, and the tokens
+ * Turso (`authToken`) and D1 (`token`) take as query parameters.
  *
  * @param input - The connection `url`.
- * @returns The URL with `****` in place of the password.
+ * @returns The URL with `****` in place of each secret.
  * @example
  * ```ts
  * makeRedactedUrl({ url: "postgres://ada:secret@localhost/app" });
  * // => "postgres://ada:****@localhost/app"
+ * makeRedactedUrl({ url: "libsql://app.turso.io?authToken=abc" });
+ * // => "libsql://app.turso.io?authToken=****"
  * ```
  */
 export function makeRedactedUrl(input: z.infer<typeof Url>) {
-  return input.url.replace(/(\/\/[^:/@]+:)[^@]*@/u, "$1****@");
+  return input.url
+    .replace(/(\/\/[^:/@]+:)[^@]*@/u, "$1****@")
+    .replace(/([?&](?:authToken|token|password)=)[^&#]*/giu, "$1****");
+}
+
+/** What `openDriver` needs to reach a database, decided from its URL and the environment. */
+export type Connection =
+  | { readonly kind: "sqlite"; readonly file: string }
+  | { readonly kind: "libsql"; readonly url: string; readonly authToken: string | null }
+  | { readonly kind: "d1"; readonly endpoint: string; readonly token: string }
+  | { readonly kind: "postgresql"; readonly url: string; readonly tls: boolean }
+  | { readonly kind: "mysql"; readonly url: string; readonly tls: boolean }
+  | { readonly kind: "unsupported"; readonly reason: string };
+
+/**
+ * The environment variables a token may come from when the URL carries none, first one first:
+ * read by the caller and handed to makeConnection as `env`.
+ */
+export const TOKEN_ENV = {
+  libsql: ["TURSO_AUTH_TOKEN"],
+  d1: ["CLOUDFLARE_D1_TOKEN", "CLOUDFLARE_API_TOKEN"],
+} as const;
+
+const UNSUPPORTED =
+  "Unsupported database URL. Use file:./dev.db (SQLite), libsql://... (Turso), d1://<account id>/<database id> (Cloudflare D1), postgres://... or mysql://...";
+
+const MakeConnectionInput = z
+  .object({
+    url: z.string().meta({ description: "A connection URL", example: "d1://acc/db" }),
+    env: z
+      .record(z.string(), z.string().nullable())
+      .readonly()
+      .meta({
+        description: "The TOKEN_ENV variables by name; null or empty for one that is not set",
+        example: { CLOUDFLARE_D1_TOKEN: "secret" },
+      }),
+  })
+  .readonly()
+  .meta({ description: "A connection URL and the environment's tokens" });
+
+/** The first of the variables that holds a value. */
+function envToken(env: Readonly<Record<string, string | null>>, names: readonly string[]) {
+  return names.map((name) => env[name]).find((value) => !!value) ?? null;
+}
+
+/**
+ * How to reach the database at a URL: the driver, and what it is given — the SQLite file, the
+ * Turso URL and token, D1's endpoint and token, or the URL and whether TLS must be turned on. A
+ * token the URL does not carry is taken from `env` (see TOKEN_ENV).
+ *
+ * @param input - The connection `url`, and the `env` values of TOKEN_ENV's variables.
+ * @returns The connection, or `unsupported` with the reason it cannot be opened.
+ * @example
+ * ```ts
+ * makeConnection({ url: "d1://acc/db", env: { CLOUDFLARE_D1_TOKEN: "secret" } });
+ * // => { kind: "d1", endpoint: "https://api.cloudflare.com/client/v4/accounts/acc/d1/database/db/raw", token: "secret" }
+ * ```
+ */
+export function makeConnection(input: z.infer<typeof MakeConnectionInput>): Connection {
+  const { url, env } = input;
+  const kind = makeConnectionKind({ url });
+  if (kind === "sqlite") return { kind, file: makeSqlitePath({ url }) };
+  if (kind === "postgresql" || kind === "mysql")
+    return { kind, url, tls: makeTlsRequired({ url }) };
+  if (kind === "libsql") {
+    const target = makeLibsqlTarget({ url });
+    return {
+      kind,
+      url: target.url,
+      authToken: target.authToken ?? envToken(env, TOKEN_ENV.libsql),
+    };
+  }
+  if (kind === "d1") {
+    const target = makeD1Target({ url });
+    if (target === null) {
+      return {
+        kind: "unsupported",
+        reason: "A D1 URL names the account and the database: d1://<account id>/<database id>",
+      };
+    }
+    const token = target.token ?? envToken(env, TOKEN_ENV.d1);
+    if (token === null) {
+      return {
+        kind: "unsupported",
+        reason:
+          "D1 needs a Cloudflare API token with D1 edit access: set CLOUDFLARE_D1_TOKEN, or add ?token=... to the URL.",
+      };
+    }
+    const account = encodeURIComponent(target.accountId);
+    const database = encodeURIComponent(target.databaseId);
+    return {
+      kind,
+      endpoint: `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${database}/raw`,
+      token,
+    };
+  }
+  return { kind: "unsupported", reason: UNSUPPORTED };
 }
 
 const MakeIdentifierInput = z
@@ -166,6 +361,8 @@ export function makeCell(input: { readonly value: unknown }): CellValue {
   }
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
   if (value instanceof Uint8Array) return `\\x${Buffer.from(value).toString("hex")}`;
+  // libSQL hands a blob back as an ArrayBuffer.
+  if (value instanceof ArrayBuffer) return `\\x${Buffer.from(value).toString("hex")}`;
   return JSON.stringify(value);
 }
 
@@ -191,6 +388,149 @@ const MakeUnknownFieldsInput = z
  */
 export function makeUnknownFields(input: z.infer<typeof MakeUnknownFieldsInput>) {
   return Object.keys(input.values).filter((name) => columnOf(input.table, name) === null);
+}
+
+const MakeUnknownFieldsMessageInput = z
+  .object({
+    name: z.string().meta({ description: "The table's name in the schema", example: "post" }),
+    unknown: z
+      .array(z.string())
+      .readonly()
+      .meta({ description: "The fields it has no column for", example: ["body"] }),
+  })
+  .readonly()
+  .meta({ description: "A table and the fields it has no column for" });
+
+/**
+ * What a 422 says of fields a table has no column for; null when there are none.
+ *
+ * @param input - The table's `name` and the `unknown` fields (from makeUnknownFields).
+ * @returns The message, or null.
+ * @example
+ * ```ts
+ * makeUnknownFieldsMessage({ name: "post", unknown: ["body", "slug"] });
+ * // => "Unknown columns of post: body, slug"
+ * ```
+ */
+export function makeUnknownFieldsMessage(input: z.infer<typeof MakeUnknownFieldsMessageInput>) {
+  const { name, unknown } = input;
+  if (unknown.length === 0) return null;
+  return `Unknown column${unknown.length > 1 ? "s" : ""} of ${name}: ${unknown.join(", ")}`;
+}
+
+const MakeRowInputProblemInput = z
+  .object({
+    table: Table,
+    name: z.string().meta({ description: "The table's name in the schema", example: "post" }),
+    inputs: z
+      .array(
+        z
+          .object({
+            field: z.string().meta({ description: "The request field", example: "where" }),
+            values: Values,
+            required: z.boolean().meta({ description: "Whether it must name a column" }),
+          })
+          .readonly(),
+      )
+      .readonly()
+      .meta({ description: "The request's column values, in the order they are checked" }),
+  })
+  .readonly()
+  .meta({ description: "A row write's inputs against the table" });
+
+/**
+ * The first problem of a row write's inputs, for a 422: an input that must name a column and
+ * names none, then one that names a column the table does not have; null when they are fine.
+ *
+ * @param input - The `table`, its schema `name` and the request's `inputs` in order.
+ * @returns The `field` and `message` of the first problem, or null.
+ * @example
+ * ```ts
+ * makeRowInputProblem({ table, name: "post", inputs: [{ field: "where", values: {}, required: true }] });
+ * // => { field: "where", message: "where must name at least one column" }
+ * ```
+ */
+export function makeRowInputProblem(input: z.infer<typeof MakeRowInputProblemInput>) {
+  const empty = input.inputs.find((each) => each.required && Object.keys(each.values).length === 0);
+  if (empty !== undefined) {
+    return { field: empty.field, message: `${empty.field} must name at least one column` };
+  }
+  for (const each of input.inputs) {
+    const message = makeUnknownFieldsMessage({
+      name: input.name,
+      unknown: makeUnknownFields({ table: input.table, values: each.values }),
+    });
+    if (message !== null) return { field: each.field, message };
+  }
+  return null;
+}
+
+const MakeCountInput = z
+  .object({
+    rows: z
+      .array(z.record(z.string(), z.unknown()))
+      .readonly()
+      .meta({ description: "The rows a `SELECT COUNT(*) AS count` returned" }),
+  })
+  .readonly()
+  .meta({ description: "The rows of a count" });
+
+/**
+ * The number a `SELECT COUNT(*) AS count` returned: drivers give it as a number, a big integer
+ * or text (pg's bigint); 0 when there is no row.
+ *
+ * @param input - The `rows` the count returned.
+ * @returns The count.
+ * @example
+ * ```ts
+ * makeCount({ rows: [{ count: "42" }] }); // => 42
+ * ```
+ */
+export function makeCount(input: z.infer<typeof MakeCountInput>) {
+  return Number(input.rows[0]?.count ?? 0);
+}
+
+const MakeSqlResultInput = z
+  .object({
+    result: z
+      .object({
+        columns: z.array(z.string()).readonly(),
+        rows: z.array(z.record(z.string(), z.unknown())).readonly(),
+        rowCount: z.number(),
+      })
+      .readonly()
+      .nullable()
+      .meta({ description: "The last statement's result; null when none ran" }),
+    durationMs: z
+      .number()
+      .meta({ description: "How long the statements took, as the studio shows it", example: 1.23 }),
+  })
+  .readonly()
+  .meta({ description: "What a SQL run gave back" });
+
+/**
+ * The SQL page's answer: the last statement's columns (read from its first row when the driver
+ * names none) and rows as cells, its row count, and the time taken.
+ *
+ * @param input - The last statement's `result` and the `durationMs` the run took.
+ * @returns The `columns`, `rows`, `rowCount` and `durationMs`.
+ * @example
+ * ```ts
+ * makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, durationMs: 1.23 });
+ * // => { columns: ["n"], rows: [{ n: 1 }], rowCount: 1, durationMs: 1.23 }
+ * ```
+ */
+export function makeSqlResult(input: z.infer<typeof MakeSqlResultInput>) {
+  const result = input.result ?? { columns: [], rows: [], rowCount: 0 };
+  const columns = result.columns.length > 0 ? result.columns : Object.keys(result.rows[0] ?? {});
+  return {
+    columns: [...columns],
+    rows: result.rows.map((row) =>
+      Object.fromEntries(Object.entries(row).map(([key, value]) => [key, makeCell({ value })])),
+    ),
+    rowCount: result.rowCount,
+    durationMs: input.durationMs,
+  };
 }
 
 const Search = z

@@ -5,7 +5,7 @@ import {
   parseQuery,
   readQueryNames,
   readRelationFields,
-} from "./parse.js";
+} from "./schema-reader.js";
 
 const schema = `import { integer, sqliteTable } from "drizzle-orm/sqlite-core";
 import { defineRelations, defineRelationsPart } from "drizzle-orm";
