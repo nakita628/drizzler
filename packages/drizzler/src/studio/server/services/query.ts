@@ -5,7 +5,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Duration, Effect, Result } from "effect";
 import type ts from "typescript";
 import { QueryRunError } from "../errors/index.js";
+import { isProjectTypeScript } from "../../../schema/module-url.js";
+import {
+  driverParam,
+  proxyCallbackResult,
+  sqliteProxyRows,
+  sqliteProxyRun,
+} from "../../../sql/driver.js";
 import type { Driver } from "./database.js";
+import { causeLines } from "../../../helper/error-message.js";
+import { durationMs } from "../../../helper/duration.js";
+import { nearestCacheDir } from "../../../helper/find-up.js";
 
 /** How long a query may run before the studio stops waiting for it. */
 const QUERY_TIMEOUT_MS = 30_000;
@@ -13,14 +23,6 @@ const QUERY_TIMEOUT_MS = 30_000;
 // The project's TypeScript the module hooks transpile with; the hooks are registered with the
 // first one, and a later one replaces it.
 const hooks = new Map<"typescript", typeof ts>();
-
-function isProjectTypeScript(url: string) {
-  return (
-    url.startsWith("file:") &&
-    /\.(c|m)?tsx?$/u.test(new URL(url).pathname) &&
-    !url.includes("/node_modules/")
-  );
-}
 
 function transpile(source: string, fileName: string) {
   const typescript = hooks.get("typescript") ?? null;
@@ -102,20 +104,7 @@ function registerHooks(typescript: typeof ts) {
  */
 function queryDir(schemaPath: string) {
   const start = path.dirname(path.resolve(schemaPath));
-  return cacheDirFrom(start) ?? path.join(start, ".drizzler");
-}
-
-function cacheDirFrom(dir: string): string | null {
-  const modules = path.join(dir, "node_modules");
-  if (fs.existsSync(modules)) return path.join(modules, ".cache", "drizzler");
-  const parent = path.dirname(dir);
-  return parent === dir ? null : cacheDirFrom(parent);
-}
-
-/** A parameter as the driver takes it: SQLite has no boolean, so it gets 1 or 0. */
-function driverParam(dialect: Driver["dialect"], param: unknown) {
-  if (dialect !== "sqlite" || typeof param !== "boolean") return param;
-  return param ? 1 : 0;
+  return nearestCacheDir(start, fs.existsSync) ?? path.join(start, ".drizzler");
 }
 
 /** The statements a query sent, in order, each recorded as it finishes. */
@@ -131,18 +120,6 @@ function isQueryModule(
     "default" in value &&
     typeof value.default === "function"
   );
-}
-
-/**
- * What a query threw, with the causes it wraps: Drizzle reports a rejected statement as
- * `Failed query: ...` and keeps the database's own words in `cause`.
- */
-function errorMessage(thrown: unknown): string {
-  if (!(thrown instanceof Error)) return String(thrown);
-  const cause = thrown.cause === undefined ? null : errorMessage(thrown.cause);
-  return cause === null || thrown.message.includes(cause)
-    ? thrown.message
-    : `${thrown.message}\n${cause}`;
 }
 
 type Executed = {
@@ -172,44 +149,26 @@ function makeExecutor(driver: Driver, executed: ExecutedLog, toJson: (value: unk
       sql,
       params: params.map((param) => toJson(param)),
       rowCount: result.rowCount,
-      durationMs: Math.round((performance.now() - started) * 100) / 100,
+      durationMs: durationMs(performance.now() - started),
     });
     return result;
   }
-  function objects(result: Awaited<ReturnType<typeof run>>) {
-    return result.rows.map((row) =>
-      Object.fromEntries(result.columns.map((column, i) => [column, row[i]])),
-    );
-  }
-  if (driver.dialect === "sqlite") {
+  const { dialect } = driver;
+  if (dialect === "sqlite") {
     return {
       async all(sql: string, params: unknown[], rowMode?: "array" | "object") {
-        const result = await run(sql, params);
-        return rowMode === "object" ? objects(result) : result.rows;
+        return sqliteProxyRows(await run(sql, params), rowMode);
       },
       async get(sql: string, params: unknown[], rowMode?: "array" | "object") {
-        const result = await run(sql, params);
-        return (rowMode === "object" ? objects(result) : result.rows)[0];
+        return sqliteProxyRows(await run(sql, params), rowMode)[0];
       },
       async run(sql: string, params: unknown[]) {
-        const result = await run(sql, params);
-        return { changes: result.rowCount, lastInsertRowid: result.insertId ?? 0 };
+        return sqliteProxyRun(await run(sql, params));
       },
     };
   }
-  return async (sql: string, params: unknown[], method: "all" | "execute") => {
-    const result = await run(sql, params);
-    if (method === "all") return { rows: result.rows };
-    // MySQL's answers rows as mysql2 does, in a list with the write's counts beside it.
-    if (driver.dialect === "mysql") {
-      return {
-        rows: [objects(result)],
-        affectedRows: result.rowCount,
-        insertId: result.insertId ?? 0,
-      };
-    }
-    return { rows: objects(result) };
-  };
+  return async (sql: string, params: unknown[], method: "all" | "execute") =>
+    proxyCallbackResult(dialect, method, await run(sql, params));
 }
 
 /** Loads the query module and runs its default export with the executor, within the time limit. */
@@ -224,11 +183,11 @@ function execute(input: {
         fs.mkdirSync(path.dirname(input.file), { recursive: true });
         fs.writeFileSync(input.file, input.source);
       },
-      catch: (thrown) => new QueryRunError({ message: errorMessage(thrown) }),
+      catch: (thrown) => new QueryRunError({ message: causeLines(thrown) }),
     });
     const loaded: unknown = yield* Effect.tryPromise({
       try: () => import(/* @vite-ignore */ pathToFileURL(input.file).href),
-      catch: (thrown) => new QueryRunError({ message: errorMessage(thrown) }),
+      catch: (thrown) => new QueryRunError({ message: causeLines(thrown) }),
     });
     if (!isQueryModule(loaded)) {
       return yield* new QueryRunError({ message: "The query module has no default export." });
@@ -244,7 +203,7 @@ function execute(input: {
         });
         return Promise.race([loaded.default(input.executor), timeout]);
       },
-      catch: (thrown) => new QueryRunError({ message: errorMessage(thrown) }),
+      catch: (thrown) => new QueryRunError({ message: causeLines(thrown) }),
     });
   }).pipe(Effect.ensuring(Effect.sync(() => fs.rmSync(input.file, { force: true }))));
 }
@@ -301,7 +260,7 @@ export function runQuery(input: {
     return {
       ...outcome,
       statements: [...executed.values()],
-      durationMs: Math.round(Duration.toMillis(took) * 100) / 100,
+      durationMs: durationMs(Duration.toMillis(took)),
     };
   });
 }

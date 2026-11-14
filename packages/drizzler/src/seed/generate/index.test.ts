@@ -1,13 +1,26 @@
 import { Faker, en } from "@faker-js/faker";
 import { defineRelations } from "drizzle-orm";
 import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import type { SeedConfig } from "../config.js";
 import { resolveSeedConfig } from "../options.js";
 import { makeSeedPlan } from "../plan.js";
 import { readSchema } from "../schema.js";
 import { generateSeedRows } from "./index.js";
+import type { Result } from "../result.js";
+import { ok } from "../result.js";
+
+/** A step's value; a failure fails the test with it. */
+function value<A, E>(result: Result<A, E>): A {
+  if (!result.ok) throw result.error;
+  return result.value;
+}
+
+/** A step's failure; a value fails the test. */
+function failure<A, E>(result: Result<A, E>): E {
+  if (result.ok) throw new Error("expected the step to fail");
+  return result.error;
+}
 
 const user = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -65,23 +78,22 @@ const schema = {
 };
 
 function generate(config: Omit<SeedConfig, "schema">) {
-  return Effect.gen(function* () {
-    const read = yield* readSchema(schema);
-    const tables = yield* makeSeedPlan(read.tables);
-    const faker = new Faker({ locale: [en] });
-    faker.seed(7);
-    const entries = yield* generateSeedRows({
-      tables,
-      config: resolveSeedConfig({ ...config, schema }, new Date()),
-      faker,
-    });
-    return Object.fromEntries(entries.map((entry) => [entry.table.name, entry.rows]));
+  const tables = makeSeedPlan(value(readSchema(schema)).tables);
+  if (!tables.ok) return tables;
+  const faker = new Faker({ locale: [en] });
+  faker.seed(7);
+  const entries = generateSeedRows({
+    tables: tables.value,
+    config: resolveSeedConfig({ ...config, schema }, new Date()),
+    faker,
   });
+  if (!entries.ok) return entries;
+  return ok(Object.fromEntries(entries.value.map((entry) => [entry.table.name, entry.rows])));
 }
 
 describe("generateSeedRows", () => {
   it("makes faker rows that point at rows that exist and keep their unique keys", () => {
-    const rows = Effect.runSync(
+    const rows = value(
       generate({
         models: {
           user: { count: 5, fields: { age: { min: 20, max: 30 } } },
@@ -107,7 +119,7 @@ describe("generateSeedRows", () => {
   });
 
   it("links a nullable key whose rule only sets nullRate to a row that exists", () => {
-    const rows = Effect.runSync(
+    const rows = value(
       generate({
         models: {
           user: { count: 3 },
@@ -120,7 +132,7 @@ describe("generateSeedRows", () => {
     expect(assignees.some((a) => a === null)).toBe(true);
     expect(assignees.some((a) => a !== null)).toBe(true);
     expect(assignees.every((a) => a === null || ids.has(a))).toBe(true);
-    const never = Effect.runSync(
+    const never = value(
       generate({
         nullRate: 1,
         models: {
@@ -135,13 +147,13 @@ describe("generateSeedRows", () => {
 
   it("gives the same rows for the same seed", () => {
     const config = { models: { user: { count: 3 }, post: { count: 3 } } };
-    const first = Effect.runSync(generate(config));
-    const second = Effect.runSync(generate(config));
+    const first = value(generate(config));
+    const second = value(generate(config));
     expect(second).toStrictEqual(first);
   });
 
   it("inserts real rows as written, nests children and names parents by a unique key", () => {
-    const rows = Effect.runSync(
+    const rows = value(
       generate({
         models: {
           user: {
@@ -171,7 +183,7 @@ describe("generateSeedRows", () => {
   });
 
   it("deals children out to meet a parent's relation rule", () => {
-    const rows = Effect.runSync(
+    const rows = value(
       generate({
         models: {
           user: { count: 4, relations: { posts: { min: 2, max: 2 } } },
@@ -184,20 +196,18 @@ describe("generateSeedRows", () => {
   });
 
   it("reports what is wrong with the config before anything is made", () => {
-    const error = Effect.runSync(
-      Effect.flip(
-        generate({
-          models: {
-            nobody: { count: 1 },
-            user: { data: [{ email: "x@example.com", nickname: "x" }] },
-            post: {
-              count: 1,
-              fields: { missing: { value: 1 } },
-              relations: { author: { min: 1 } },
-            },
+    const error = failure(
+      generate({
+        models: {
+          nobody: { count: 1 },
+          user: { data: [{ email: "x@example.com", nickname: "x" }] },
+          post: {
+            count: 1,
+            fields: { missing: { value: 1 } },
+            relations: { author: { min: 1 } },
           },
-        }),
-      ),
+        },
+      }),
     );
     expect(error.message).toContain("models.nobody: the schema exports no table named nobody.");
     expect(error.message).toContain(
@@ -210,15 +220,11 @@ describe("generateSeedRows", () => {
   });
 
   it("fails validation on a value the column cannot hold, and on a required column left out", () => {
-    const invalid = Effect.runSync(
-      Effect.flip(
-        generate({ models: { user: { count: 1, fields: { email: { value: "nope" } } } } }),
-      ),
+    const invalid = failure(
+      generate({ models: { user: { count: 1, fields: { email: { value: "nope" } } } } }),
     );
     expect(invalid.message).toContain("user[0].email: Invalid email address");
-    const missing = Effect.runSync(
-      Effect.flip(generate({ models: { user: { data: [{ email: "a@example.com" }] } } })),
-    );
+    const missing = failure(generate({ models: { user: { data: [{ email: "a@example.com" }] } } }));
     expect(missing.message).toContain(
       "user data[0].name: the column is required and has no default, so the row must give it.",
     );

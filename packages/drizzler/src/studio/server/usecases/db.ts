@@ -1,14 +1,15 @@
 import { Duration, Effect } from "effect";
+import { durationMs } from "../../../helper/duration.js";
 import { analyze, paramsByStatement, splitStatements } from "../../../sql/index.js";
 import * as DocsDomain from "../domain/docs.js";
+import * as PlanDomain from "../domain/plan.js";
 import * as QueryDomain from "../domain/query.js";
 import * as SqlDomain from "../domain/sql.js";
-import type { CellValue, Dialect } from "../domain/sql.js";
+import type { CellValue } from "../domain/sql.js";
 import { DatabaseUnavailableError, InvalidInputError, UnknownTableError } from "../errors/index.js";
 import { NO_DATABASE_MESSAGE } from "../constants/index.js";
 import { readText } from "../services/file.js";
 import * as ParseService from "../services/parse.js";
-import * as PlanService from "../services/plan.js";
 import { getStudio } from "../services/studio.js";
 
 type Values = Readonly<Record<string, CellValue>>;
@@ -47,15 +48,11 @@ function checkFields(
   values: Values,
   field: string,
 ) {
-  const unknown = SqlDomain.makeUnknownFields({ table: found, values });
-  return unknown.length === 0
-    ? Effect.void
-    : Effect.fail(
-        new InvalidInputError({
-          field,
-          message: `Unknown column${unknown.length > 1 ? "s" : ""} of ${found.name}: ${unknown.join(", ")}`,
-        }),
-      );
+  const message = SqlDomain.makeUnknownFieldsMessage({
+    name: found.name,
+    unknown: SqlDomain.makeUnknownFields({ table: found, values }),
+  });
+  return message === null ? Effect.void : Effect.fail(new InvalidInputError({ field, message }));
 }
 
 function requireSome(values: Values, field: string) {
@@ -92,14 +89,15 @@ export function readStatus() {
 }
 
 /** The plan an EXPLAIN gave, read as the dialect writes it. */
-function planOf(dialect: Dialect, rows: readonly Readonly<Record<string, unknown>>[]) {
-  if (dialect === "postgresql") {
-    return PlanService.makePostgresPlan({ document: rows[0]?.["QUERY PLAN"] ?? null });
-  }
-  if (dialect === "mysql") {
-    return PlanService.makeMysqlPlan({ document: rows[0]?.["EXPLAIN"] ?? null });
-  }
-  return PlanService.makeSqlitePlan({ rows });
+/**
+ * The plan's JSON document parsed when the driver handed it back as text (MySQL does); text that
+ * is not JSON is passed on as it is, and the plan shows no steps.
+ */
+function parsedDocument(document: unknown) {
+  if (typeof document !== "string") return Effect.succeed(document);
+  return Effect.try((): unknown => JSON.parse(document)).pipe(
+    Effect.catch((error) => Effect.as(Effect.logWarning("the plan is not JSON", error), document)),
+  );
 }
 
 /**
@@ -132,7 +130,7 @@ export function readCounts() {
     const db = yield* driver();
     const counted = yield* Effect.forEach(yield* tables(), (t) =>
       db.query(SqlDomain.makeCountStatement({ dialect: db.dialect, table: t })).pipe(
-        Effect.map((result) => [[t.name, Number(result.rows[0]?.count ?? 0)] as const]),
+        Effect.map((result) => [[t.name, SqlDomain.makeCount({ rows: result.rows })] as const]),
         Effect.catch((error) =>
           Effect.logDebug(`cannot count the rows of ${t.name}`, error).pipe(Effect.as([])),
         ),
@@ -201,7 +199,7 @@ export function readRows(input: {
     );
     return {
       rows: page.rows.map((row) => SqlDomain.makeRow({ table: found, row })),
-      total: Number(total.rows[0]?.count ?? 0),
+      total: SqlDomain.makeCount({ rows: total.rows }),
       skip: input.skip,
       take: input.take,
       search,
@@ -405,18 +403,10 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
     const [took, results] = yield* Effect.timed(
       Effect.forEach(statements, (sql, index) => db.query({ sql, params: bound[index] ?? [] })),
     );
-    const result = results.at(-1) ?? { columns: [], rows: [], rowCount: 0 };
-    const columns = result.columns.length > 0 ? result.columns : Object.keys(result.rows[0] ?? {});
-    return {
-      columns: [...columns],
-      rows: result.rows.map((row) =>
-        Object.fromEntries(
-          Object.entries(row).map(([key, value]) => [key, SqlDomain.makeCell({ value })]),
-        ),
-      ),
-      rowCount: result.rowCount,
-      durationMs: Math.round(Duration.toMillis(took) * 100) / 100,
-    };
+    return SqlDomain.makeSqlResult({
+      result: results.at(-1) ?? null,
+      durationMs: durationMs(Duration.toMillis(took)),
+    });
   });
 }
 
@@ -434,7 +424,7 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
  *   participant S as sql
  *   participant D as SqlDomain
  *   participant B as Driver
- *   participant L as PlanService
+ *   participant L as PlanDomain
  *   alt no database
  *     U-->>U: DatabaseUnavailableError
  *   end
@@ -445,7 +435,7 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
  *   U->>D: makeExplainStatement
  *   U->>B: query(explain)
  *   B-->>U: rows
- *   U->>L: make(Postgres|Mysql|Sqlite)Plan
+ *   U->>L: makePlanDocument, parsed when text, then makePlan
  *   L-->>U: nodes, raw
  * ```
  */
@@ -461,7 +451,10 @@ export function explainSql(input: { readonly sql: string; readonly params: reado
       sql: SqlDomain.makeExplainStatement({ dialect: db.dialect, sql: first }),
       params: params ?? [],
     });
-    const plan = planOf(db.dialect, rows);
+    const document = yield* parsedDocument(
+      PlanDomain.makePlanDocument({ dialect: db.dialect, rows }),
+    );
+    const plan = PlanDomain.makePlan({ dialect: db.dialect, rows, document });
     return { dialect: db.dialect, nodes: [...plan.nodes], raw: plan.raw };
   });
 }

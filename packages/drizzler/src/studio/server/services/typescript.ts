@@ -4,13 +4,25 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Effect, Semaphore } from "effect";
 import type ts from "typescript";
-import { declaratorName, exportedDeclarations, parseSource } from "../../../helper/ast.js";
+import { schemaExports } from "../../../helper/ast.js";
+import {
+  clampOffset,
+  completionItems,
+  editorDiagnostics,
+  hoverContents,
+  localSpan,
+  queryDocument,
+  signatureHelp,
+} from "../../../helper/language.js";
 import { LanguageUnavailableError } from "../errors/index.js";
+import { errorMessage } from "../../../helper/error-message.js";
+import { findUp } from "../../../helper/find-up.js";
 
 type TypeScript = typeof ts;
 
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+/** A display part as TypeScript's formatter takes it. */
+function isDisplayPart(value: unknown): value is ts.SymbolDisplayPart {
+  return typeof value === "object" && value !== null && "text" in value && "kind" in value;
 }
 
 function isTypeScript(value: unknown): value is TypeScript {
@@ -28,14 +40,10 @@ function isTypeScript(value: unknown): value is TypeScript {
  * at its whole store when it runs a bin, and a TypeScript the project does not have would answer.
  */
 function projectTypeScript(schemaPath: string) {
-  return typeScriptFrom(path.dirname(path.resolve(schemaPath)));
-}
-
-function typeScriptFrom(dir: string): string | null {
-  const candidate = path.join(dir, "node_modules", "typescript");
-  if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
-  const parent = path.dirname(dir);
-  return parent === dir ? null : typeScriptFrom(parent);
+  const found = findUp(path.dirname(path.resolve(schemaPath)), (dir) =>
+    fs.existsSync(path.join(dir, "node_modules", "typescript", "package.json")),
+  );
+  return found === null ? null : path.join(found, "node_modules", "typescript");
 }
 
 /**
@@ -60,7 +68,7 @@ function loadTypeScript(schemaPath: string) {
       },
       catch: (error) =>
         new LanguageUnavailableError({
-          reason: `Cannot load "typescript" next to ${schemaPath}: ${message(error)}. Install it (npm install -D typescript) for completion in the editor.`,
+          reason: `Cannot load "typescript" next to ${schemaPath}: ${errorMessage(error)}. Install it (npm install -D typescript) for completion in the editor.`,
         }),
     });
     if (!isTypeScript(loaded)) {
@@ -173,56 +181,6 @@ type Loaded = ReturnType<typeof makeLanguageHost>;
 /** Which text a request is about: the schema in its editor, or a query on the Query page. */
 export type DocumentKind = "schema" | "query";
 
-/**
- * Reads the names a schema module exports, in file order: `export const` declarations and the
- * names of an `export { ... }` list. A query sees these as its scope.
- *
- * ```mermaid
- * flowchart LR
- *   src[input.source] --> oxc[parse with oxc]
- *   oxc --> declared[export const names]
- *   oxc --> listed[export list names]
- *   declared --> names[unique names, in order]
- *   listed --> names
- * ```
- *
- * @param input.source - the schema's TypeScript source
- * @returns the exported value names, each once
- */
-export function schemaExports(input: { readonly source: string }) {
-  const { program } = parseSource(input.source.split("\n"));
-  const declared = exportedDeclarations(program)
-    .map(({ declarator }) => declaratorName(declarator))
-    .filter((name): name is string => name !== null);
-  // `const user = pgTable(...); export { user, post as posts };` exports by a list.
-  const listed = program.body.flatMap((stmt) =>
-    stmt.type === "ExportNamedDeclaration" && stmt.declaration === null && stmt.source === null
-      ? stmt.specifiers.flatMap((s) =>
-          s.exported.type === "Identifier" && s.exportKind !== "type" ? [s.exported.name] : [],
-        )
-      : [],
-  );
-  return [...new Set([...declared, ...listed])];
-}
-
-/** A span of the target file as one of the text the editor sent, or null outside it. */
-function local(
-  span: { readonly start: number; readonly length: number },
-  base: number,
-  length: number,
-) {
-  const start = span.start - base;
-  const end = start + span.length;
-  return start < 0 || end > length ? null : { start, end };
-}
-
-/** How the editor marks a diagnostic of this category. */
-function severityOf(typescript: TypeScript, category: ts.DiagnosticCategory) {
-  if (category === typescript.DiagnosticCategory.Error) return "error" as const;
-  if (category === typescript.DiagnosticCategory.Warning) return "warning" as const;
-  return "info" as const;
-}
-
 /** The lines that give a query `db` and the tables, put in front of it, and what closes it. */
 export type QueryPreamble = (input: {
   readonly source: string;
@@ -285,9 +243,9 @@ export function createLanguage(input: {
   }
 
   /** The query file's text: the lines in front, the query, and the brace that closes it. */
-  function queryText(loaded: Loaded, code: string) {
+  function queryText(loaded: Loaded, code: string, offset: number) {
     const { preamble, suffix } = preambleOf(loaded, loaded.ts.sys.readFile(loaded.file) ?? "");
-    return { text: `${preamble}${code}${suffix}`, base: preamble.length };
+    return queryDocument({ preamble, suffix, code, offset });
   }
 
   /**
@@ -312,14 +270,17 @@ export function createLanguage(input: {
       return yield* Effect.sync(() => {
         const schemaText = document === "schema" ? text : null;
         replaceDocument(loaded.documents, "schema", schemaText);
-        const placed = document === "query" ? queryText(loaded, text) : { text, base: 0 };
+        const placed =
+          document === "query"
+            ? queryText(loaded, text, offset)
+            : { text, base: 0, position: clampOffset(offset, text.length) };
         if (document === "query") replaceDocument(loaded.documents, "query", placed.text);
         return question({
           loaded,
           target: document === "query" ? loaded.queryFile : loaded.file,
           base: placed.base,
           length: text.length,
-          position: placed.base + Math.max(0, Math.min(offset, text.length)),
+          position: placed.position,
         });
       });
     });
@@ -341,19 +302,7 @@ export function createLanguage(input: {
           includeCompletionsWithInsertText: true,
           includeCompletionsForModuleExports: false,
         });
-        return {
-          items: (found?.entries ?? [])
-            .filter((entry) => !entry.name.startsWith("__"))
-            .map((entry) => ({
-              label: entry.name,
-              kind: entry.kind,
-              sortText: entry.sortText,
-              insertText: entry.insertText ?? null,
-              replacement: entry.replacementSpan
-                ? local(entry.replacementSpan, base, length)
-                : null,
-            })),
-        };
+        return { items: completionItems(found?.entries ?? [], base, length) };
       });
     },
 
@@ -380,15 +329,13 @@ export function createLanguage(input: {
     hover(document: DocumentKind, text: string, offset: number) {
       return ask(document, text, offset, ({ loaded, target, base, length, position }) => {
         const info = loaded.service.getQuickInfoAtPosition(target, position);
-        const range = info ? local(info.textSpan, base, length) : null;
+        const range = info ? localSpan(info.textSpan, base, length) : null;
         if (info === undefined || range === null) return { contents: null, range: null };
-        const signature = loaded.ts.displayPartsToString(info.displayParts);
-        const documentation = loaded.ts.displayPartsToString(info.documentation);
         return {
-          contents: [
-            `\`\`\`typescript\n${signature}\n\`\`\``,
-            ...(documentation === "" ? [] : [documentation]),
-          ].join("\n\n"),
+          contents: hoverContents(
+            loaded.ts.displayPartsToString(info.displayParts),
+            loaded.ts.displayPartsToString(info.documentation),
+          ),
           range,
         };
       });
@@ -397,23 +344,11 @@ export function createLanguage(input: {
     signature(document: DocumentKind, text: string, offset: number) {
       return ask(document, text, offset, ({ loaded, target, position }) => {
         const help = loaded.service.getSignatureHelpItems(target, position, undefined);
-        if (help === undefined) return { signatures: [], activeSignature: 0, activeParameter: 0 };
-        const parts = loaded.ts.displayPartsToString;
-        return {
-          signatures: help.items.map((item) => {
-            const parameters = item.parameters.map((parameter) => ({
-              label: parts(parameter.displayParts),
-              documentation: parts(parameter.documentation) || null,
-            }));
-            return {
-              label: `${parts(item.prefixDisplayParts)}${parameters.map((p) => p.label).join(parts(item.separatorDisplayParts))}${parts(item.suffixDisplayParts)}`,
-              documentation: parts(item.documentation) || null,
-              parameters,
-            };
-          }),
-          activeSignature: help.selectedItemIndex,
-          activeParameter: help.argumentIndex,
-        };
+        return signatureHelp(help, (parts) =>
+          loaded.ts.displayPartsToString(
+            parts === undefined ? undefined : [...parts].filter(isDisplayPart),
+          ),
+        );
       });
     },
 
@@ -429,25 +364,22 @@ export function createLanguage(input: {
           ...loaded.service.getSemanticDiagnostics(target),
         ];
         return {
-          diagnostics: found
-            .flatMap((diagnostic) => {
-              if (diagnostic.start === undefined) return [];
-              const range = local(
-                { start: diagnostic.start, length: diagnostic.length ?? 0 },
-                base,
-                length,
-              );
-              if (range === null) return [];
-              const severity = severityOf(typescript, diagnostic.category);
-              return [
-                {
-                  message: typescript.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
-                  severity,
-                  range,
-                },
-              ];
-            })
-            .toSorted((a, b) => a.range.start - b.range.start),
+          diagnostics: editorDiagnostics(
+            found.map((diagnostic) => ({
+              start: diagnostic.start,
+              length: diagnostic.length,
+              category: diagnostic.category,
+              message: typescript.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+            })),
+            {
+              base,
+              length,
+              categories: {
+                error: typescript.DiagnosticCategory.Error,
+                warning: typescript.DiagnosticCategory.Warning,
+              },
+            },
+          ),
         };
       });
     },

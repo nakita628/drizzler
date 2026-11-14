@@ -11,6 +11,7 @@
 //   domain-import-allowlist    domain imports only zod, other domain modules and the library's types
 //   domain-no-nondeterminism   domain does not read the clock or make random values
 //   domain-no-side-effects     domain does no I/O, is not async and keeps no module state
+//   pure-no-throw              pure code returns its failures; it does not throw, catch or JSON.parse
 //   handler-one-usecase        a handler calls at most one usecase
 //   handler-request-valid      a handler reads its input only as `const data = c.req.valid(...)`
 //   handler-response-shape     a 2xx body is parsed with its generated schema; a problem body is not
@@ -301,6 +302,37 @@ export const layerRules = {
                 message: `Module-level \`${declaration.kind}\` in pure code: shared mutable state makes the answer depend on call order.`,
               });
             }
+          }
+        },
+      };
+    },
+  },
+
+  // Why: a pure function's failure is part of its answer. A throw leaves the type, and a caller
+  //      that forgets a try / catch crashes; JSON.parse throws on text that is not JSON.
+  //   NG: throw new Error("bad") / try { … } catch { … } / JSON.parse(text)
+  //   OK: return { error: "bad" } / return null, and parse JSON in the I/O layer (Effect.try)
+  "pure-no-throw": {
+    meta: {
+      docs: { description: "pure code returns failures; it does not throw, catch or JSON.parse" },
+    },
+    create(context) {
+      if (TEST_FILE.test(getFilename(context))) return {};
+      const tail =
+        "Pure code returns its failure as a value (`{ error }`, null) so it shows in the type. Parse JSON, and run code that throws, in the I/O layer (Effect.try) and pass the value in.";
+      return {
+        ThrowStatement(node) {
+          context.report({ node, message: `\`throw\` in pure code. ${tail}` });
+        },
+        TryStatement(node) {
+          context.report({ node, message: `\`try\` in pure code. ${tail}` });
+        },
+        CallExpression(node) {
+          if (isCallOn(node, "JSON", "parse")) {
+            context.report({
+              node,
+              message: `\`JSON.parse\` throws on text that is not JSON. ${tail}`,
+            });
           }
         },
       };

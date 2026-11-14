@@ -6,9 +6,19 @@ import { exists, readFile, writeFile } from "../file/index.js";
 import type { LooseFieldRule } from "./config.js";
 import { isSeedValue } from "./values.js";
 import { SeedConfigError } from "./errors.js";
+import { errorMessage } from "../helper/error-message.js";
+import {
+  CONFIG_FILE,
+  configIssuesMessage,
+  configMessages,
+  defaultExportOf,
+  isConfigTypeScript,
+  isTypeScriptUnsupported,
+  strippedSiblingPath,
+} from "./config-file.js";
 
 /** The file `drizzler seed` looks for when `--config` is omitted. */
-export const CONFIG_FILE = "drizzler.config.ts";
+export { CONFIG_FILE } from "./config-file.js";
 
 const SeedValue = Schema.declare(isSeedValue, {
   expected: "a string, number, bigint, boolean, Date, bytes, null, or JSON of those",
@@ -106,13 +116,6 @@ const decodeConfig = Schema.decodeUnknownEffect(SeedConfig, {
 });
 const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
 
-/** The default export of an imported module, when it has one. */
-function defaultExportOf(namespace: unknown) {
-  return typeof namespace === "object" && namespace !== null && "default" in namespace
-    ? namespace.default
-    : undefined;
-}
-
 /**
  * The explicit config path when it is a TypeScript file that exists, else `drizzler.config.ts` in
  * `cwd` when that exists, else null. The config is TypeScript only: it is typed against the
@@ -121,22 +124,16 @@ function defaultExportOf(namespace: unknown) {
 export function resolveConfigPath(explicit: string | null, cwd: string) {
   return Effect.gen(function* () {
     if (explicit !== null) {
-      if (!/\.[cm]?ts$/u.test(explicit)) {
-        return yield* new SeedConfigError({
-          message: `Config must be a TypeScript file: ${explicit}\n   Write it as drizzler.config.ts, typed against the schema module.`,
-        });
+      if (!isConfigTypeScript(explicit)) {
+        return yield* new SeedConfigError({ message: configMessages.notTypeScript(explicit) });
       }
       const resolved = path.resolve(cwd, explicit);
       if (yield* exists(resolved)) return resolved;
-      return yield* new SeedConfigError({
-        message: `Config not found: ${explicit}\n   Check the path passed to --config.`,
-      });
+      return yield* new SeedConfigError({ message: configMessages.notFound(explicit) });
     }
     const resolved = path.resolve(cwd, CONFIG_FILE);
     if (yield* exists(resolved)) return resolved;
-    return yield* new SeedConfigError({
-      message: `No ${CONFIG_FILE} in ${cwd}.\n   Write one with \`export default defineConfig(schema, { ... })\`, or pass --config <path>.`,
-    });
+    return yield* new SeedConfigError({ message: configMessages.noneIn(cwd) });
   });
 }
 
@@ -158,21 +155,7 @@ function importModule(file: string) {
 
 function importError(file: string, failure: ImportFailure) {
   const { error } = failure;
-  return new SeedConfigError({
-    message: `Cannot load ${file}: ${error instanceof Error ? error.message : String(error)}`,
-  });
-}
-
-/** Whether the import failed because this Node.js cannot read TypeScript syntax on its own. */
-function isTypeScriptUnsupported(failure: ImportFailure) {
-  const { error } = failure;
-  if (error instanceof SyntaxError) return true;
-  const code = error instanceof Error && "code" in error ? error.code : null;
-  return (
-    code === "ERR_UNKNOWN_FILE_EXTENSION" ||
-    code === "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING" ||
-    code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX"
-  );
+  return new SeedConfigError({ message: configMessages.cannotLoad(file, errorMessage(error)) });
 }
 
 /**
@@ -188,10 +171,7 @@ function importStripped(file: string, original: SeedConfigError) {
       try: () => nodeModule.stripTypeScriptTypes(source, { mode: "strip" }),
       catch: () => original,
     });
-    const sibling = path.join(
-      path.dirname(file),
-      `.${path.basename(file, path.extname(file))}.${process.pid}.mjs`,
-    );
+    const sibling = strippedSiblingPath(file, process.pid);
     yield* writeFile(sibling, stripped).pipe(Effect.mapError(() => original));
     const fs = yield* FileSystem.FileSystem;
     return yield* importModule(sibling).pipe(
@@ -214,26 +194,22 @@ export function loadSeedConfig(file: string) {
   return Effect.gen(function* () {
     const namespace = yield* importModule(file).pipe(
       Effect.catch((failure) =>
-        isTypeScriptUnsupported(failure)
+        isTypeScriptUnsupported(failure.error)
           ? importStripped(file, importError(file, failure))
           : Effect.fail(importError(file, failure)),
       ),
     );
     const exported = defaultExportOf(namespace);
     if (exported === undefined) {
-      return yield* new SeedConfigError({
-        message: `${file} has no default export.\n   Write \`export default defineConfig(schema, { ... })\`.`,
-      });
+      return yield* new SeedConfigError({ message: configMessages.noDefaultExport(file) });
     }
     return yield* decodeConfig(exported).pipe(
-      Effect.mapError((error) => {
-        const issues = formatIssues(error.issue).issues.map(
-          (issue) => `${(issue.path ?? []).map(String).join(".") || "(root)"}: ${issue.message}`,
-        );
-        return new SeedConfigError({
-          message: `Invalid config in ${file}:\n   ${issues.join("\n   ")}`,
-        });
-      }),
+      Effect.mapError(
+        (error) =>
+          new SeedConfigError({
+            message: configIssuesMessage(file, formatIssues(error.issue).issues),
+          }),
+      ),
     );
   });
 }

@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import type { Result } from "./result.js";
+import { fail, ok } from "./result.js";
 import { SeedGenerationError } from "./errors.js";
 import type { ForeignKey, ModelTable } from "./schema.js";
 
@@ -68,15 +69,17 @@ function orderModels(tables: readonly ModelTable[]) {
 }
 
 /** The tables to seed, in an order every key can be satisfied in: parents before children. */
-export function makeSeedPlan(tables: readonly ModelTable[]) {
-  return Effect.gen(function* () {
-    const visited = orderModels(tables);
-    if (visited.cycle !== null) {
-      return yield* new SeedGenerationError({
+export function makeSeedPlan(
+  tables: readonly ModelTable[],
+): Result<readonly ModelTable[], SeedGenerationError> {
+  const visited = orderModels(tables);
+  if (visited.cycle !== null) {
+    return fail(
+      new SeedGenerationError({
         message: `Required relations form a cycle: ${visited.cycle}.\n   Make one of them nullable so the seeder can insert the models in order.`,
-      });
-    }
-    const byName = Map.groupBy(tables, (table) => table.name);
-    return visited.order.flatMap((name) => byName.get(name) ?? []);
-  });
+      }),
+    );
+  }
+  const byName = Map.groupBy(tables, (table) => table.name);
+  return ok(visited.order.flatMap((name) => byName.get(name) ?? []));
 }

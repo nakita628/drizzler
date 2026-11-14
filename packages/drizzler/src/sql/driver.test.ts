@@ -5,7 +5,6 @@ import {
   batchFailureIndex,
   d1Body,
   d1Param,
-  errorMessage,
   failedStatement,
   readD1Response,
   readLibsqlResult,
@@ -15,6 +14,10 @@ import {
   readPgResult,
   rowsByName,
   bindError,
+  driverParam,
+  proxyCallbackResult,
+  sqliteProxyRows,
+  sqliteProxyRun,
 } from "./driver.js";
 
 describe("bindError", () => {
@@ -203,17 +206,40 @@ describe("answers", () => {
 });
 
 describe("errors", () => {
-  it("says the reason under a network failure", () => {
-    const error = new Error("fetch failed", { cause: new Error("connect ECONNREFUSED") });
-    expect(errorMessage(error)).toBe("fetch failed: connect ECONNREFUSED");
-    expect(errorMessage("plain")).toBe("plain");
-  });
-
   it("names the statement a failure came from, and the batch index libSQL gives", () => {
     expect(failedStatement("UNIQUE", "INSERT INTO t")).toBe(
       "UNIQUE\n   while running: INSERT INTO t",
     );
     expect(batchFailureIndex({ statementIndex: 2 })).toBe(2);
     expect(batchFailureIndex(new Error("x"))).toBeNull();
+  });
+});
+
+describe("Drizzle's proxy drivers", () => {
+  const rows = { columns: ["id", "name"], rows: [[1, "Ada"]], rowCount: 1, insertId: null };
+  const write = { columns: [], rows: [], rowCount: 2, insertId: 7 };
+
+  it("binds a boolean as 1 / 0 on SQLite only", () => {
+    expect(driverParam("sqlite", true)).toBe(1);
+    expect(driverParam("sqlite", false)).toBe(0);
+    expect(driverParam("postgresql", true)).toBe(true);
+  });
+
+  it("answers SQLite's all / get / run", () => {
+    expect(sqliteProxyRows(rows, undefined)).toStrictEqual([[1, "Ada"]]);
+    expect(sqliteProxyRows(rows, "object")).toStrictEqual([{ id: 1, name: "Ada" }]);
+    expect(sqliteProxyRun(write)).toStrictEqual({ changes: 2, lastInsertRowid: 7 });
+  });
+
+  it("answers PostgreSQL's and MySQL's callback", () => {
+    expect(proxyCallbackResult("postgresql", "all", rows)).toStrictEqual({ rows: [[1, "Ada"]] });
+    expect(proxyCallbackResult("postgresql", "execute", rows)).toStrictEqual({
+      rows: [{ id: 1, name: "Ada" }],
+    });
+    expect(proxyCallbackResult("mysql", "execute", write)).toStrictEqual({
+      rows: [[]],
+      affectedRows: 2,
+      insertId: 7,
+    });
   });
 });

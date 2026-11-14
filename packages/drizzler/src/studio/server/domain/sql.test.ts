@@ -5,6 +5,9 @@ import {
   makeCell,
   makeDeleteStatement,
   makeConnection,
+  makeCount,
+  makeSqlResult,
+  makeUnknownFieldsMessage,
   makeConnectionKind,
   makeD1Target,
   makeDialect,
@@ -350,6 +353,46 @@ describe("makeAnalysisSchema", () => {
           ],
         },
       ],
+    });
+  });
+});
+
+describe("makeUnknownFieldsMessage", () => {
+  it("names the fields, in the plural for more than one, and is null for none", () => {
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: ["body"] })).toBe(
+      "Unknown column of post: body",
+    );
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: ["body", "slug"] })).toBe(
+      "Unknown columns of post: body, slug",
+    );
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: [] })).toBeNull();
+  });
+});
+
+describe("makeCount", () => {
+  it.each([
+    [[{ count: 3 }], 3],
+    [[{ count: "42" }], 42],
+    [[{ count: 7n }], 7],
+    [[], 0],
+  ])("reads %o as %d", (rows, count) => {
+    expect(makeCount({ rows })).toBe(count);
+  });
+});
+
+describe("makeSqlResult", () => {
+  it("reads the columns from the first row when the driver names none", () => {
+    expect(
+      makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, durationMs: 1.23 }),
+    ).toStrictEqual({ columns: ["n"], rows: [{ n: 1 }], rowCount: 1, durationMs: 1.23 });
+  });
+
+  it("is empty when no statement ran", () => {
+    expect(makeSqlResult({ result: null, durationMs: 0 })).toStrictEqual({
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      durationMs: 0,
     });
   });
 });

@@ -15,13 +15,19 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { generateSeedRows } from "./generate/index.js";
 import { resolveSeedConfig } from "./options.js";
 import { makeSeedPlan } from "./plan.js";
 import { readSchema } from "./schema.js";
 import { insertStatements, makeSeedSql, renderLiteral } from "./sql.js";
+import type { Result } from "./result.js";
+
+/** A step's value; a failure fails the test with it. */
+function value<A, E>(result: Result<A, E>): A {
+  if (!result.ok) throw result.error;
+  return result.value;
+}
 
 const status = pgEnum("status", ["draft", "published"]);
 
@@ -78,25 +84,20 @@ const DDL = `
 `;
 
 function entries() {
-  return Effect.runSync(
-    Effect.gen(function* () {
-      const read = yield* readSchema(schema);
-      const tables = yield* makeSeedPlan(read.tables);
-      const faker = new Faker({ locale: [en] });
-      faker.seed(3);
-      return yield* generateSeedRows({
-        tables,
-        config: resolveSeedConfig(
-          {
-            schema,
-            models: { author: { count: 3 }, book: { count: 10 } },
-          },
-          new Date(),
-        ),
-        faker,
-      });
-    }),
-  );
+  const faker = new Faker({ locale: [en] });
+  faker.seed(3);
+  const generated = generateSeedRows({
+    tables: value(makeSeedPlan(value(readSchema(schema)).tables)),
+    config: resolveSeedConfig(
+      {
+        schema,
+        models: { author: { count: 3 }, book: { count: 10 } },
+      },
+      new Date(),
+    ),
+    faker,
+  });
+  return value(generated);
 }
 
 describe("makeSeedSql", () => {

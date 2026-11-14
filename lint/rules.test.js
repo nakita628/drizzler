@@ -137,3 +137,62 @@ describe("domain-no-nondeterminism and domain-no-side-effects", () => {
     expect(lint(name, code)).toBe(0);
   });
 });
+
+describe("pure-no-throw", () => {
+  const file = "packages/drizzler/src/sql/x.ts";
+
+  it.each([
+    ["a throw", 'export function f() { throw new Error("bad"); }'],
+    ["a try", "export function f() { try { g(); } catch { return null; } }"],
+    ["a JSON.parse", "export function f(text) { return JSON.parse(text); }"],
+  ])("reports %s", (_, code) => {
+    expect(lint("pure-no-throw", code, file)).toBe(1);
+  });
+
+  it.each([
+    ["a failure returned as a value", 'export function f() { return { error: "bad" }; }'],
+    ["JSON.stringify", "export function f(value) { return JSON.stringify(value); }"],
+    ["a test file", 'throw new Error("bad");'],
+  ])("leaves alone %s", (label, code) => {
+    expect(lint("pure-no-throw", code, label === "a test file" ? "src/x.test.ts" : file)).toBe(0);
+  });
+});
+
+describe("use-error-message", () => {
+  const file = "packages/drizzler/src/core/x.ts";
+
+  it("reports a hand-written error message", () => {
+    expect(
+      lint(
+        "use-error-message",
+        "const m = error instanceof Error ? error.message : String(error);",
+        file,
+      ),
+    ).toBe(1);
+    expect(
+      lint("use-error-message", "const m = e instanceof Error ? e.message : `${e}`;", file),
+    ).toBe(1);
+  });
+
+  it.each([
+    ["the helper itself", "packages/drizzler/src/helper/error-message.ts"],
+    ["a test file", "packages/drizzler/src/core/x.test.ts"],
+  ])("leaves alone %s", (_, filename) => {
+    expect(
+      lint(
+        "use-error-message",
+        "const m = error instanceof Error ? error.message : String(error);",
+        filename,
+      ),
+    ).toBe(0);
+  });
+
+  it("leaves alone another instanceof test", () => {
+    expect(
+      lint("use-error-message", "const n = value instanceof Date ? value.getTime() : 0;", file),
+    ).toBe(0);
+    expect(
+      lint("use-error-message", "const s = error instanceof Error ? error.stack : null;", file),
+    ).toBe(0);
+  });
+});

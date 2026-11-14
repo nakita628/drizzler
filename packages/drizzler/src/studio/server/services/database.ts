@@ -8,7 +8,6 @@ import {
   answerResult,
   batchFailureIndex,
   d1Body,
-  errorMessage,
   failedStatement,
   isRecord,
   isSqliteValue,
@@ -24,6 +23,7 @@ import {
 } from "../../../sql/driver.js";
 import type { Binder, DriverArrayResult, DriverResult } from "../../../sql/driver.js";
 import { DatabaseError, DatabaseUnavailableError } from "../errors/index.js";
+import { errorWithCauses } from "../../../helper/error-message.js";
 
 /** An open connection: every statement is an Effect that fails with the driver's message. */
 export type Driver = {
@@ -51,7 +51,7 @@ export type Database = {
 };
 
 function queryError(error: unknown) {
-  return new DatabaseError({ cause: errorMessage(error) });
+  return new DatabaseError({ cause: errorWithCauses(error) });
 }
 
 function failedAt(error: DatabaseError, statement: Statement) {
@@ -124,7 +124,7 @@ function importFromProject(specifier: string, cwd: string) {
     },
     catch: (error) =>
       new DatabaseUnavailableError({
-        reason: `Cannot load "${specifier}" from ${cwd}: ${errorMessage(error)}\n   Install it in your project (npm install ${specifier}) so drizzler studio can connect.`,
+        reason: `Cannot load "${specifier}" from ${cwd}: ${errorWithCauses(error)}\n   Install it in your project (npm install ${specifier}) so drizzler studio can connect.`,
       }),
   });
 }
@@ -140,7 +140,7 @@ function openSqlite(file: string, cwd: string) {
     });
     const db = yield* Effect.try({
       try: () => new sqlite.DatabaseSync(file === ":memory:" ? file : path.resolve(cwd, file)),
-      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorWithCauses(error) }),
     });
     function query(statement: Statement) {
       return Effect.flatMap(sqliteParams(statement.params), (params) =>
@@ -225,7 +225,7 @@ function openPostgres(url: string, tls: boolean, cwd: string) {
         await opened.connect();
         return opened;
       },
-      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorWithCauses(error) }),
     });
     function query(statement: Statement) {
       return Effect.tryPromise({
@@ -282,7 +282,7 @@ function openMysql(url: string, tls: boolean, cwd: string) {
     const connection = yield* Effect.tryPromise({
       // PlanetScale refuses a plain connection: TLS is turned on when the URL is silent.
       try: () => createConnection(tls ? { uri: url, ssl: { rejectUnauthorized: true } } : url),
-      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorWithCauses(error) }),
     });
     function query(statement: Statement) {
       return Effect.tryPromise({
@@ -349,7 +349,7 @@ function openLibsql(target: Extract<Connection, { readonly kind: "libsql" }>, cw
     const { url, authToken } = target;
     const client = yield* Effect.try({
       try: () => createClient({ url, ...(authToken === null ? {} : { authToken }) }),
-      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorWithCauses(error) }),
     });
     function execute(statement: Statement) {
       return Effect.flatMap(libsqlStatement(statement), (prepared) =>
