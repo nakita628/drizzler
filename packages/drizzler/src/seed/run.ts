@@ -19,11 +19,17 @@ import { loadSeedConfig, resolveConfigPath } from "./load-config.js";
 import { resolveSeedConfig } from "./options.js";
 import { makeSeedPlan } from "./plan.js";
 import { withTypeScriptImports } from "./resolve.js";
+import type { Result } from "./result.js";
 import { readSchema } from "./schema.js";
 import { makeSeedSql } from "./sql.js";
 import { seedWithDriver } from "./write.js";
 
 export type { SeedOverrides } from "./overrides.js";
+
+/** A pure step's answer as an Effect: its value, or its failure as the Effect's. */
+function fromResult<A, E>(result: Result<A, E>): Effect.Effect<A, E> {
+  return result.ok ? Effect.succeed(result.value) : Effect.fail(result.error);
+}
 
 // faker's locales by name (`ja`, `pt_BR`), for the codes a config gives.
 const LOCALES = new Map(Object.entries(allLocales));
@@ -82,10 +88,10 @@ function seedProgram(overrides: SeedOverrides, cwd: string) {
     // The clock is read once, here: the date window and faker's dates both start from it.
     const now = new Date(yield* Clock.currentTimeMillis);
     const config = resolveSeedConfig(withOverrides(loaded, overrides), now);
-    const schema = yield* readSchema(config.schema);
-    const tables = yield* makeSeedPlan(schema.tables);
+    const schema = yield* fromResult(readSchema(config.schema));
+    const tables = yield* fromResult(makeSeedPlan(schema.tables));
     const faker = yield* makeFaker(config.seed, config.locale, now);
-    const entries = yield* generateSeedRows({ tables, config, faker });
+    const entries = yield* fromResult(generateSeedRows({ tables, config, faker }));
     const report = {
       seed: config.seed,
       locale: config.locale ?? [],

@@ -58,19 +58,6 @@ export function isGlob(input: string) {
   return /[*?[\]{}]/u.test(input);
 }
 
-/**
- * JSON with comments (tsconfig.json) as JSON: its comments and trailing commas removed, which
- * JSON.parse does not allow. The caller parses it, since JSON.parse throws.
- */
-export function stripJsonc(text: string) {
-  // A string is kept whole, so a `//` inside one (a URL) is not taken for a comment.
-  const bare = text.replace(
-    /("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/gu,
-    (_match, quoted: string | undefined) => quoted ?? "",
-  );
-  return bare.replace(/,(\s*[}\]])/gu, "$1");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

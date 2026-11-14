@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { isSchemaModule, stripJsonc } from "./paths.js";
+import { isSchemaModule } from "./paths.js";
 import {
   collectSchemaFiles,
   drizzleConfigSchema,
@@ -40,20 +40,6 @@ describe("isSchemaModule", () => {
     ["README.md", false],
   ])("%s → %s", (file, expected) => {
     expect(isSchemaModule(file)).toBe(expected);
-  });
-});
-
-describe("stripJsonc", () => {
-  it("reads comments and trailing commas, and keeps slashes inside strings", () => {
-    expect(
-      JSON.parse(
-        stripJsonc(`{
-        // a comment
-        "paths": { "#/*": ["./src/*"], }, /* another */
-        "url": "http://x//y",
-      }`),
-      ),
-    ).toStrictEqual({ paths: { "#/*": ["./src/*"] }, url: "http://x//y" });
   });
 });
 

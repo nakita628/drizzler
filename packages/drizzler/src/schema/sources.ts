@@ -10,9 +10,9 @@ import {
   isGlob,
   isSchemaModule,
   moduleCandidates,
-  stripJsonc,
   parseModule,
 } from "./paths.js";
+import { stripJsonc } from "../helper/jsonc.js";
 import type { PathAliases } from "./paths.js";
 import { stripImports } from "./strip-imports.js";
 

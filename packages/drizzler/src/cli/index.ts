@@ -1,29 +1,15 @@
-import path from "node:path";
 import { Config, Console, Effect, Option } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/cli";
 import { version } from "../../package.json" with { type: "json" };
 import { drizzlerDbml, drizzlerDocs, drizzlerER, drizzlerMermaidER } from "../core/index.js";
 import { collectSchemaFiles, drizzleConfigSchema, readSchemaSources } from "../schema/sources.js";
 import { DEFAULT_PORT } from "../studio/server/constants/index.js";
-import type {
-  FileReadError,
-  MissingAssetsError,
-  ServerListenError,
-} from "../studio/server/errors/index.js";
+import type { OutputKind } from "./output.js";
+import { generatedLine, outputKind, studioFailure, unsupportedOutputMessage } from "./output.js";
+
+export { outputKind } from "./output.js";
 
 const COMMAND_NAME = "drizzler";
-
-/**
- * What an output path asks for, by its extension: a directory (a trailing `/`, or no extension)
- * is the docs; null for a file drizzler does not write.
- */
-export function outputKind(output: string) {
-  if (output.endsWith("/") || path.extname(output) === "") return "docs" as const;
-  if (output.endsWith(".dbml")) return "dbml" as const;
-  if (output.endsWith(".png") || output.endsWith(".svg")) return "diagram" as const;
-  if (output.endsWith(".md")) return "mermaid" as const;
-  return null;
-}
 
 const generateFlags = {
   input: Argument.String("input").pipe(
@@ -75,7 +61,7 @@ function schemaInputs(given: readonly string[], cwd: string) {
  * out and why (the docs' SQL, when the schema could not be loaded).
  */
 function writeOutput(
-  kind: NonNullable<ReturnType<typeof outputKind>>,
+  kind: OutputKind,
   schema: { readonly files: readonly string[]; readonly code: string[] },
   output: string,
   theme: "light" | "dark",
@@ -99,28 +85,6 @@ function writeOutput(
   });
 }
 
-/** What the line printed after writing calls the output; for the docs, the files it holds. */
-function describeOutput(
-  kind: NonNullable<ReturnType<typeof outputKind>>,
-  output: string,
-  written: readonly string[],
-) {
-  switch (kind) {
-    case "dbml":
-      return "DBML";
-    case "mermaid":
-      return "Mermaid ER";
-    case "diagram":
-      return `${output.endsWith(".png") ? "PNG" : "SVG"} ER diagram`;
-    case "docs": {
-      const names = written.map((file) => path.relative(output, file));
-      const top = names.filter((name) => !name.includes(path.sep));
-      const tables = names.length > top.length ? ["tables/*.svg"] : [];
-      return `docs (${[...top, ...tables].join(", ")})`;
-    }
-  }
-}
-
 /** Reads the schema and writes what the output path asks for; the line it prints names it. */
 export function generate(args: GenerateArgs) {
   return Effect.gen(function* () {
@@ -136,15 +100,13 @@ export function generate(args: GenerateArgs) {
     const output = args.output.value;
     const kind = outputKind(output);
     if (kind === null) {
-      return yield* userError(
-        `Unsupported output format: ${output}. Supported: .dbml, .svg, .png, .md, or a directory for the docs`,
-      );
+      return yield* userError(unsupportedOutputMessage(output));
     }
     const schema = yield* readSchema(inputs, cwd);
     const { written, notes } = yield* writeOutput(kind, schema, output, args.theme).pipe(
       Effect.mapError((error) => userError(`Failed to write ${output}: ${error.message}`)),
     );
-    yield* Console.log(`💧 Generated ${describeOutput(kind, output, written)} at: ${output}`);
+    yield* Console.log(generatedLine(kind, output, written));
     yield* Effect.forEach(notes, (note) => Console.error(`   ${note}`));
   });
 }
@@ -169,21 +131,6 @@ const studioFlags = {
     Flag.optional,
   ),
 } as const;
-
-/** What the terminal says when the studio cannot start. */
-function studioFailure(error: FileReadError | MissingAssetsError | ServerListenError) {
-  switch (error._tag) {
-    case "FileReadError":
-      return `Failed to read input: ${error.path} ${error.cause}`;
-    case "MissingAssetsError":
-      return `drizzler studio assets were not found in ${error.dir}.\nReinstall drizzler, or run "pnpm build" when working from the repository.`;
-    case "ServerListenError":
-      if (error.code === "EADDRINUSE") {
-        return `Port ${error.port} is in use. Pass --port to pick another.`;
-      }
-      return `Failed to start studio: ${error.message}`;
-  }
-}
 
 // The server pulls in Hono, the drivers and the language service, which `--help`, `--version`
 // and a rejected command line must not pay for, so it is imported when it runs.

@@ -265,3 +265,23 @@ export function callsIn(node: Node): CallExpression[] {
 function isNode(value: unknown): value is Node {
   return typeof value === "object" && value !== null && "type" in value && "start" in value;
 }
+
+/**
+ * Reads the names a schema module exports, in file order: `export const` declarations and the
+ * names of an `export { ... }` list. A query sees these as its scope.
+ */
+export function schemaExports(input: { readonly source: string }) {
+  const { program } = parseSource(input.source.split("\n"));
+  const declared = exportedDeclarations(program)
+    .map(({ declarator }) => declaratorName(declarator))
+    .filter((name): name is string => name !== null);
+  // `const user = pgTable(...); export { user, post as posts };` exports by a list.
+  const listed = program.body.flatMap((stmt) =>
+    stmt.type === "ExportNamedDeclaration" && stmt.declaration === null && stmt.source === null
+      ? stmt.specifiers.flatMap((s) =>
+          s.exported.type === "Identifier" && s.exportKind !== "type" ? [s.exported.name] : [],
+        )
+      : [],
+  );
+  return [...new Set([...declared, ...listed])];
+}

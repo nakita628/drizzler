@@ -7,7 +7,7 @@ import { readText } from "../services/file.js";
 import * as ParseService from "../services/parse.js";
 import * as QueryService from "../services/query.js";
 import { getLanguage, getStudio } from "../services/studio.js";
-import { schemaExports } from "../services/typescript.js";
+import { schemaExports } from "../../../helper/ast.js";
 
 /**
  * Runs Drizzle code against the connected database, with the saved schema.

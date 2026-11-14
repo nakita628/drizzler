@@ -520,7 +520,7 @@ export default defineConfig({
           "packages/drizzler/src/**/*.test.ts",
           "packages/drizzler/src/**/*.test.tsx",
           "packages/drizzler/src/index.ts",
-          "packages/drizzler/src/cli/**",
+          "packages/drizzler/src/cli/index.ts",
           "packages/drizzler/src/core/**",
           "packages/drizzler/src/emit/**",
           "packages/drizzler/src/file/**",
@@ -553,46 +553,6 @@ export default defineConfig({
           "custom/domain-no-nondeterminism": "error",
           "custom/domain-no-side-effects": "error",
           "custom/pure-no-throw": "error",
-        },
-      },
-      {
-        // The seeder's generation computes over the schema and the seeded faker it is handed, and
-        // uses Effect only as its error channel (`yield* new SeedGenerationError(...)`): Effect is
-        // allowed, its I/O is not.
-        files: [
-          "packages/drizzler/src/seed/generate/**",
-          "packages/drizzler/src/seed/plan.ts",
-          "packages/drizzler/src/seed/schema.ts",
-          "packages/drizzler/src/seed/validate.ts",
-        ],
-        rules: {
-          "custom/effect-compute-only": "error",
-          "no-restricted-imports": [
-            "error",
-            {
-              patterns: [
-                {
-                  group: [
-                    "node:fs",
-                    "node:fs/*",
-                    "node:child_process",
-                    "node:os",
-                    "node:http",
-                    "node:https",
-                    "node:net",
-                    "node:crypto",
-                    "@effect/*",
-                    "../file/*",
-                    "../core/*",
-                    "../emit/*",
-                    "../schema/sources.js",
-                  ],
-                  message:
-                    "Pure modules do not touch the outside world; read it in core/ or schema/sources.ts and pass the value in.",
-                },
-              ],
-            },
-          ],
         },
       },
       {

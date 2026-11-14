@@ -3,8 +3,9 @@ import { getTableColumns, is, Many, Relation, SQL, Table } from "drizzle-orm";
 import { getTableConfig as mysqlTableConfig, MySqlTable } from "drizzle-orm/mysql-core";
 import { getTableConfig as pgTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { getTableConfig as sqliteTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
-import { Effect } from "effect";
 import { SeedConfigError } from "./errors.js";
+import type { Result } from "./result.js";
+import { fail, ok } from "./result.js";
 
 export type Dialect = "postgresql" | "mysql" | "sqlite";
 
@@ -318,214 +319,211 @@ function sameSet(a: readonly string[], b: readonly string[]) {
  * its unique keys and the relations other models point back by. All tables must be of
  * one dialect.
  */
-export function readSchema(schema: Readonly<Record<string, unknown>>) {
-  return Effect.gen(function* () {
-    const entries = Object.entries(schema).flatMap(([name, value]) =>
-      is(value, Table) ? [{ name, table: value }] : [],
-    );
-    if (entries.length === 0) {
-      return yield* new SeedConfigError({
+export function readSchema(
+  schema: Readonly<Record<string, unknown>>,
+): Result<{ readonly dialect: Dialect; readonly tables: readonly ModelTable[] }, SeedConfigError> {
+  const entries = Object.entries(schema).flatMap(([name, value]) =>
+    is(value, Table) ? [{ name, table: value }] : [],
+  );
+  if (entries.length === 0) {
+    return fail(
+      new SeedConfigError({
         message:
           "The schema exports no tables.\n   Pass the module itself: `import * as schema from './db/schema'`.",
-      });
-    }
-    const dialects = new Set(entries.map((entry) => dialectOf(entry.table)));
-    const [dialect] = [...dialects];
-    if (dialects.size !== 1 || dialect === undefined || dialect === null) {
-      return yield* new SeedConfigError({
+      }),
+    );
+  }
+  const dialects = new Set(entries.map((entry) => dialectOf(entry.table)));
+  const [dialect] = [...dialects];
+  if (dialects.size !== 1 || dialect === undefined || dialect === null) {
+    return fail(
+      new SeedConfigError({
         message:
           "The schema mixes dialects, or uses one the seeder does not know (pg, mysql or sqlite).",
-      });
-    }
-    const nameOf = new Map(entries.map((entry) => [entry.table, entry.name] as const));
-    // Every column object by the table and property it belongs to, for keys and relations.
-    const fieldOf = new Map<Column, string>(
-      entries.flatMap((entry) =>
-        Object.entries(getTableColumns(entry.table)).map(
-          ([field, column]) => [column, field] as const,
-        ),
-      ),
-    );
-    // A table's extra config (`primaryKey()`, `foreignKey()`) holds stand-ins for its columns,
-    // not the columns themselves, so a column not known by identity is found by its name.
-    function fields(columns: readonly Column[], table?: Table) {
-      return columns.flatMap((column) => {
-        const known = fieldOf.get(column);
-        if (known !== undefined) return [known];
-        const named =
-          table === undefined
-            ? undefined
-            : Object.entries(getTableColumns(table)).find(([, c]) => c.name === column.name)?.[0];
-        return named === undefined ? [] : [named];
-      });
-    }
-    const links = relationLinks(schema, nameOf);
-
-    const shapes = entries.map((entry) => {
-      const config = tableConfig(entry.table);
-      const columns: readonly (readonly [string, AnyColumn])[] = Object.entries(
-        getTableColumns(entry.table),
-      );
-      const primary = columns.filter(([, column]) => column.primary).map(([field]) => field);
-      const uniqueSets = [
-        ...(primary.length === 1 ? [primary] : []),
-        ...config.primaryKeys.map((key) => fields(key, entry.table)),
-        ...columns.filter(([, column]) => column.isUnique).map(([field]) => [field]),
-        ...config.uniques.map((set) => indexFields(set, columns)),
-      ].filter((set) => set.length > 0);
-      const uniques = uniqueSets.filter(
-        (set, at) => uniqueSets.findIndex((other) => sameSet(other, set)) === at,
-      );
-      return { entry, config, columns, uniques };
-    });
-
-    const shapeOf = new Map(shapes.map((shape) => [shape.entry.name, shape] as const));
-    function uniquesOf(model: string) {
-      return shapeOf.get(model)?.uniques ?? [];
-    }
-    // Whether the database has a foreign key from `child`'s fields to `parent`'s.
-    function constrained(
-      child: string,
-      from: readonly string[],
-      parent: string,
-      to: readonly string[],
-    ) {
-      const shape = shapeOf.get(child);
-      return (shape?.config.foreignKeys ?? []).some(
-        (fk) =>
-          nameOf.get(fk.foreignTable) === parent &&
-          sameKey(fields(fk.columns, shape?.entry.table), from) &&
-          sameKey(fields(fk.foreignColumns, fk.foreignTable), to),
-      );
-    }
-    const keys = keysOf(links, { constrained, uniquesOf });
-
-    // Columns other models' keys point at must hold the values the seeder hands out.
-    const referenced = new Set<Column>([
-      ...shapes.flatMap((shape) => shape.config.foreignKeys.flatMap((fk) => fk.foreignColumns)),
-      ...keys.flatMap((key) => {
-        const parent = shapeOf.get(key.parent)?.entry.table;
-        const columns = new Map(
-          parent === undefined ? [] : Object.entries(getTableColumns(parent)),
-        );
-        return key.parentFields.flatMap((field) => {
-          const column = columns.get(field);
-          return column === undefined ? [] : [column];
-        });
       }),
-    ]);
-
-    const keysOfChild = Map.groupBy(keys, (key) => key.child);
-    const tables = shapes.map((shape): ModelTable => {
-      const { entry, config, columns, uniques } = shape;
-      const columnOf = new Map(columns);
-      function required(keys: readonly string[]) {
-        return keys.every((key) => columnOf.get(key)?.notNull === true);
-      }
-      function oneToOne(keys: readonly string[]) {
-        return uniques.some((set) => sameSet(set, keys));
-      }
-      // The `one` relation of this model that names a key: `author` for `authorId`.
-      function nameOfKey(
-        fromFields: readonly string[],
-        toModel: string,
-        toFields: readonly string[],
-      ) {
-        return links.find(
-          (link) =>
-            link.owner === entry.name &&
-            link.kind === "one" &&
-            link.through === null &&
-            link.target === toModel &&
-            sameKey(link.from, fromFields) &&
-            sameKey(link.to, toFields),
-        )?.name;
-      }
-      const enforced = config.foreignKeys.flatMap((fk): ForeignKey[] => {
-        const toModel = nameOf.get(fk.foreignTable);
-        if (toModel === undefined) return [];
-        const fromFields = fields(fk.columns, entry.table);
-        const toFields = fields(fk.foreignColumns, fk.foreignTable);
-        return [
-          {
-            field: nameOfKey(fromFields, toModel, toFields) ?? fromFields[0] ?? "",
-            fromFields,
-            toModel,
-            toFields,
-            required: required(fromFields),
-            oneToOne: oneToOne(fromFields),
-            self: toModel === entry.name,
-            enforced: true,
-          },
-        ];
-      });
-      const enforcedTo = Map.groupBy(enforced, (fk) => fk.toModel);
-      const logical = (keysOfChild.get(entry.name) ?? [])
-        .filter(
-          (key) =>
-            !(enforcedTo.get(key.parent) ?? []).some((fk) =>
-              sameKey(fk.fromFields, key.childFields),
-            ),
-        )
-        .map((key): ForeignKey => ({
-          field:
-            nameOfKey(key.childFields, key.parent, key.parentFields) ?? key.childFields[0] ?? "",
-          fromFields: key.childFields,
-          toModel: key.parent,
-          toFields: key.parentFields,
-          required: required(key.childFields),
-          oneToOne: oneToOne(key.childFields),
-          self: key.parent === entry.name,
-          enforced: false,
-        }));
-      const keyed = new Set(primaryColumnsOf(columns));
-      const seedColumns = columns.flatMap(([field, column]) => {
-        // A generated column is the database's. A SQL default the database fills, unless the
-        // column is a key or something points at it, or it is a date or a uuid worth spreading.
-        if (column.generated !== undefined) return [];
-        const made = makeColumn(field, column, keyed.size === 1);
-        const databaseFills =
-          made.default?.kind === "sql" &&
-          !made.isId &&
-          !referenced.has(column) &&
-          !["date", "dateString", "uuid"].includes(made.kind);
-        return [{ ...made, databaseFills }];
-      });
-      return {
-        name: entry.name,
-        table: config.name,
-        schema: config.schema,
-        columns: seedColumns,
-        foreignKeys: [...enforced, ...logical],
-        parents: [],
-        uniques,
-      };
+    );
+  }
+  const nameOf = new Map(entries.map((entry) => [entry.table, entry.name] as const));
+  // Every column object by the table and property it belongs to, for keys and relations.
+  const fieldOf = new Map<Column, string>(
+    entries.flatMap((entry) =>
+      Object.entries(getTableColumns(entry.table)).map(
+        ([field, column]) => [column, field] as const,
+      ),
+    ),
+  );
+  // A table's extra config (`primaryKey()`, `foreignKey()`) holds stand-ins for its columns,
+  // not the columns themselves, so a column not known by identity is found by its name.
+  function fields(columns: readonly Column[], table?: Table) {
+    return columns.flatMap((column) => {
+      const known = fieldOf.get(column);
+      if (known !== undefined) return [known];
+      const named =
+        table === undefined
+          ? undefined
+          : Object.entries(getTableColumns(table)).find(([, c]) => c.name === column.name)?.[0];
+      return named === undefined ? [] : [named];
     });
+  }
+  const links = relationLinks(schema, nameOf);
 
-    // The parent side of each key: `posts: r.many.post()` on user, matched to post's key back to
-    // user by its columns, which Drizzle has filled in on both sides of the pair.
-    const tableByName = new Map(tables.map((table) => [table.name, table] as const));
-    const linksByOwner = Map.groupBy(links, (link) => link.owner);
-    const withParents = tables.map((table): ModelTable => {
-      const parents = (linksByOwner.get(table.name) ?? []).flatMap((link): ParentSide[] => {
-        if (link.through !== null) return [];
-        const child = tableByName.get(link.target);
-        const key = child?.foreignKeys.find(
-          (fk) =>
-            fk.toModel === table.name &&
-            sameKey(fk.fromFields, link.to) &&
-            sameKey(fk.toFields, link.from),
-        );
-        if (child === undefined || key === undefined) return [];
-        return [
-          { name: link.name, child: child.name, key: key.field, isList: link.kind === "many" },
-        ];
-      });
-      return { ...table, parents };
-    });
-
-    return { dialect, tables: withParents };
+  const shapes = entries.map((entry) => {
+    const config = tableConfig(entry.table);
+    const columns: readonly (readonly [string, AnyColumn])[] = Object.entries(
+      getTableColumns(entry.table),
+    );
+    const primary = columns.filter(([, column]) => column.primary).map(([field]) => field);
+    const uniqueSets = [
+      ...(primary.length === 1 ? [primary] : []),
+      ...config.primaryKeys.map((key) => fields(key, entry.table)),
+      ...columns.filter(([, column]) => column.isUnique).map(([field]) => [field]),
+      ...config.uniques.map((set) => indexFields(set, columns)),
+    ].filter((set) => set.length > 0);
+    const uniques = uniqueSets.filter(
+      (set, at) => uniqueSets.findIndex((other) => sameSet(other, set)) === at,
+    );
+    return { entry, config, columns, uniques };
   });
+
+  const shapeOf = new Map(shapes.map((shape) => [shape.entry.name, shape] as const));
+  function uniquesOf(model: string) {
+    return shapeOf.get(model)?.uniques ?? [];
+  }
+  // Whether the database has a foreign key from `child`'s fields to `parent`'s.
+  function constrained(
+    child: string,
+    from: readonly string[],
+    parent: string,
+    to: readonly string[],
+  ) {
+    const shape = shapeOf.get(child);
+    return (shape?.config.foreignKeys ?? []).some(
+      (fk) =>
+        nameOf.get(fk.foreignTable) === parent &&
+        sameKey(fields(fk.columns, shape?.entry.table), from) &&
+        sameKey(fields(fk.foreignColumns, fk.foreignTable), to),
+    );
+  }
+  const keys = keysOf(links, { constrained, uniquesOf });
+
+  // Columns other models' keys point at must hold the values the seeder hands out.
+  const referenced = new Set<Column>([
+    ...shapes.flatMap((shape) => shape.config.foreignKeys.flatMap((fk) => fk.foreignColumns)),
+    ...keys.flatMap((key) => {
+      const parent = shapeOf.get(key.parent)?.entry.table;
+      const columns = new Map(parent === undefined ? [] : Object.entries(getTableColumns(parent)));
+      return key.parentFields.flatMap((field) => {
+        const column = columns.get(field);
+        return column === undefined ? [] : [column];
+      });
+    }),
+  ]);
+
+  const keysOfChild = Map.groupBy(keys, (key) => key.child);
+  const tables = shapes.map((shape): ModelTable => {
+    const { entry, config, columns, uniques } = shape;
+    const columnOf = new Map(columns);
+    function required(keys: readonly string[]) {
+      return keys.every((key) => columnOf.get(key)?.notNull === true);
+    }
+    function oneToOne(keys: readonly string[]) {
+      return uniques.some((set) => sameSet(set, keys));
+    }
+    // The `one` relation of this model that names a key: `author` for `authorId`.
+    function nameOfKey(
+      fromFields: readonly string[],
+      toModel: string,
+      toFields: readonly string[],
+    ) {
+      return links.find(
+        (link) =>
+          link.owner === entry.name &&
+          link.kind === "one" &&
+          link.through === null &&
+          link.target === toModel &&
+          sameKey(link.from, fromFields) &&
+          sameKey(link.to, toFields),
+      )?.name;
+    }
+    const enforced = config.foreignKeys.flatMap((fk): ForeignKey[] => {
+      const toModel = nameOf.get(fk.foreignTable);
+      if (toModel === undefined) return [];
+      const fromFields = fields(fk.columns, entry.table);
+      const toFields = fields(fk.foreignColumns, fk.foreignTable);
+      return [
+        {
+          field: nameOfKey(fromFields, toModel, toFields) ?? fromFields[0] ?? "",
+          fromFields,
+          toModel,
+          toFields,
+          required: required(fromFields),
+          oneToOne: oneToOne(fromFields),
+          self: toModel === entry.name,
+          enforced: true,
+        },
+      ];
+    });
+    const enforcedTo = Map.groupBy(enforced, (fk) => fk.toModel);
+    const logical = (keysOfChild.get(entry.name) ?? [])
+      .filter(
+        (key) =>
+          !(enforcedTo.get(key.parent) ?? []).some((fk) => sameKey(fk.fromFields, key.childFields)),
+      )
+      .map((key): ForeignKey => ({
+        field: nameOfKey(key.childFields, key.parent, key.parentFields) ?? key.childFields[0] ?? "",
+        fromFields: key.childFields,
+        toModel: key.parent,
+        toFields: key.parentFields,
+        required: required(key.childFields),
+        oneToOne: oneToOne(key.childFields),
+        self: key.parent === entry.name,
+        enforced: false,
+      }));
+    const keyed = new Set(primaryColumnsOf(columns));
+    const seedColumns = columns.flatMap(([field, column]) => {
+      // A generated column is the database's. A SQL default the database fills, unless the
+      // column is a key or something points at it, or it is a date or a uuid worth spreading.
+      if (column.generated !== undefined) return [];
+      const made = makeColumn(field, column, keyed.size === 1);
+      const databaseFills =
+        made.default?.kind === "sql" &&
+        !made.isId &&
+        !referenced.has(column) &&
+        !["date", "dateString", "uuid"].includes(made.kind);
+      return [{ ...made, databaseFills }];
+    });
+    return {
+      name: entry.name,
+      table: config.name,
+      schema: config.schema,
+      columns: seedColumns,
+      foreignKeys: [...enforced, ...logical],
+      parents: [],
+      uniques,
+    };
+  });
+
+  // The parent side of each key: `posts: r.many.post()` on user, matched to post's key back to
+  // user by its columns, which Drizzle has filled in on both sides of the pair.
+  const tableByName = new Map(tables.map((table) => [table.name, table] as const));
+  const linksByOwner = Map.groupBy(links, (link) => link.owner);
+  const withParents = tables.map((table): ModelTable => {
+    const parents = (linksByOwner.get(table.name) ?? []).flatMap((link): ParentSide[] => {
+      if (link.through !== null) return [];
+      const child = tableByName.get(link.target);
+      const key = child?.foreignKeys.find(
+        (fk) =>
+          fk.toModel === table.name &&
+          sameKey(fk.fromFields, link.to) &&
+          sameKey(fk.toFields, link.from),
+      );
+      if (child === undefined || key === undefined) return [];
+      return [{ name: link.name, child: child.name, key: key.field, isList: link.kind === "many" }];
+    });
+    return { ...table, parents };
+  });
+
+  return ok({ dialect, tables: withParents });
 }
 
 /** A relation as `defineRelations` builds it: on which model, to which, by which fields. */

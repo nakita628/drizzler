@@ -3,66 +3,14 @@ import { layer as nodeFileSystemLayer } from "@effect/platform-node/NodeFileSyst
 import { Effect, FileSystem } from "effect";
 import type { PlatformError } from "effect";
 import { format } from "oxfmt";
+import type { FormatOptions } from "../../../helper/format-options.js";
+import { pickFormatOptions } from "../../../helper/format-options.js";
+import { stripJsonc } from "../../../helper/jsonc.js";
 import { FileReadError, FormatError } from "../errors/index.js";
 
-/** The oxfmt options the studio reads from the project's config. */
-export type FormatOptions = {
-  readonly printWidth?: number;
-  readonly tabWidth?: number;
-  readonly useTabs?: boolean;
-  readonly semi?: boolean;
-  readonly singleQuote?: boolean;
-  readonly trailingComma?: "all" | "es5" | "none";
-  readonly bracketSpacing?: boolean;
-  readonly arrowParens?: "always" | "avoid";
-};
+export type { FormatOptions } from "../../../helper/format-options.js";
 
 const CONFIG_FILES = [".oxfmtrc.json", ".oxfmtrc.jsonc"] as const;
-const OPTION_KEYS = [
-  "printWidth",
-  "tabWidth",
-  "useTabs",
-  "semi",
-  "singleQuote",
-  "trailingComma",
-  "bracketSpacing",
-  "arrowParens",
-] as const;
-
-/**
- * JSONC read as JSON: its `//` and `/* *\/` comments and trailing commas removed, strings left
- * as they are, so an `.oxfmtrc.jsonc` parses with `JSON.parse`.
- *
- * ```mermaid
- * flowchart LR
- *   jsonc[input.text] --> strip[drop comments outside strings]
- *   strip --> commas[drop trailing commas]
- *   commas --> json[JSON text]
- * ```
- *
- * @param input.text - the JSONC text of a config file
- * @returns the same document as plain JSON text
- */
-export function stripJsonComments(input: { readonly text: string }) {
-  // A string (kept, even one left open), a line comment, or a block comment (to the end of the
-  // text when it is never closed), read left to right so a `//` inside a string stays.
-  const stripped = input.text.replace(
-    /("(?:[^"\\]|\\[\s\S])*(?:"|\\?$))|\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/gu,
-    (_match, string: string | undefined) => string ?? "",
-  );
-  // A trailing comma is legal in JSONC and not in JSON.
-  return stripped.replace(/,(\s*[}\]])/gu, "$1");
-}
-
-const OPTION_NAMES: ReadonlySet<string> = new Set(OPTION_KEYS);
-
-function pickOptions(value: unknown): FormatOptions {
-  if (typeof value !== "object" || value === null) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter(([key, option]) => OPTION_NAMES.has(key) && option !== undefined),
-  );
-}
-
 type FoundConfig = { readonly path: string; readonly text: string };
 
 /** A file's text, or null when it does not exist; any other failure is a FileReadError. */
@@ -109,7 +57,7 @@ function findConfig(from: string): Effect.Effect<FoundConfig | null, FileReadErr
 
 function parseConfig(config: { readonly path: string; readonly text: string }) {
   return Effect.try({
-    try: (): unknown => JSON.parse(stripJsonComments({ text: config.text })),
+    try: (): unknown => JSON.parse(stripJsonc(config.text)),
     catch: (error) =>
       new FormatError({
         message: `${config.path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
@@ -140,7 +88,7 @@ export function readSettings(input: { readonly schemaPath: string }) {
   return Effect.gen(function* () {
     const config = yield* findConfig(path.dirname(input.schemaPath));
     if (config === null) return { options: {}, configPath: null };
-    return { options: pickOptions(yield* parseConfig(config)), configPath: config.path };
+    return { options: pickFormatOptions(yield* parseConfig(config)), configPath: config.path };
   });
 }
 
