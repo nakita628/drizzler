@@ -2,7 +2,7 @@ import path from "node:path";
 import { Faker, allLocales } from "@faker-js/faker";
 import { Clock, Config, Effect, Option } from "effect";
 import { emitRaw } from "../emit/index.js";
-import { makeDialect, makeSqlitePath } from "../studio/server/domain/sql.js";
+import { makeConnection, makeDialect } from "../studio/server/domain/sql.js";
 import { openDriver } from "../studio/server/services/database.js";
 import type { SeedConfig } from "./config.js";
 import { SeedConfigError, SeedDatabaseError } from "./errors.js";
@@ -154,7 +154,7 @@ function seedProgram(overrides: SeedOverrides, cwd: string) {
       });
     }
     const written = yield* Effect.acquireUseRelease(
-      openDriver({ dialect: urlDialect, url, file: makeSqlitePath({ url }), cwd: base }).pipe(
+      openDriver({ connection: makeConnection({ url }), cwd: base }).pipe(
         Effect.mapError((error) => new SeedDatabaseError({ message: error.reason })),
       ),
       (driver) =>

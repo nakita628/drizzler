@@ -45,8 +45,38 @@ const Url = z
   .readonly()
   .meta({ description: "A connection URL" });
 
+export const ConnectionKind = z
+  .enum(["sqlite", "libsql", "d1", "postgresql", "mysql"])
+  .meta({ description: "How the studio reaches a database: the driver it opens" });
+export type ConnectionKind = z.infer<typeof ConnectionKind>;
+
 /**
- * The dialect a connection URL speaks; null for a scheme drizzler does not know.
+ * How a connection URL is reached: a local SQLite file, Turso (libSQL), Cloudflare D1 over its
+ * HTTP API, PostgreSQL or MySQL; null for a scheme drizzler does not know.
+ *
+ * @param input - The connection `url`.
+ * @returns The connection kind, or null.
+ * @example
+ * ```ts
+ * makeConnectionKind({ url: "libsql://app-ada.turso.io" }); // => "libsql"
+ * makeConnectionKind({ url: "d1://account/database" }); // => "d1"
+ * ```
+ */
+export function makeConnectionKind(input: z.infer<typeof Url>): ConnectionKind | null {
+  const { url } = input;
+  if (/^postgres(ql)?:\/\//u.test(url)) return "postgresql";
+  if (/^(mysql|mariadb):\/\//u.test(url)) return "mysql";
+  if (url.startsWith("libsql://")) return "libsql";
+  if (url.startsWith("d1://")) return "d1";
+  if (/^(file|sqlite):/u.test(url) || /\.(db|sqlite3?)$/u.test(url) || url === ":memory:") {
+    return "sqlite";
+  }
+  return null;
+}
+
+/**
+ * The dialect a connection URL speaks; null for a scheme drizzler does not know. Turso and D1
+ * speak SQLite.
  *
  * @param input - The connection `url`.
  * @returns `"postgresql"`, `"mysql"` or `"sqlite"`, or null.
@@ -54,16 +84,13 @@ const Url = z
  * ```ts
  * makeDialect({ url: "postgres://localhost/app" }); // => "postgresql"
  * makeDialect({ url: "file:./dev.db" }); // => "sqlite"
+ * makeDialect({ url: "libsql://app-ada.turso.io" }); // => "sqlite"
  * ```
  */
 export function makeDialect(input: z.infer<typeof Url>): Dialect | null {
-  const { url } = input;
-  if (/^postgres(ql)?:\/\//u.test(url)) return "postgresql";
-  if (/^(mysql|mariadb):\/\//u.test(url)) return "mysql";
-  if (/^(file|sqlite):/u.test(url) || /\.(db|sqlite3?)$/u.test(url) || url === ":memory:") {
-    return "sqlite";
-  }
-  return null;
+  const kind = makeConnectionKind(input);
+  if (kind === "libsql" || kind === "d1") return "sqlite";
+  return kind;
 }
 
 /**
@@ -80,19 +107,141 @@ export function makeSqlitePath(input: z.infer<typeof Url>) {
   return input.url.replace(/^(file|sqlite):(\/\/)?/u, "");
 }
 
+function parseUrl(url: string) {
+  return URL.canParse(url) ? new URL(url) : null;
+}
+
 /**
- * The URL with its password replaced, for showing on the page.
+ * A Turso URL split into what `@libsql/client` takes: the URL without its `authToken`, and the
+ * token, which may also come from the environment.
+ *
+ * @param input - The `libsql://` connection `url`.
+ * @returns The `url` to connect to and its `authToken` (null when the URL has none).
+ * @example
+ * ```ts
+ * makeLibsqlTarget({ url: "libsql://app-ada.turso.io?authToken=abc" });
+ * // => { url: "libsql://app-ada.turso.io", authToken: "abc" }
+ * ```
+ */
+export function makeLibsqlTarget(input: z.infer<typeof Url>) {
+  const parsed = parseUrl(input.url);
+  if (parsed === null) return { url: input.url, authToken: null };
+  const authToken = parsed.searchParams.get("authToken");
+  parsed.searchParams.delete("authToken");
+  return { url: parsed.toString().replace(/\/(\?|$)/u, "$1"), authToken: authToken || null };
+}
+
+/**
+ * The Cloudflare account and D1 database a `d1://<account id>/<database id>` URL names, and the
+ * API token it carries in `?token=` (null when it carries none: the environment may have one).
+ *
+ * @param input - The `d1://` connection `url`.
+ * @returns The `accountId`, `databaseId` and `token`, or null when the URL does not name both ids.
+ * @example
+ * ```ts
+ * makeD1Target({ url: "d1://0123abcd/5678-ef90?token=secret" });
+ * // => { accountId: "0123abcd", databaseId: "5678-ef90", token: "secret" }
+ * ```
+ */
+export function makeD1Target(input: z.infer<typeof Url>) {
+  const parsed = parseUrl(input.url);
+  if (parsed === null) return null;
+  const accountId = decodeURIComponent(parsed.hostname);
+  const databaseId = decodeURIComponent(parsed.pathname.replace(/^\/|\/$/gu, ""));
+  if (accountId === "" || databaseId === "" || databaseId.includes("/")) return null;
+  return { accountId, databaseId, token: parsed.searchParams.get("token") || null };
+}
+
+// Hosted databases that refuse a connection without TLS, by host name: Neon, and PlanetScale's
+// MySQL and PostgreSQL.
+const TLS_HOSTS = [".neon.tech", ".psdb.cloud"] as const;
+
+/**
+ * Whether the connection must turn TLS on itself: the host is one that refuses plain connections,
+ * and the URL says nothing of TLS (`sslmode` / `ssl`), so the driver would otherwise go without.
+ *
+ * @param input - The PostgreSQL or MySQL connection `url`.
+ * @returns True when the driver should be told to use TLS.
+ * @example
+ * ```ts
+ * makeTlsRequired({ url: "postgres://ada@ep-cool-1.us-east-2.aws.neon.tech/app" }); // => true
+ * makeTlsRequired({ url: "postgres://ada@localhost/app" }); // => false
+ * ```
+ */
+export function makeTlsRequired(input: z.infer<typeof Url>) {
+  const parsed = parseUrl(input.url);
+  if (parsed === null) return false;
+  const host = parsed.hostname.toLowerCase();
+  if (!TLS_HOSTS.some((suffix) => host.endsWith(suffix))) return false;
+  return !parsed.searchParams.has("sslmode") && !parsed.searchParams.has("ssl");
+}
+
+/**
+ * The URL with its secrets replaced, for showing on the page: the password, and the tokens
+ * Turso (`authToken`) and D1 (`token`) take as query parameters.
  *
  * @param input - The connection `url`.
- * @returns The URL with `****` in place of the password.
+ * @returns The URL with `****` in place of each secret.
  * @example
  * ```ts
  * makeRedactedUrl({ url: "postgres://ada:secret@localhost/app" });
  * // => "postgres://ada:****@localhost/app"
+ * makeRedactedUrl({ url: "libsql://app.turso.io?authToken=abc" });
+ * // => "libsql://app.turso.io?authToken=****"
  * ```
  */
 export function makeRedactedUrl(input: z.infer<typeof Url>) {
-  return input.url.replace(/(\/\/[^:/@]+:)[^@]*@/u, "$1****@");
+  return input.url
+    .replace(/(\/\/[^:/@]+:)[^@]*@/u, "$1****@")
+    .replace(/([?&](?:authToken|token|password)=)[^&#]*/giu, "$1****");
+}
+
+/** What `openDriver` needs to reach a database, decided from its URL. */
+export type Connection =
+  | { readonly kind: "sqlite"; readonly file: string }
+  | { readonly kind: "libsql"; readonly url: string; readonly authToken: string | null }
+  | {
+      readonly kind: "d1";
+      readonly accountId: string;
+      readonly databaseId: string;
+      readonly token: string | null;
+    }
+  | { readonly kind: "postgresql"; readonly url: string; readonly tls: boolean }
+  | { readonly kind: "mysql"; readonly url: string; readonly tls: boolean }
+  | { readonly kind: "unsupported"; readonly reason: string };
+
+const UNSUPPORTED =
+  "Unsupported database URL. Use file:./dev.db (SQLite), libsql://... (Turso), d1://<account id>/<database id> (Cloudflare D1), postgres://... or mysql://...";
+
+/**
+ * How to reach the database at a URL: the driver, and what it is given — the SQLite file, the
+ * Turso URL and token, the D1 account and database, or the URL and whether TLS must be turned on.
+ * A token missing from the URL is left null for the environment to give.
+ *
+ * @param input - The connection `url`.
+ * @returns The connection, or `unsupported` with the reason.
+ * @example
+ * ```ts
+ * makeConnection({ url: "d1://acc/db" });
+ * // => { kind: "d1", accountId: "acc", databaseId: "db", token: null }
+ * ```
+ */
+export function makeConnection(input: z.infer<typeof Url>): Connection {
+  const { url } = input;
+  const kind = makeConnectionKind(input);
+  if (kind === "sqlite") return { kind, file: makeSqlitePath(input) };
+  if (kind === "libsql") return { kind, ...makeLibsqlTarget(input) };
+  if (kind === "postgresql" || kind === "mysql") return { kind, url, tls: makeTlsRequired(input) };
+  if (kind === "d1") {
+    const target = makeD1Target(input);
+    return target === null
+      ? {
+          kind: "unsupported",
+          reason: "A D1 URL names the account and the database: d1://<account id>/<database id>",
+        }
+      : { kind, ...target };
+  }
+  return { kind: "unsupported", reason: UNSUPPORTED };
 }
 
 const MakeIdentifierInput = z
@@ -166,6 +315,8 @@ export function makeCell(input: { readonly value: unknown }): CellValue {
   }
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
   if (value instanceof Uint8Array) return `\\x${Buffer.from(value).toString("hex")}`;
+  // libSQL hands a blob back as an ArrayBuffer.
+  if (value instanceof ArrayBuffer) return `\\x${Buffer.from(value).toString("hex")}`;
   return JSON.stringify(value);
 }
 

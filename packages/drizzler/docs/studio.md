@@ -198,15 +198,42 @@ with. A write refreshes the counts in the sidebar.
 
 ## Databases
 
-| URL                                                | Driver                                                             |
-| -------------------------------------------------- | ------------------------------------------------------------------ |
-| `file:./dev.db`, `sqlite:./dev.db`, `./dev.sqlite` | Node.js's built-in `node:sqlite` (Node 22.13+)                     |
-| `postgres://...`, `postgresql://...`               | [`pg`](https://www.npmjs.com/package/pg) from your project         |
-| `mysql://...`, `mariadb://...`                     | [`mysql2`](https://www.npmjs.com/package/mysql2) from your project |
+| URL                                                | Driver                                                                             |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `file:./dev.db`, `sqlite:./dev.db`, `./dev.sqlite` | Node.js's built-in `node:sqlite` (Node 22.13+)                                     |
+| `libsql://...` (Turso)                             | [`@libsql/client`](https://www.npmjs.com/package/@libsql/client) from your project |
+| `d1://<account id>/<database id>` (Cloudflare D1)  | Cloudflare's D1 HTTP API (no package needed)                                       |
+| `postgres://...`, `postgresql://...`               | [`pg`](https://www.npmjs.com/package/pg) from your project                         |
+| `mysql://...`, `mariadb://...`                     | [`mysql2`](https://www.npmjs.com/package/mysql2) from your project                 |
 
-drizzler ships no database driver of its own: PostgreSQL and MySQL use the package your project
-already depends on (`npm install pg` or `npm install mysql2` if it does not). A relative SQLite
-path is resolved from the directory the studio was started in.
+drizzler ships no database driver of its own: Turso, PostgreSQL and MySQL use the package your
+project already depends on (`npm install @libsql/client`, `npm install pg` or `npm install mysql2`
+if it does not). A relative SQLite path is resolved from the directory the studio was started in.
+
+### Hosted databases
+
+```sh
+# Turso: the token in the URL, or in TURSO_AUTH_TOKEN
+TURSO_AUTH_TOKEN=... npx drizzler studio db/schema.ts --url libsql://app-ada.turso.io
+
+# Cloudflare D1: an API token with D1 edit access, in CLOUDFLARE_D1_TOKEN (or ?token=...)
+CLOUDFLARE_D1_TOKEN=... npx drizzler studio db/schema.ts --url d1://<account id>/<database id>
+
+# Neon and PlanetScale: the connection string from their dashboard
+npx drizzler studio db/schema.ts --url "postgres://user:pass@ep-cool-1.us-east-2.aws.neon.tech/app?sslmode=require"
+npx drizzler studio db/schema.ts --url "mysql://user:pass@aws.connect.psdb.cloud/app"
+```
+
+- **Turso**: a local `sqld` (`turso dev`) is `libsql://127.0.0.1:8080?tls=0`.
+- **Cloudflare D1**: the account id and the database id are in the dashboard, or in
+  `wrangler d1 list`. Each statement is one HTTPS request, so pages answer slower than a local
+  database. The database `wrangler dev` works on is a SQLite file:
+  `--url file:.wrangler/state/v3/d1/miniflare-D1DatabaseObject/<hash>.sqlite`.
+- **Neon and PlanetScale** connect over TCP with `pg` and `mysql2`. Both refuse a connection
+  without TLS, so drizzler turns TLS on for their hosts (`*.neon.tech`, `*.psdb.cloud`) when the
+  URL does not set `sslmode` or `ssl` itself.
+
+The page shows the URL with its password and tokens hidden.
 
 When the connection fails, the studio still starts: the Schema and Docs pages work, and the
 sidebar shows why the database is not connected.

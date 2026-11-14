@@ -20,8 +20,8 @@ import * as TypeScriptService from "../services/typescript.js";
  *   alt no url
  *     U-->>C: not connected, no error
  *   else url
- *     U->>D: makeDialect / makeSqlitePath / makeRedactedUrl
- *     U->>S: openDriver({ dialect, url, file, cwd })
+ *     U->>D: makeConnection / makeDialect / makeRedactedUrl
+ *     U->>S: openDriver({ connection, cwd })
  *     alt opened
  *       U-->>C: connected, with the driver
  *     else DatabaseUnavailableError
@@ -30,7 +30,7 @@ import * as TypeScriptService from "../services/typescript.js";
  *   end
  * ```
  *
- * @param input.url - the database URL (`file:./dev.db`, `postgres://...`, `mysql://...`), or null for none
+ * @param input.url - the database URL (`file:./dev.db`, `libsql://...`, `d1://...`, `postgres://...`, `mysql://...`), or null for none
  * @param input.cwd - the project directory the drivers are loaded from
  * @returns the connection (null when there is none) and the status the banner and the pages show
  */
@@ -45,9 +45,7 @@ export function connectDatabase(input: { readonly url: string | null; readonly c
   const dialect = SqlDomain.makeDialect({ url });
   const redacted = SqlDomain.makeRedactedUrl({ url });
   return DatabaseService.openDriver({
-    dialect,
-    url,
-    file: SqlDomain.makeSqlitePath({ url }),
+    connection: SqlDomain.makeConnection({ url }),
     cwd: input.cwd,
   }).pipe(
     Effect.match({

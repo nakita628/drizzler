@@ -73,6 +73,7 @@
     "@electric-sql/pglite": "^0.5.14",
     "@heroui/react": "^3.2.7",
     "@lezer/highlight": "^1.2.5",
+    "@libsql/client": "^0.18.0",
     "@monaco-editor/react": "^4.7.0",
     "@softwaretechnik/dbml-renderer": "^1.0.31",
     "@tailwindcss/vite": "^4.3.3",
