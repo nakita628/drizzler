@@ -5,6 +5,10 @@ import {
   makeCell,
   makeDeleteStatement,
   makeConnection,
+  makeCount,
+  makeRowInputProblem,
+  makeSqlResult,
+  makeUnknownFieldsMessage,
   makeConnectionKind,
   makeD1Target,
   makeDialect,
@@ -351,5 +355,89 @@ describe("makeAnalysisSchema", () => {
         },
       ],
     });
+  });
+});
+
+describe("makeUnknownFieldsMessage", () => {
+  it("names the fields, in the plural for more than one, and is null for none", () => {
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: ["body"] })).toBe(
+      "Unknown column of post: body",
+    );
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: ["body", "slug"] })).toBe(
+      "Unknown columns of post: body, slug",
+    );
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: [] })).toBeNull();
+  });
+});
+
+describe("makeCount", () => {
+  it.each([
+    [[{ count: 3 }], 3],
+    [[{ count: "42" }], 42],
+    [[{ count: 7n }], 7],
+    [[], 0],
+  ])("reads %o as %d", (rows, count) => {
+    expect(makeCount({ rows })).toBe(count);
+  });
+});
+
+describe("makeSqlResult", () => {
+  it("reads the columns from the first row when the driver names none", () => {
+    expect(
+      makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, durationMs: 1.23 }),
+    ).toStrictEqual({ columns: ["n"], rows: [{ n: 1 }], rowCount: 1, durationMs: 1.23 });
+  });
+
+  it("is empty when no statement ran", () => {
+    expect(makeSqlResult({ result: null, durationMs: 0 })).toStrictEqual({
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      durationMs: 0,
+    });
+  });
+});
+
+describe("makeRowInputProblem", () => {
+  const where = { field: "where", values: { postId: 1 }, required: true };
+
+  it("is null when every input names known columns", () => {
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [where, { field: "values", values: { note: "x" }, required: true }],
+      }),
+    ).toBeNull();
+  });
+
+  it("names an empty required input before any unknown column", () => {
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [
+          { field: "where", values: { nope: 1 }, required: true },
+          { field: "values", values: {}, required: true },
+        ],
+      }),
+    ).toStrictEqual({ field: "values", message: "values must name at least one column" });
+  });
+
+  it("names the first input with a column the table does not have", () => {
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [where, { field: "values", values: { body: "x", slug: "y" }, required: false }],
+      }),
+    ).toStrictEqual({ field: "values", message: "Unknown columns of postTags: body, slug" });
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [{ field: "values", values: {}, required: false }],
+      }),
+    ).toBeNull();
   });
 });

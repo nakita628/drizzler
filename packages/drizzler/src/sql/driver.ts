@@ -268,14 +268,6 @@ export function answerArrayResult(answer: DriverAnswer): DriverArrayResult {
   };
 }
 
-/** What went wrong, with the reason under it: a network failure says only "fetch failed". */
-export function errorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  return error.cause instanceof Error
-    ? `${error.message}: ${errorMessage(error.cause)}`
-    : error.message;
-}
-
 /** A refused statement's message, with the start of the statement it was running. */
 export function failedStatement(cause: string, sql: string) {
   return `${cause}\n   while running: ${sql.slice(0, 200)}`;
@@ -284,4 +276,41 @@ export function failedStatement(cause: string, sql: string) {
 /** The statement of a batch libSQL says it failed at (`statementIndex`), or null. */
 export function batchFailureIndex(error: unknown) {
   return isRecord(error) && typeof error.statementIndex === "number" ? error.statementIndex : null;
+}
+
+/** A parameter as a driver takes it: SQLite has no boolean, so it gets 1 or 0. */
+export function driverParam(dialect: "sqlite" | "postgresql" | "mysql", param: unknown) {
+  if (dialect !== "sqlite" || typeof param !== "boolean") return param;
+  return param ? 1 : 0;
+}
+
+/** SQLite's proxy driver: the rows of `all` / `get`, as arrays or, for `rowMode: "object"`, by name. */
+export function sqliteProxyRows(
+  result: DriverArrayResult,
+  rowMode: "array" | "object" | undefined,
+) {
+  return rowMode === "object" ? rowsByName(result.columns, result.rows) : result.rows;
+}
+
+/** SQLite's proxy driver: what `run` answers, as node:sqlite does. */
+export function sqliteProxyRun(result: DriverArrayResult) {
+  return { changes: result.rowCount, lastInsertRowid: result.insertId ?? 0 };
+}
+
+/**
+ * PostgreSQL's and MySQL's proxy driver: what the callback answers. `all` takes the rows as
+ * arrays; `execute` takes them by name, and MySQL's as mysql2 does, in a list with the write's
+ * counts beside it.
+ */
+export function proxyCallbackResult(
+  dialect: "postgresql" | "mysql",
+  method: "all" | "execute",
+  result: DriverArrayResult,
+) {
+  if (method === "all") return { rows: result.rows };
+  const rows = rowsByName(result.columns, result.rows);
+  if (dialect === "mysql") {
+    return { rows: [rows], affectedRows: result.rowCount, insertId: result.insertId ?? 0 };
+  }
+  return { rows };
 }

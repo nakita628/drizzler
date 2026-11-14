@@ -3,14 +3,17 @@
 //   handlers → usecases → services        (and usecases → domain)
 //
 // A handler maps HTTP to one usecase; a usecase composes services (I/O) and domain (pure
-// decisions); a service touches one piece of I/O; domain takes values and returns values.
+// decisions), and may use the library's pure modules (sql/, helper/); a service touches one piece
+// of I/O; domain takes values and returns values.
 //
 //   no-usecase-to-usecase      a usecase does not import another usecase
 //   no-service-to-service      a service does not import another service's values
+//   service-does-io            what a service exports runs an Effect or holds the module's state
 //   domain-only-from-usecases  only usecases (and domain) import domain's values
 //   domain-import-allowlist    domain imports only zod, other domain modules and the library's types
 //   domain-no-nondeterminism   domain does not read the clock or make random values
 //   domain-no-side-effects     domain does no I/O, is not async and keeps no module state
+//   pure-no-throw              pure code returns its failures; it does not throw, catch or JSON.parse
 //   handler-one-usecase        a handler calls at most one usecase
 //   handler-request-valid      a handler reads its input only as `const data = c.req.valid(...)`
 //   handler-response-shape     a 2xx body is parsed with its generated schema; a problem body is not
@@ -139,6 +142,89 @@ export const layerRules = {
           message: `A service may not import another service (\`${source}\`). Each service touches one piece of I/O; call both from the usecase instead, so reading it shows everything that happens. \`import type\` is fine.`,
         });
       });
+    },
+  },
+
+  // Why: a service is where the studio touches the outside world. A function there that does
+  //      neither (no Effect, no state of the module) is a pure computation in the I/O layer, where
+  //      the pure rules do not reach it and a usecase test needs the I/O around it.
+  //   NG: export function readSchema(input) { return diagramSchema(input.source) }   // in services/
+  //   OK: export function readText(input) { return Effect.gen(function* () { … }) }
+  //   OK: export function getStudio() { return current.get("current") }  // the module's state
+  //   OK: the pure part in domain/ (a decision) or helper/ (a library over values)
+  "service-does-io": {
+    meta: { docs: { description: "a service's exports run an Effect or hold the module's state" } },
+    create(context) {
+      const filename = getFilename(context);
+      if (layerOf(filename) !== "services" || INDEX_FILE.test(filename) || TEST_FILE.test(filename))
+        return {};
+      const STATE = new Set(["Map", "Set", "WeakMap", "WeakSet"]);
+      // The names of the module's state: top-level `const x = new Map()` and the like.
+      const state = new Set();
+      const exported = [];
+      function names(node, found = new Set()) {
+        if (!node || typeof node.type !== "string") return found;
+        if (node.type === "Identifier") found.add(node.name);
+        for (const key of Object.keys(node)) {
+          if (key === "parent") continue;
+          const child = node[key];
+          if (Array.isArray(child)) for (const each of child) names(each, found);
+          else if (child && typeof child.type === "string") names(child, found);
+        }
+        return found;
+      }
+      // Every top-level function by name, with the names its body uses.
+      const functions = new Map();
+      return {
+        Program(node) {
+          for (const statement of node.body) {
+            const declaration =
+              statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+            if (declaration?.type === "FunctionDeclaration" && declaration.id) {
+              functions.set(declaration.id.name, names(declaration.body));
+              if (statement.type === "ExportNamedDeclaration") exported.push(declaration);
+            }
+            if (declaration?.type !== "VariableDeclaration") continue;
+            for (const declarator of declaration.declarations) {
+              const init = declarator.init;
+              if (
+                declarator.id.type === "Identifier" &&
+                init?.type === "NewExpression" &&
+                init.callee.type === "Identifier" &&
+                STATE.has(init.callee.name)
+              ) {
+                state.add(declarator.id.name);
+              }
+            }
+          }
+        },
+        "Program:exit"() {
+          // A function does I/O when it uses Effect or the module's state, or calls one of the
+          // module's functions that does (`getStudio` reads the state through `configured`).
+          const known = new Map();
+          function doesIo(name, visiting = new Set()) {
+            if (known.has(name)) return known.get(name);
+            const used = functions.get(name);
+            if (used === undefined || visiting.has(name)) return false;
+            visiting.add(name);
+            const result =
+              used.has("Effect") ||
+              [...state].some((each) => used.has(each)) ||
+              [...used].some(
+                (each) => each !== name && functions.has(each) && doesIo(each, visiting),
+              );
+            known.set(name, result);
+            return result;
+          }
+          for (const fn of exported) {
+            if (doesIo(fn.id.name)) continue;
+            context.report({
+              node: fn.id,
+              message: `\`${fn.id.name}\` runs no Effect and holds none of the module's state: it is pure, in the I/O layer. Move it to domain/ (a decision the usecase applies) or helper/ (a library over values), where the pure rules check it.`,
+            });
+          }
+        },
+      };
     },
   },
 
@@ -301,6 +387,37 @@ export const layerRules = {
                 message: `Module-level \`${declaration.kind}\` in pure code: shared mutable state makes the answer depend on call order.`,
               });
             }
+          }
+        },
+      };
+    },
+  },
+
+  // Why: a pure function's failure is part of its answer. A throw leaves the type, and a caller
+  //      that forgets a try / catch crashes; JSON.parse throws on text that is not JSON.
+  //   NG: throw new Error("bad") / try { … } catch { … } / JSON.parse(text)
+  //   OK: return { error: "bad" } / return null, and parse JSON in the I/O layer (Effect.try)
+  "pure-no-throw": {
+    meta: {
+      docs: { description: "pure code returns failures; it does not throw, catch or JSON.parse" },
+    },
+    create(context) {
+      if (TEST_FILE.test(getFilename(context))) return {};
+      const tail =
+        "Pure code returns its failure as a value (`{ error }`, null) so it shows in the type. Parse JSON, and run code that throws, in the I/O layer (Effect.try) and pass the value in.";
+      return {
+        ThrowStatement(node) {
+          context.report({ node, message: `\`throw\` in pure code. ${tail}` });
+        },
+        TryStatement(node) {
+          context.report({ node, message: `\`try\` in pure code. ${tail}` });
+        },
+        CallExpression(node) {
+          if (isCallOn(node, "JSON", "parse")) {
+            context.report({
+              node,
+              message: `\`JSON.parse\` throws on text that is not JSON. ${tail}`,
+            });
           }
         },
       };

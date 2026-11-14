@@ -47,18 +47,10 @@ import type { InferResponseType } from "hono/client";
 import { useEffect, useRef } from "react";
 
 import type { dbClient } from "../../api/index.js";
+import type { EditorTable } from "./aliases.js";
+import { aliasesOf, fold, wordAround } from "./aliases.js";
 
 type Dialect = "postgresql" | "mysql" | "sqlite" | null;
-
-/**
- * A table as the editor completes and explains it: the name the database knows, the export it is,
- * and its columns, each with the name the database knows and its column type.
- */
-type EditorTable = {
-  readonly name: string;
-  readonly detail: string;
-  readonly columns: readonly { readonly name: string; readonly detail: string }[];
-};
 
 const setHighlight = StateEffect.define<{ readonly start: number; readonly end: number } | null>();
 const setDiagnostics =
@@ -149,25 +141,6 @@ function languageOf(dialect: Dialect, tables: readonly EditorTable[]) {
   ]);
 }
 
-function fold(name: string) {
-  return name.replaceAll(/^["`]|["`]$/gu, "").toLowerCase();
-}
-
-/** The table every alias in the text stands for (`FROM users u`, `JOIN "Post" AS p`), keyed by the folded alias. */
-function aliasesOf(text: string, tables: readonly EditorTable[]) {
-  const known = new Map(tables.map((table) => [fold(table.name), table]));
-  const aliases = new Map<string, EditorTable>();
-  for (const match of text.matchAll(
-    /\b(?:from|join|update|into)\s+("[^"]+"|`[^`]+`|[\w$.]+)(?:\s+(?:as\s+)?("[^"]+"|`[^`]+`|(?!on\b|where\b|set\b|left\b|right\b|inner\b|cross\b|join\b|values\b)[a-z_$][\w$]*))?/giu,
-  )) {
-    const table = known.get(fold(match[1] ?? ""));
-    if (table === undefined) continue;
-    aliases.set(fold(match[1] ?? ""), table);
-    if (match[2] !== undefined) aliases.set(fold(match[2]), table);
-  }
-  return aliases;
-}
-
 function element(tag: string, className: string | null, ...children: readonly (Node | string)[]) {
   const node = document.createElement(tag);
   if (className !== null) node.setAttribute("class", className);
@@ -187,12 +160,6 @@ function tooltipDom(title: string, detail: string, lines: readonly string[]) {
     ),
     ...lines.map((line) => element("div", null, line)),
   );
-}
-
-function wordAround(text: string, at: number) {
-  const before = text.slice(0, at).match(/[\w$]*$/u)?.[0].length ?? 0;
-  const after = text.slice(at).match(/^[\w$]*/u)?.[0].length ?? 0;
-  return { start: at - before, end: at + after };
 }
 
 /**

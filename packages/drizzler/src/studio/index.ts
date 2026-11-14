@@ -8,6 +8,7 @@ import { STUDIO_HOSTNAME } from "./server/constants/index.js";
 import app from "./server/index.js";
 import { FileReadError, MissingAssetsError, ServerListenError } from "./server/errors/index.js";
 import { exists } from "./server/services/file.js";
+import { studioBanner } from "./banner.js";
 import { configureStudio, connectDatabase } from "./server/usecases/studio.js";
 
 // The built client, beside this module's chunk in dist/.
@@ -64,11 +65,13 @@ export function runStudio(options: {
     });
     yield* listen(app.fetch, options.port);
 
-    const { status } = database;
-    const db = status.connected ? `\n   Database: ${status.url}` : "";
-    const unconnected = status.error === null ? "" : `\n   Database not connected: ${status.error}`;
     yield* Console.log(
-      `💧 drizzler studio is editing ${options.file} at http://${STUDIO_HOSTNAME}:${options.port}${db || unconnected}`,
+      studioBanner({
+        file: options.file,
+        host: STUDIO_HOSTNAME,
+        port: options.port,
+        status: database.status,
+      }),
     );
     return yield* Effect.never;
   }).pipe(Effect.scoped);

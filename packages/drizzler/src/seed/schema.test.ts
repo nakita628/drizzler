@@ -14,10 +14,22 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { integer as sqliteInteger, sqliteTable, text as sqliteText } from "drizzle-orm/sqlite-core";
-import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { makeSeedPlan } from "./plan.js";
 import { readSchema } from "./schema.js";
+import type { Result } from "./result.js";
+
+/** A step's value; a failure fails the test with it. */
+function value<A, E>(result: Result<A, E>): A {
+  if (!result.ok) throw result.error;
+  return result.value;
+}
+
+/** A step's failure; a value fails the test. */
+function failure<A, E>(result: Result<A, E>): E {
+  if (result.ok) throw new Error("expected the step to fail");
+  return result.error;
+}
 
 const role = pgEnum("role", ["owner", "member"]);
 
@@ -74,7 +86,7 @@ const schema = {
 
 describe("readSchema", () => {
   it("reads the tables, keys and relations of a Drizzle schema", () => {
-    const read = Effect.runSync(readSchema(schema));
+    const read = value(readSchema(schema));
     expect(read.dialect).toBe("postgresql");
     const [u, p, a, m] = read.tables;
 
@@ -129,7 +141,7 @@ describe("readSchema", () => {
       groupId: sqliteInteger("group_id").notNull(),
     });
     const tables = { account, profile, group, membership };
-    const read = Effect.runSync(
+    const read = value(
       readSchema({
         ...tables,
         // `from` is the parent here: the key is on the target.
@@ -170,8 +182,8 @@ describe("readSchema", () => {
   });
 
   it("orders the models parents first", () => {
-    const read = Effect.runSync(readSchema(schema));
-    const plan = Effect.runSync(makeSeedPlan(read.tables.toReversed()));
+    const read = value(readSchema(schema));
+    const plan = value(makeSeedPlan(read.tables.toReversed()));
     expect(plan.map((t) => t.name)).toStrictEqual(["user", "post", "member", "auditLog"]);
   });
 
@@ -188,8 +200,8 @@ describe("readSchema", () => {
         .notNull()
         .references(() => a.id),
     });
-    const read = Effect.runSync(readSchema({ a, b }));
-    const error = Effect.runSync(Effect.flip(makeSeedPlan(read.tables)));
+    const read = value(readSchema({ a, b }));
+    const error = failure(makeSeedPlan(read.tables));
     expect(error.message).toContain("Required relations form a cycle: a -> b -> a");
   });
 
@@ -198,10 +210,10 @@ describe("readSchema", () => {
       id: sqliteInteger("id").primaryKey(),
       name: sqliteText("name").notNull(),
     });
-    const read = Effect.runSync(readSchema({ tag }));
+    const read = value(readSchema({ tag }));
     expect(read.dialect).toBe("sqlite");
     expect(read.tables[0]?.columns[0]?.autoincrement).toBe(true);
-    const error = Effect.runSync(Effect.flip(readSchema({ relations: defineRelations({}) })));
+    const error = failure(readSchema({ relations: defineRelations({}) }));
     expect(error.message).toContain("The schema exports no tables");
   });
 });

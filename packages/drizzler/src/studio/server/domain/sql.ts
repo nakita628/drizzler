@@ -390,6 +390,149 @@ export function makeUnknownFields(input: z.infer<typeof MakeUnknownFieldsInput>)
   return Object.keys(input.values).filter((name) => columnOf(input.table, name) === null);
 }
 
+const MakeUnknownFieldsMessageInput = z
+  .object({
+    name: z.string().meta({ description: "The table's name in the schema", example: "post" }),
+    unknown: z
+      .array(z.string())
+      .readonly()
+      .meta({ description: "The fields it has no column for", example: ["body"] }),
+  })
+  .readonly()
+  .meta({ description: "A table and the fields it has no column for" });
+
+/**
+ * What a 422 says of fields a table has no column for; null when there are none.
+ *
+ * @param input - The table's `name` and the `unknown` fields (from makeUnknownFields).
+ * @returns The message, or null.
+ * @example
+ * ```ts
+ * makeUnknownFieldsMessage({ name: "post", unknown: ["body", "slug"] });
+ * // => "Unknown columns of post: body, slug"
+ * ```
+ */
+export function makeUnknownFieldsMessage(input: z.infer<typeof MakeUnknownFieldsMessageInput>) {
+  const { name, unknown } = input;
+  if (unknown.length === 0) return null;
+  return `Unknown column${unknown.length > 1 ? "s" : ""} of ${name}: ${unknown.join(", ")}`;
+}
+
+const MakeRowInputProblemInput = z
+  .object({
+    table: Table,
+    name: z.string().meta({ description: "The table's name in the schema", example: "post" }),
+    inputs: z
+      .array(
+        z
+          .object({
+            field: z.string().meta({ description: "The request field", example: "where" }),
+            values: Values,
+            required: z.boolean().meta({ description: "Whether it must name a column" }),
+          })
+          .readonly(),
+      )
+      .readonly()
+      .meta({ description: "The request's column values, in the order they are checked" }),
+  })
+  .readonly()
+  .meta({ description: "A row write's inputs against the table" });
+
+/**
+ * The first problem of a row write's inputs, for a 422: an input that must name a column and
+ * names none, then one that names a column the table does not have; null when they are fine.
+ *
+ * @param input - The `table`, its schema `name` and the request's `inputs` in order.
+ * @returns The `field` and `message` of the first problem, or null.
+ * @example
+ * ```ts
+ * makeRowInputProblem({ table, name: "post", inputs: [{ field: "where", values: {}, required: true }] });
+ * // => { field: "where", message: "where must name at least one column" }
+ * ```
+ */
+export function makeRowInputProblem(input: z.infer<typeof MakeRowInputProblemInput>) {
+  const empty = input.inputs.find((each) => each.required && Object.keys(each.values).length === 0);
+  if (empty !== undefined) {
+    return { field: empty.field, message: `${empty.field} must name at least one column` };
+  }
+  for (const each of input.inputs) {
+    const message = makeUnknownFieldsMessage({
+      name: input.name,
+      unknown: makeUnknownFields({ table: input.table, values: each.values }),
+    });
+    if (message !== null) return { field: each.field, message };
+  }
+  return null;
+}
+
+const MakeCountInput = z
+  .object({
+    rows: z
+      .array(z.record(z.string(), z.unknown()))
+      .readonly()
+      .meta({ description: "The rows a `SELECT COUNT(*) AS count` returned" }),
+  })
+  .readonly()
+  .meta({ description: "The rows of a count" });
+
+/**
+ * The number a `SELECT COUNT(*) AS count` returned: drivers give it as a number, a big integer
+ * or text (pg's bigint); 0 when there is no row.
+ *
+ * @param input - The `rows` the count returned.
+ * @returns The count.
+ * @example
+ * ```ts
+ * makeCount({ rows: [{ count: "42" }] }); // => 42
+ * ```
+ */
+export function makeCount(input: z.infer<typeof MakeCountInput>) {
+  return Number(input.rows[0]?.count ?? 0);
+}
+
+const MakeSqlResultInput = z
+  .object({
+    result: z
+      .object({
+        columns: z.array(z.string()).readonly(),
+        rows: z.array(z.record(z.string(), z.unknown())).readonly(),
+        rowCount: z.number(),
+      })
+      .readonly()
+      .nullable()
+      .meta({ description: "The last statement's result; null when none ran" }),
+    durationMs: z
+      .number()
+      .meta({ description: "How long the statements took, as the studio shows it", example: 1.23 }),
+  })
+  .readonly()
+  .meta({ description: "What a SQL run gave back" });
+
+/**
+ * The SQL page's answer: the last statement's columns (read from its first row when the driver
+ * names none) and rows as cells, its row count, and the time taken.
+ *
+ * @param input - The last statement's `result` and the `durationMs` the run took.
+ * @returns The `columns`, `rows`, `rowCount` and `durationMs`.
+ * @example
+ * ```ts
+ * makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, durationMs: 1.23 });
+ * // => { columns: ["n"], rows: [{ n: 1 }], rowCount: 1, durationMs: 1.23 }
+ * ```
+ */
+export function makeSqlResult(input: z.infer<typeof MakeSqlResultInput>) {
+  const result = input.result ?? { columns: [], rows: [], rowCount: 0 };
+  const columns = result.columns.length > 0 ? result.columns : Object.keys(result.rows[0] ?? {});
+  return {
+    columns: [...columns],
+    rows: result.rows.map((row) =>
+      Object.fromEntries(Object.entries(row).map(([key, value]) => [key, makeCell({ value })])),
+    ),
+    rowCount: result.rowCount,
+    durationMs: input.durationMs,
+  };
+}
+
 const Search = z
   .string()
   .meta({ description: "Text to look for in any column; empty matches every row", example: "ada" });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { SchemaModel } from "../../../types/index.js";
-import { makeQueryBody, makeQueryTouched, makeSchemaDialect } from "./query.js";
+import { makeQueryBody, makeQueryTouched, makeSchemaDialect, makeWorkingDialect } from "./query.js";
 
 describe("makeQueryBody", () => {
   it("returns the last expression statement", () => {
@@ -130,5 +130,25 @@ describe("makeQueryTouched", () => {
         writes: [],
       }),
     ).toStrictEqual([]);
+  });
+});
+
+describe("makeWorkingDialect", () => {
+  const pg = 'export const user = pgTable("user", {})';
+
+  it("types Drizzle code for the schema, then the database, else PostgreSQL", () => {
+    expect(makeWorkingDialect({ purpose: "query", connected: "mysql", source: pg })).toBe(
+      "postgresql",
+    );
+    expect(makeWorkingDialect({ purpose: "query", connected: "mysql", source: "" })).toBe("mysql");
+    expect(makeWorkingDialect({ purpose: "query", connected: null, source: "" })).toBe(
+      "postgresql",
+    );
+  });
+
+  it("analyses SQL for the database, then the schema, else SQLite", () => {
+    expect(makeWorkingDialect({ purpose: "sql", connected: "mysql", source: pg })).toBe("mysql");
+    expect(makeWorkingDialect({ purpose: "sql", connected: null, source: pg })).toBe("postgresql");
+    expect(makeWorkingDialect({ purpose: "sql", connected: null, source: "" })).toBe("sqlite");
   });
 });

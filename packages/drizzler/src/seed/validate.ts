@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import type { Result } from "./result.js";
+import { fail, ok } from "./result.js";
 import * as z from "zod";
 import type { SeedRow, SeedValue } from "./config.js";
 import { SeedGenerationError } from "./errors.js";
@@ -135,19 +136,21 @@ function issuesOf(table: ModelTable, index: number, row: SeedRow, error: z.ZodEr
  * uuid, email and URL text, lengths, integer ranges, decimal digits, dates, lists and
  * nullability. Nothing is inserted while one value fails.
  */
-export function validateRows(table: ModelTable, rows: readonly SeedRow[]) {
-  return Effect.gen(function* () {
-    const schema = rowSchema(table);
-    const problems = rows.flatMap((row, index) => {
-      const result = schema.safeParse(row);
-      return result.success ? [] : issuesOf(table, index, row, result.error);
-    });
-    if (problems.length > 0) {
-      const shown = problems.slice(0, 20);
-      const more = problems.length - shown.length;
-      yield* new SeedGenerationError({
-        message: `${table.name}: ${problems.length} value${problems.length === 1 ? "" : "s"} failed validation, nothing was inserted.\n   ${shown.join("\n   ")}${more > 0 ? `\n   ... and ${more} more` : ""}`,
-      });
-    }
+export function validateRows(
+  table: ModelTable,
+  rows: readonly SeedRow[],
+): Result<void, SeedGenerationError> {
+  const schema = rowSchema(table);
+  const problems = rows.flatMap((row, index) => {
+    const result = schema.safeParse(row);
+    return result.success ? [] : issuesOf(table, index, row, result.error);
   });
+  if (problems.length === 0) return ok(undefined);
+  const shown = problems.slice(0, 20);
+  const more = problems.length - shown.length;
+  return fail(
+    new SeedGenerationError({
+      message: `${table.name}: ${problems.length} value${problems.length === 1 ? "" : "s"} failed validation, nothing was inserted.\n   ${shown.join("\n   ")}${more > 0 ? `\n   ... and ${more} more` : ""}`,
+    }),
+  );
 }

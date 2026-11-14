@@ -76,7 +76,7 @@ export function connectDatabase(input: { readonly url: string | null; readonly c
  *   participant S as StudioService
  *   C->>U: configureStudio({ schemaPath, cwd, database })
  *   U->>T: createLanguage({ schemaPath, queryPreamble })
- *   Note over T,Q: on each query: makeSchemaDialect, makeTypePreamble
+ *   Note over T,Q: on each query: makeWorkingDialect, makeTypePreamble
  *   U->>S: setStudio({ studio, language })
  *   U-->>C: done
  * ```
@@ -91,12 +91,12 @@ export function configureStudio(input: {
   readonly cwd: string;
   readonly database: Database;
 }) {
-  const fallback = input.database.status.dialect;
+  const connected = input.database.status.dialect;
   const language = TypeScriptService.createLanguage({
     schemaPath: input.schemaPath,
     queryPreamble: ({ source, schemaImport, names }) =>
       QueryDomain.makeTypePreamble({
-        dialect: QueryDomain.makeSchemaDialect({ source }) ?? fallback ?? "postgresql",
+        dialect: QueryDomain.makeWorkingDialect({ purpose: "query", connected, source }),
         schemaImport,
         names,
       }),
