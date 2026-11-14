@@ -509,6 +509,11 @@ export default defineConfig({
                     "node:https",
                     "node:net",
                     "node:crypto",
+                    // Effect's modules can do I/O; its Schema decodes values synchronously,
+                    // so a pure module may check a value with it (seed/config-schema.ts).
+                    "effect/*",
+                    "!effect/Schema",
+                    "!effect/SchemaIssue",
                     "@effect/*",
                     "../file/*",
                     "../core/*",
@@ -556,15 +561,6 @@ export default defineConfig({
           "custom/domain-no-side-effects": "off",
           "custom/pure-no-throw": "off",
           "no-restricted-imports": "off",
-        },
-      },
-      {
-        // A service that only wraps a library over values (oxc-parser) is held to the pure rules.
-        files: ["packages/drizzler/src/studio/server/services/parse.ts"],
-        rules: {
-          "custom/domain-no-nondeterminism": "error",
-          "custom/domain-no-side-effects": "error",
-          "custom/pure-no-throw": "error",
         },
       },
       {
@@ -637,6 +633,7 @@ export default defineConfig({
         files: ["packages/drizzler/src/studio/server/services/**"],
         rules: {
           "custom/no-service-to-service": "error",
+          "custom/service-does-io": "error",
           "custom/require-diagram": "error",
           "custom/layer-function-shape": "error",
           "no-restricted-imports": [

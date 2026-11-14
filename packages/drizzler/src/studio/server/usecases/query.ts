@@ -4,7 +4,7 @@ import * as ParseDomain from "../domain/parse.js";
 import * as QueryDomain from "../domain/query.js";
 import { DatabaseUnavailableError, QueryError, SchemaParseError } from "../errors/index.js";
 import { readText } from "../services/file.js";
-import * as ParseService from "../services/parse.js";
+import * as SchemaReader from "../../../helper/schema-reader.js";
 import * as QueryService from "../services/query.js";
 import { getLanguage, getStudio } from "../services/studio.js";
 import { schemaExports } from "../../../helper/ast.js";
@@ -21,7 +21,7 @@ import { schemaExports } from "../../../helper/ast.js";
  * sequenceDiagram
  *   participant U as QueryUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as ParseDomain
  *   participant Q as QueryService
  *   alt no database
@@ -57,12 +57,12 @@ export function runQuery(input: { readonly code: string }) {
     const schemaSource = yield* readText({ file: schemaPath });
     const parseError = ParseDomain.makeParseError({
       source: schemaSource,
-      error: ParseService.findSyntaxError({ source: schemaSource }),
+      error: SchemaReader.findSyntaxError({ source: schemaSource }),
     });
     if (parseError !== null) return yield* new SchemaParseError(parseError);
     const { body, error } = QueryDomain.makeQueryBody({
       code: input.code,
-      ...ParseService.parseQuery({ code: input.code }),
+      ...SchemaReader.parseQuery({ code: input.code }),
     });
     if (error !== null) return yield* new QueryError(error);
     const names = schemaExports({ source: schemaSource });
@@ -88,7 +88,7 @@ export function runQuery(input: { readonly code: string }) {
  * sequenceDiagram
  *   participant U as QueryUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as QueryDomain
  *   U->>F: readText({ file: schemaPath })
  *   F-->>U: source
@@ -106,12 +106,12 @@ export function runQuery(input: { readonly code: string }) {
 export function touchedByQuery(input: { readonly code: string }) {
   return Effect.gen(function* () {
     const source = yield* readText({ file: getStudio().schemaPath });
-    const names = ParseService.readQueryNames({ code: input.code });
-    if (names === null || ParseService.findSyntaxError({ source }) !== null) return { tables: [] };
+    const names = SchemaReader.readQueryNames({ code: input.code });
+    if (names === null || SchemaReader.findSyntaxError({ source }) !== null) return { tables: [] };
     return {
       tables: QueryDomain.makeQueryTouched({
-        models: ParseService.readSchema({ source }).models,
-        relationFields: ParseService.readRelationFields({ source }),
+        models: SchemaReader.readSchema({ source }).models,
+        relationFields: SchemaReader.readRelationFields({ source }),
         ...names,
       }),
     };

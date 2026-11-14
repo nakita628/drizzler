@@ -196,3 +196,49 @@ describe("use-error-message", () => {
     ).toBe(0);
   });
 });
+
+describe("service-does-io", () => {
+  const file = "packages/drizzler/src/studio/server/services/x.ts";
+
+  it.each([
+    ["a pure computation", "export function readSchema(input) { return parse(input.source); }"],
+    [
+      "a pure computation that calls only pure functions of its own",
+      "function twice(n) { return n * 2; } export function size(input) { return twice(input.length); }",
+    ],
+    [
+      "a pure computation beside module state it does not use",
+      "const cache = new Map(); export function size(input) { return input.length; }",
+    ],
+  ])("reports %s", (_, code) => {
+    expect(lint("service-does-io", code, file)).toBe(1);
+  });
+
+  it.each([
+    [
+      "an Effect",
+      "export function readText(input) { return Effect.gen(function* () { yield* read(input.file); }); }",
+    ],
+    [
+      "the module's state",
+      'const current = new Map(); export function getStudio() { return current.get("current"); }',
+    ],
+    [
+      "the module's state through a function of its own",
+      'const current = new Map(); function configured() { return current.get("c"); } export function getStudio() { return configured().studio; }',
+    ],
+    ["a function that is not exported", "function helper(input) { return input; }"],
+  ])("leaves alone %s", (_, code) => {
+    expect(lint("service-does-io", code, file)).toBe(0);
+  });
+
+  it("leaves alone a file outside services", () => {
+    expect(
+      lint(
+        "service-does-io",
+        "export function f(input) { return input; }",
+        "packages/drizzler/src/studio/server/domain/x.ts",
+      ),
+    ).toBe(0);
+  });
+});

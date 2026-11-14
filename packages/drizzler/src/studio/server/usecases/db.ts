@@ -9,7 +9,7 @@ import type { CellValue } from "../domain/sql.js";
 import { DatabaseUnavailableError, InvalidInputError, UnknownTableError } from "../errors/index.js";
 import { NO_DATABASE_MESSAGE } from "../constants/index.js";
 import { readText } from "../services/file.js";
-import * as ParseService from "../services/parse.js";
+import * as SchemaReader from "../../../helper/schema-reader.js";
 import { getStudio } from "../services/studio.js";
 
 type Values = Readonly<Record<string, CellValue>>;
@@ -18,8 +18,8 @@ type Values = Readonly<Record<string, CellValue>>;
 function tables() {
   return Effect.gen(function* () {
     const source = yield* readText({ file: getStudio().schemaPath });
-    return ParseService.findSyntaxError({ source }) === null
-      ? DocsDomain.makeDbTables({ models: ParseService.readSchema({ source }).models })
+    return SchemaReader.findSyntaxError({ source }) === null
+      ? DocsDomain.makeDbTables({ models: SchemaReader.readSchema({ source }).models })
       : [];
   });
 }
@@ -73,7 +73,7 @@ function requireSome(values: Values, field: string) {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   U->>F: readText({ file: schemaPath })
  *   U->>P: readSchema(source)
@@ -109,7 +109,7 @@ function parsedDocument(document: unknown) {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -154,7 +154,7 @@ export function readCounts() {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -219,7 +219,7 @@ export function readRows(input: {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -265,7 +265,7 @@ export function insertRow(input: { readonly table: string; readonly values: Valu
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -321,7 +321,7 @@ export function updateRow(input: {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -471,7 +471,7 @@ export function explainSql(input: { readonly sql: string; readonly params: reado
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant S as sql
  *   U->>F: readText({ file: schemaPath })
@@ -486,14 +486,14 @@ export function explainSql(input: { readonly sql: string; readonly params: reado
 export function analyzeSql(input: { readonly sql: string }) {
   return Effect.gen(function* () {
     const source = yield* readText({ file: getStudio().schemaPath });
-    const parses = ParseService.findSyntaxError({ source }) === null;
+    const parses = SchemaReader.findSyntaxError({ source }) === null;
     const dialect =
       getStudio().database.status.dialect ?? QueryDomain.makeSchemaDialect({ source }) ?? "sqlite";
     return analyze(
       input.sql,
       SqlDomain.makeAnalysisSchema({
         dialect,
-        models: parses ? ParseService.readSchema({ source }).models : [],
+        models: parses ? SchemaReader.readSchema({ source }).models : [],
       }),
     );
   });

@@ -4,7 +4,7 @@ import { stripImports } from "../../../schema/strip-imports.js";
 import * as CanvasDomain from "../domain/canvas.js";
 import * as ParseDomain from "../domain/parse.js";
 import { RenderError, SchemaParseError } from "../errors/index.js";
-import * as ParseService from "../services/parse.js";
+import * as SchemaReader from "../../../helper/schema-reader.js";
 import { errorMessage } from "../../../helper/error-message.js";
 
 type Theme = "light" | "dark";
@@ -27,7 +27,7 @@ function render<A>(draw: () => A) {
  * ```mermaid
  * sequenceDiagram
  *   participant U as DiagramUseCase
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as ParseDomain
  *   participant G as generator
  *   U->>P: findSyntaxError(source)
@@ -45,7 +45,7 @@ export function drawSvg(input: { readonly source: string; readonly theme: Theme 
   return Effect.gen(function* () {
     const parseError = ParseDomain.makeParseError({
       source: input.source,
-      error: ParseService.findSyntaxError({ source: input.source }),
+      error: SchemaReader.findSyntaxError({ source: input.source }),
     });
     if (parseError !== null) return { svg: null, parseError };
     const svg = yield* render(() => erSvg(stripImports(input.source), input.theme));
@@ -64,7 +64,7 @@ export function drawSvg(input: { readonly source: string; readonly theme: Theme 
  * ```mermaid
  * sequenceDiagram
  *   participant U as DiagramUseCase
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as ParseDomain
  *   participant G as generator
  *   U->>P: findSyntaxError(source)
@@ -81,7 +81,7 @@ export function drawPng(input: { readonly source: string; readonly theme: Theme 
   return Effect.gen(function* () {
     const parseError = ParseDomain.makeParseError({
       source: input.source,
-      error: ParseService.findSyntaxError({ source: input.source }),
+      error: SchemaReader.findSyntaxError({ source: input.source }),
     });
     if (parseError !== null) return yield* new SchemaParseError(parseError);
     const png = yield* render(() => erPng(stripImports(input.source), input.theme));
@@ -99,7 +99,7 @@ export function drawPng(input: { readonly source: string; readonly theme: Theme 
  * ```mermaid
  * sequenceDiagram
  *   participant U as DiagramUseCase
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   U->>P: findSyntaxError(source)
  *   U->>D: ParseDomain.makeParseError
@@ -116,14 +116,14 @@ export function drawSchema(input: { readonly source: string }) {
   return Effect.gen(function* () {
     const parseError = ParseDomain.makeParseError({
       source: input.source,
-      error: ParseService.findSyntaxError({ source: input.source }),
+      error: SchemaReader.findSyntaxError({ source: input.source }),
     });
     if (parseError !== null) return { schema: null, parseError };
     const schema = yield* render(() =>
       CanvasDomain.makeCanvasSchema({
         source: input.source,
-        ...ParseService.readSchema({ source: input.source }),
-        spans: ParseService.findTableSpans({ source: input.source }),
+        ...SchemaReader.readSchema({ source: input.source }),
+        spans: SchemaReader.findTableSpans({ source: input.source }),
       }),
     );
     return { schema, parseError: null };
