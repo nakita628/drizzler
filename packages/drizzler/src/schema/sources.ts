@@ -3,14 +3,16 @@ import path from "node:path";
 import { Data, Effect } from "effect";
 import {
   aliasesOfConfig,
-  aliasTargets,
+  collectModules,
   configSchemaInputs,
   DRIZZLE_CONFIG_FILES,
   importedSpecifiers,
   isGlob,
   isSchemaModule,
-  moduleCandidates,
+  isWalkedDirectory,
+  joinSources,
   parseModule,
+  resolveSpecifier,
 } from "./paths.js";
 import { stripJsonc } from "../helper/jsonc.js";
 import type { PathAliases } from "./paths.js";
@@ -38,7 +40,7 @@ function walk(dir: string): string[] {
     .flatMap((entry) => {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        return entry.name === "node_modules" || entry.name.startsWith(".") ? [] : walk(full);
+        return isWalkedDirectory(entry.name) ? walk(full) : [];
       }
       return entry.isFile() && isSchemaModule(full) ? [full] : [];
     });
@@ -124,13 +126,8 @@ function nearestAliases(dir: string, cache: AliasCache) {
   return parent === dir ? null : aliasesFor(path.join(parent, "x"), cache);
 }
 
-// The file a module path names, of those it may: the first that is there.
-function toFile(candidate: string) {
-  return (
-    moduleCandidates(candidate).find(
-      (option) => fs.existsSync(option) && fs.statSync(option).isFile(),
-    ) ?? null
-  );
+function isFile(file: string) {
+  return fs.existsSync(file) && fs.statSync(file).isFile();
 }
 
 /**
@@ -142,14 +139,9 @@ export function resolveImport(
   from: string,
   cache: AliasCache = new Map(),
 ): string | null {
-  if (specifier.startsWith(".")) return toFile(path.resolve(path.dirname(from), specifier));
-  const aliases = aliasesFor(from, cache);
-  if (aliases === null) return null;
-  for (const target of aliasTargets(specifier, aliases)) {
-    const file = toFile(target);
-    if (file !== null && !file.split(path.sep).includes("node_modules")) return file;
-  }
-  return null;
+  // The tsconfig is read only for an import that is not relative.
+  const aliases = specifier.startsWith(".") ? null : aliasesFor(from, cache);
+  return resolveSpecifier({ specifier, from, aliases, isFile });
 }
 
 /**
@@ -161,30 +153,18 @@ export function resolveImport(
 export function collectSchemaFiles(inputs: readonly string[], cwd: string) {
   return Effect.gen(function* () {
     const named = yield* Effect.forEach(inputs, (input) => expandInput(input, cwd));
-    return yield* attempt(() => visitFiles(named.flat(), new Set(), new Map()));
+    const aliases: AliasCache = new Map();
+    return yield* attempt(() =>
+      collectModules(named.flat(), (file) =>
+        importedSpecifiers(parseModule(file, fs.readFileSync(file, "utf8"))).flatMap(
+          (specifier) => {
+            const resolved = resolveImport(specifier, file, aliases);
+            return resolved !== null && isSchemaModule(resolved) ? [resolved] : [];
+          },
+        ),
+      ),
+    );
   });
-}
-
-// Breadth first, a level at a time: the files of `level` not yet `seen`, each added once, then
-// what they import, in the order a queue of them would take.
-function visitFiles(
-  level: readonly string[],
-  seen: Set<string>,
-  aliases: AliasCache,
-): readonly string[] {
-  if (level.length === 0) return [];
-  const fresh = level.filter((file) => {
-    if (seen.has(file)) return false;
-    seen.add(file);
-    return true;
-  });
-  const imported = fresh.flatMap((file) =>
-    importedSpecifiers(parseModule(file, fs.readFileSync(file, "utf8"))).flatMap((specifier) => {
-      const resolved = resolveImport(specifier, file, aliases);
-      return resolved !== null && isSchemaModule(resolved) ? [resolved] : [];
-    }),
-  );
-  return [...fresh, ...visitFiles(imported, seen, aliases)];
 }
 
 /**
@@ -194,10 +174,7 @@ function visitFiles(
  */
 export function readSchemaSources(files: readonly string[]) {
   return attempt(() =>
-    files.flatMap((file, i) => [
-      ...(i === 0 ? [] : [""]),
-      ...stripImports(fs.readFileSync(file, "utf8")),
-    ]),
+    joinSources(files.map((file) => stripImports(fs.readFileSync(file, "utf8")))),
   );
 }
 

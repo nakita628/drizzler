@@ -5,7 +5,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Duration, Effect, Result } from "effect";
 import type ts from "typescript";
 import { QueryRunError } from "../errors/index.js";
-import { isProjectTypeScript } from "../../../schema/module-url.js";
+import {
+  carryVersion,
+  isProjectTypeScript,
+  queryTypeScriptCandidates,
+} from "../../../schema/module-url.js";
 import {
   driverParam,
   proxyCallbackResult,
@@ -40,12 +44,7 @@ function transpile(source: string, fileName: string) {
 
 /** The `.ts` file a relative import that Node could not find means, if there is one. */
 function findTypeScript(specifier: string, parent: string) {
-  const candidates = [
-    `${specifier}.ts`,
-    `${specifier}/index.ts`,
-    specifier.replace(/\.(c|m)?js$/u, ".$1ts"),
-  ];
-  for (const candidate of candidates) {
+  for (const candidate of queryTypeScriptCandidates(specifier)) {
     const url = new URL(candidate, parent);
     if (fs.existsSync(fileURLToPath(url))) return url.href;
   }
@@ -76,15 +75,8 @@ function registerHooks(typescript: typeof ts) {
         ? first.success
         : ((found === null ? null : { url: found, shortCircuit: true }) ??
           nextResolve(specifier, context));
-      const version = parent.startsWith("file:")
-        ? new URL(parent).searchParams.get("drizzler")
-        : null;
-      if (version !== null && isProjectTypeScript(resolved.url)) {
-        const url = new URL(resolved.url);
-        url.searchParams.set("drizzler", version);
-        return { ...resolved, url: url.href, shortCircuit: true };
-      }
-      return resolved;
+      const versioned = carryVersion(parent, resolved.url);
+      return versioned === null ? resolved : { ...resolved, url: versioned, shortCircuit: true };
     },
     load(url, context, nextLoad) {
       if (!isProjectTypeScript(url)) return nextLoad(url, context);

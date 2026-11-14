@@ -64,3 +64,23 @@ export function studioFailure(error: FileReadError | MissingAssetsError | Server
       return `Failed to start studio: ${error.message}`;
   }
 }
+
+/**
+ * What `drizzler <input...> -o <output>` does with what it was given: show the usage when there is
+ * no schema, say what is wrong with the output, or write the kind of output the path asks for.
+ */
+export function planGenerate(
+  inputs: readonly string[],
+  output: string | null,
+):
+  | { readonly action: "help" }
+  | { readonly action: "error"; readonly message: string }
+  | { readonly action: "write"; readonly output: string; readonly kind: OutputKind } {
+  if (inputs.length === 0) return { action: "help" };
+  if (output === null) {
+    return { action: "error", message: "Missing -o flag. Usage: drizzler <input...> -o <output>" };
+  }
+  const kind = outputKind(output);
+  if (kind === null) return { action: "error", message: unsupportedOutputMessage(output) };
+  return { action: "write", output, kind };
+}

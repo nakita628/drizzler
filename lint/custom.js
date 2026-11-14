@@ -12,6 +12,7 @@
 //   require-as-const        module-level object / array constants end with `as const`
 //   no-type-assertion       no `x as T` / `<T>x` (`as const` is fine)
 // 3. Do not hide failures
+//   no-escaped-backtick-in-comment  a comment writes `code`, not \`code\`
 //   use-error-message       a caught failure becomes text through helper/error-message.ts
 //   match-exhaustive        `Match.value(...).pipe(...)` ends with `Match.exhaustive`; no `Match.orElse`
 //   catch-must-log          recovering from a failure logs it or turns it into another failure
@@ -81,6 +82,51 @@ const plugin = {
               message:
                 "Do not use `let`. A reassigned variable makes the reader track what it holds at each line. Compute the value once with `const` (map / filter / reduce / a ternary), or return a new value instead of updating the old one.",
             });
+          },
+        };
+      },
+    },
+
+    // Why: a comment is read as written. `\`` there is a backslash and a backtick, left by text
+    //      that went through a script's escaping: the comment's code spans no longer render.
+    //   NG: // What \`drizzler seed\` decides
+    //   OK: // What `drizzler seed` decides
+    //   OK: // `sql\`CURRENT_TIMESTAMP\``   (a backtick inside a code span is written escaped)
+    "no-escaped-backtick-in-comment": {
+      meta: {
+        docs: { description: "a comment writes a backtick as it is, outside its code spans" },
+      },
+      create(context) {
+        const COMMENT_LINE = /^\s*(\/\/|\/\*\*|\*)/;
+        // Whether `\`` appears outside the comment's code spans: a span opens and closes at an
+        // unescaped backtick, and an escaped one inside it belongs to the code.
+        function strayEscape(line) {
+          let open = false;
+          for (let i = 0; i < line.length; i++) {
+            if (line[i] === "\\" && line[i + 1] === "`") {
+              if (!open) return true;
+              i++;
+            } else if (line[i] === "`") {
+              open = !open;
+            }
+          }
+          return false;
+        }
+        return {
+          Program(node) {
+            const lines = sourceText(context).split("\n");
+            for (const [index, line] of lines.entries()) {
+              if (!COMMENT_LINE.test(line) || !strayEscape(line)) continue;
+              context.report({
+                node,
+                loc: {
+                  start: { line: index + 1, column: 0 },
+                  end: { line: index + 1, column: line.length },
+                },
+                message:
+                  "A comment shows `\\`` as a backslash and a backtick. Write the backtick as it is (`code`); escape one only inside a code span.",
+              });
+            }
           },
         };
       },

@@ -109,6 +109,11 @@ export default defineConfig({
       // Rules turned on: prevent bugs
       // =========================================================================
 
+      // Why: a comment that went through a script's escaping shows `\`` and its code spans break.
+      // NG:   `// What \`drizzler seed\` decides`
+      // OK:   // What `drizzler seed` decides
+      "custom/no-escaped-backtick-in-comment": "error",
+
       // Why: `var` is function-scoped and hoisted.
       // NG:   var count = 0
       // OK:   const count = 0

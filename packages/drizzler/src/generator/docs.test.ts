@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ddlBySubject, docsMarkdown } from "./docs.js";
+import { diagramSchema } from "../helper/index.js";
+import {
+  DOCS_FILES,
+  ddlBySubject,
+  docsDiagrams,
+  docsMarkdown,
+  docsSql,
+  staleDiagrams,
+  tableDiagramPath,
+} from "./docs.js";
 
 const schema = [
   "/** Who can sign in */",
@@ -163,5 +172,57 @@ describe("docsMarkdown with the tables' definitions", () => {
     expect(markdown).toContain(
       "```sql\nCREATE TYPE \"member_role\" AS ENUM('owner', 'member');\n```",
     );
+  });
+});
+
+describe("docsSql", () => {
+  const queries = [] as const;
+
+  it("notes why the SQL is missing: no files, or the schema did not load", () => {
+    expect(docsSql(null)).toStrictEqual({
+      queries: null,
+      ddl: null,
+      notes: ["the schema's files were not given"],
+    });
+    expect(docsSql({ error: "boom" })).toStrictEqual({
+      queries: null,
+      ddl: null,
+      notes: ["The queries and tables are shown without their SQL: boom"],
+    });
+  });
+
+  it("keeps the queries and notes only a missing definition", () => {
+    expect(
+      docsSql({ queries, ddl: { statements: ["CREATE TABLE a"], error: null } }),
+    ).toStrictEqual({
+      queries,
+      ddl: ["CREATE TABLE a"],
+      notes: [],
+    });
+    expect(docsSql({ queries, ddl: { statements: [], error: "no kit" } })).toStrictEqual({
+      queries,
+      ddl: null,
+      notes: ["The tables are shown without their SQL definitions: no kit"],
+    });
+  });
+});
+
+describe("docsDiagrams and staleDiagrams", () => {
+  it("draws the whole schema, then each table, and finds the diagrams no table draws", () => {
+    const schema = diagramSchema([
+      'import { pgTable, serial } from "drizzle-orm/pg-core";',
+      'export const user = pgTable("user", { id: serial("id").primaryKey() });',
+      'export const post = pgTable("post", { id: serial("id").primaryKey() });',
+    ]);
+    const diagrams = docsDiagrams(schema);
+    expect(diagrams.map(([file]) => file)).toStrictEqual([
+      DOCS_FILES.diagram,
+      tableDiagramPath("user"),
+      tableDiagramPath("post"),
+    ]);
+    expect(diagrams.every(([, svg]) => svg.startsWith("<svg"))).toBe(true);
+    expect(
+      staleDiagrams(["user.svg", "gone.svg", "notes.md"], new Set(["user.svg"])),
+    ).toStrictEqual(["gone.svg"]);
   });
 });

@@ -237,3 +237,60 @@ export function configSchemaInputs(program: Program) {
   if (paths.length === 0 || paths.some((p) => p === null)) return null;
   return paths.filter((p): p is string => p !== null);
 }
+
+/** Whether a directory is searched for schema modules: not `node_modules`, not a hidden one. */
+export function isWalkedDirectory(name: string) {
+  return name !== "node_modules" && !name.startsWith(".");
+}
+
+/**
+ * The project file an import names, of the files `isFile` says are there: a relative path from
+ * `from`, or one of the tsconfig's `paths` (`#/db/schema/user.sql.js`); null for a package, and
+ * for an alias that lands in `node_modules`. The aliases are the caller's to read, and only for
+ * an import that is not relative.
+ */
+export function resolveSpecifier(input: {
+  readonly specifier: string;
+  readonly from: string;
+  readonly aliases: PathAliases | null;
+  readonly isFile: (file: string) => boolean;
+}) {
+  const { specifier, aliases, isFile } = input;
+  function toFile(candidate: string) {
+    return moduleCandidates(candidate).find(isFile) ?? null;
+  }
+  if (specifier.startsWith(".")) return toFile(path.resolve(path.dirname(input.from), specifier));
+  if (aliases === null) return null;
+  for (const target of aliasTargets(specifier, aliases)) {
+    const file = toFile(target);
+    if (file !== null && !file.split(path.sep).includes("node_modules")) return file;
+  }
+  return null;
+}
+
+/**
+ * Every module reached from `start`, breadth first: the start files in order, then what they
+ * import, a level at a time, in the order a queue of them would take; each file once. What a file
+ * imports is the caller's to read (`importsOf`).
+ */
+export function collectModules(
+  start: readonly string[],
+  importsOf: (file: string) => readonly string[],
+): readonly string[] {
+  const seen = new Set<string>();
+  function visit(level: readonly string[]): readonly string[] {
+    if (level.length === 0) return [];
+    const fresh = level.filter((file) => {
+      if (seen.has(file)) return false;
+      seen.add(file);
+      return true;
+    });
+    return [...fresh, ...visit(fresh.flatMap(importsOf))];
+  }
+  return visit(start);
+}
+
+/** The schema as one source: each file's lines, one file after another, a blank line between. */
+export function joinSources(files: readonly (readonly string[])[]) {
+  return files.flatMap((lines, i) => [...(i === 0 ? [] : [""]), ...lines]);
+}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   describeOutput,
   generatedLine,
+  planGenerate,
   studioFailure,
   unsupportedOutputMessage,
 } from "./output.js";
@@ -49,5 +50,27 @@ describe("studioFailure", () => {
     expect(
       studioFailure({ _tag: "FileReadError", path: "a.ts", cause: "does not exist" } as never),
     ).toBe("Failed to read input: a.ts does not exist");
+  });
+});
+
+describe("planGenerate", () => {
+  it("shows the usage without a schema, and says what is wrong with the output", () => {
+    expect(planGenerate([], "out.dbml")).toStrictEqual({ action: "help" });
+    expect(planGenerate(["db/schema.ts"], null)).toStrictEqual({
+      action: "error",
+      message: "Missing -o flag. Usage: drizzler <input...> -o <output>",
+    });
+    expect(planGenerate(["db/schema.ts"], "out.txt")).toStrictEqual({
+      action: "error",
+      message: unsupportedOutputMessage("out.txt"),
+    });
+  });
+
+  it("writes the kind of output the path asks for", () => {
+    expect(planGenerate(["db/schema.ts"], "docs")).toStrictEqual({
+      action: "write",
+      output: "docs",
+      kind: "docs",
+    });
   });
 });

@@ -242,3 +242,23 @@ describe("service-does-io", () => {
     ).toBe(0);
   });
 });
+
+describe("no-escaped-backtick-in-comment", () => {
+  it.each([
+    ["a line comment", "// What \\`drizzler seed\\` decides\nconst a = 1;"],
+    ["a doc comment", "/**\n * The \\`url\\` of the config.\n */\nconst a = 1;"],
+  ])("reports %s", (_, code) => {
+    expect(lint("no-escaped-backtick-in-comment", code)).toBe(1);
+  });
+
+  it.each([
+    ["a backtick as it is", "// What `drizzler seed` decides\nconst a = 1;"],
+    [
+      "an escaped backtick inside a code span",
+      "// (`sql\\`CURRENT_TIMESTAMP\\``) fills it\nconst a = 1;",
+    ],
+    ["an escaped backtick in a template literal", "const a = `say \\`hi\\``;"],
+  ])("leaves alone %s", (_, code) => {
+    expect(lint("no-escaped-backtick-in-comment", code)).toBe(0);
+  });
+});

@@ -5,7 +5,7 @@ import { drizzlerDbml, drizzlerDocs, drizzlerER, drizzlerMermaidER } from "../co
 import { collectSchemaFiles, drizzleConfigSchema, readSchemaSources } from "../schema/sources.js";
 import { DEFAULT_PORT } from "../studio/server/constants/index.js";
 import type { OutputKind } from "./output.js";
-import { generatedLine, outputKind, studioFailure, unsupportedOutputMessage } from "./output.js";
+import { generatedLine, planGenerate, studioFailure } from "./output.js";
 
 export { outputKind } from "./output.js";
 
@@ -91,17 +91,12 @@ export function generate(args: GenerateArgs) {
     const cwd = process.cwd();
     const inputs = yield* schemaInputs(args.input, cwd);
     // Without a schema there is nothing to do: the usage is the answer.
-    if (inputs.length === 0) {
+    const plan = planGenerate(inputs, Option.getOrNull(args.output));
+    if (plan.action === "help") {
       return yield* new CliError.ShowHelp({ commandPath: [COMMAND_NAME], errors: [] });
     }
-    if (Option.isNone(args.output)) {
-      return yield* userError("Missing -o flag. Usage: drizzler <input...> -o <output>");
-    }
-    const output = args.output.value;
-    const kind = outputKind(output);
-    if (kind === null) {
-      return yield* userError(unsupportedOutputMessage(output));
-    }
+    if (plan.action === "error") return yield* userError(plan.message);
+    const { output, kind } = plan;
     const schema = yield* readSchema(inputs, cwd);
     const { written, notes } = yield* writeOutput(kind, schema, output, args.theme).pipe(
       Effect.mapError((error) => userError(`Failed to write ${output}: ${error.message}`)),
