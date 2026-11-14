@@ -1,32 +1,41 @@
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { SQLInputValue } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { Effect } from "effect";
-import type { Dialect, Statement } from "../domain/sql.js";
+import type { Connection, Dialect, Statement } from "../domain/sql.js";
+import {
+  answerArrayResult,
+  answerResult,
+  batchFailureIndex,
+  d1Body,
+  errorMessage,
+  failedStatement,
+  isRecord,
+  isSqliteValue,
+  readD1Response,
+  readLibsqlResult,
+  readMysqlArrayResult,
+  readMysqlResult,
+  readPgArrayResult,
+  readPgResult,
+  rowArrays,
+  rowRecords,
+  bindError,
+} from "../../../sql/driver.js";
+import type { Binder, DriverArrayResult, DriverResult } from "../../../sql/driver.js";
 import { DatabaseError, DatabaseUnavailableError } from "../errors/index.js";
-
-type Result = {
-  readonly columns: readonly string[];
-  readonly rows: readonly Readonly<Record<string, unknown>>[];
-  readonly rowCount: number;
-};
-
-/** A result with its rows as arrays, in column order: what Drizzle's proxy drivers take. */
-type ArrayResult = {
-  readonly columns: readonly string[];
-  readonly rows: readonly (readonly unknown[])[];
-  readonly rowCount: number;
-  /** The id the database gave an inserted row, where it says (MySQL, SQLite). */
-  readonly insertId: number | null;
-};
 
 /** An open connection: every statement is an Effect that fails with the driver's message. */
 export type Driver = {
   readonly dialect: Dialect;
-  readonly query: (statement: Statement) => Effect.Effect<Result, DatabaseError>;
+  readonly query: (statement: Statement) => Effect.Effect<DriverResult, DatabaseError>;
   /** The same, with each row an array: two columns of one name (a join) both survive. */
-  readonly queryArrays: (statement: Statement) => Effect.Effect<ArrayResult, DatabaseError>;
+  readonly queryArrays: (statement: Statement) => Effect.Effect<DriverArrayResult, DatabaseError>;
+  /**
+   * Every statement or none: a transaction on a connection that holds one open, one batch where
+   * each request stands alone (Turso, D1). Fails with the statement the database refused.
+   */
+  readonly transaction: (statements: readonly Statement[]) => Effect.Effect<void, DatabaseError>;
   readonly close: Effect.Effect<void>;
 };
 
@@ -41,57 +50,67 @@ export type Database = {
   };
 };
 
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function queryError(error: unknown) {
-  return new DatabaseError({ cause: message(error) });
+  return new DatabaseError({ cause: errorMessage(error) });
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function failedAt(error: DatabaseError, statement: Statement) {
+  return new DatabaseError({ cause: failedStatement(error.cause, statement.sql) });
 }
 
-function rowsOf(value: unknown) {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
+/**
+ * Every statement on one connection between BEGIN and COMMIT; the first one refused rolls the
+ * rest back. For the drivers that hold their connection open: node:sqlite, pg and mysql2.
+ */
+function sequentialTransaction(
+  dialect: Dialect,
+  query: (statement: Statement) => Effect.Effect<unknown, DatabaseError>,
+) {
+  return (statements: readonly Statement[]) =>
+    Effect.gen(function* () {
+      yield* query({ sql: dialect === "mysql" ? "START TRANSACTION" : "BEGIN", params: [] });
+      yield* Effect.forEach(
+        statements,
+        (statement) =>
+          query(statement).pipe(Effect.mapError((error) => failedAt(error, statement))),
+        { discard: true },
+      ).pipe(
+        Effect.tapError(() =>
+          query({ sql: "ROLLBACK", params: [] }).pipe(
+            Effect.catch((error) => Effect.logWarning("ROLLBACK failed", error)),
+          ),
+        ),
+      );
+      yield* query({ sql: "COMMIT", params: [] });
+    });
 }
 
-/** Rows a driver handed back as arrays (`rowMode: "array"`, `rowsAsArray`), each checked to be one. */
-function rowArrays(value: unknown): readonly (readonly unknown[])[] {
-  return Array.isArray(value) ? value.filter((row): row is unknown[] => Array.isArray(row)) : [];
+/** The parameters, when the driver binds every one; else the statement fails, saying which it cannot. */
+function bindable(binder: Binder, params: readonly unknown[]) {
+  const reason = bindError(binder, params);
+  return reason === null
+    ? Effect.succeed([...params])
+    : Effect.fail(new DatabaseError({ cause: reason }));
 }
 
-function isSqlInput(value: unknown): value is SQLInputValue {
-  return (
-    value === null ||
-    typeof value === "number" ||
-    typeof value === "bigint" ||
-    typeof value === "string" ||
-    ArrayBuffer.isView(value)
-  );
-}
-
-/** The parameters as node:sqlite binds them; one it cannot bind fails the statement by name. */
-function sqliteParams(params: readonly unknown[]): Effect.Effect<SQLInputValue[], DatabaseError> {
-  const bad = params.find((param) => !isSqlInput(param));
-  if (bad !== undefined) {
-    return Effect.fail(
-      new DatabaseError({ cause: `SQLite cannot bind a ${typeof bad} parameter` }),
-    );
-  }
-  return Effect.succeed(params.filter(isSqlInput));
+/** The same for node:sqlite, typed as it binds them. */
+function sqliteParams(params: readonly unknown[]) {
+  return Effect.map(bindable("sqlite", params), (values) => values.filter(isSqliteValue));
 }
 
 /** `pg`'s Client, checked to be a constructor: the package is the user's, typed here by hand. */
 function isPgClientClass(
   value: unknown,
-): value is new (options: { connectionString: string }) => PgClient {
+): value is new (options: { connectionString: string; ssl?: boolean }) => PgClient {
   return typeof value === "function";
 }
 
 /** `mysql2/promise`'s createConnection, checked to be a function. */
-function isMysqlConnect(value: unknown): value is (uri: string) => Promise<MysqlConnection> {
+function isMysqlConnect(
+  value: unknown,
+): value is (
+  config: string | { readonly uri: string; readonly ssl: { readonly rejectUnauthorized: true } },
+) => Promise<MysqlConnection> {
   return typeof value === "function";
 }
 
@@ -105,7 +124,7 @@ function importFromProject(specifier: string, cwd: string) {
     },
     catch: (error) =>
       new DatabaseUnavailableError({
-        reason: `Cannot load "${specifier}" from ${cwd}: ${message(error)}\n   Install it in your project (npm install ${specifier}) so drizzler studio can connect.`,
+        reason: `Cannot load "${specifier}" from ${cwd}: ${errorMessage(error)}\n   Install it in your project (npm install ${specifier}) so drizzler studio can connect.`,
       }),
   });
 }
@@ -121,27 +140,31 @@ function openSqlite(file: string, cwd: string) {
     });
     const db = yield* Effect.try({
       try: () => new sqlite.DatabaseSync(file === ":memory:" ? file : path.resolve(cwd, file)),
-      catch: (error) => new DatabaseUnavailableError({ reason: message(error) }),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
     });
+    function query(statement: Statement) {
+      return Effect.flatMap(sqliteParams(statement.params), (params) =>
+        Effect.try({
+          try() {
+            const prepared = db.prepare(statement.sql);
+            const columns = prepared.columns().map((column) => column.name);
+            // A statement with no result columns is a write: run it for the count it changed.
+            if (columns.length === 0) {
+              const info = prepared.run(...params);
+              return { columns, rows: [], rowCount: Number(info.changes) };
+            }
+            const rows = rowRecords(prepared.all(...params));
+            return { columns, rows, rowCount: rows.length };
+          },
+          catch: queryError,
+        }),
+      );
+    }
+
     const driver: Driver = {
       dialect: "sqlite",
-      query: (statement) =>
-        Effect.flatMap(sqliteParams(statement.params), (params) =>
-          Effect.try({
-            try() {
-              const prepared = db.prepare(statement.sql);
-              const columns = prepared.columns().map((column) => column.name);
-              // A statement with no result columns is a write: run it for the count it changed.
-              if (columns.length === 0) {
-                const info = prepared.run(...params);
-                return { columns, rows: [], rowCount: Number(info.changes) };
-              }
-              const rows = rowsOf(prepared.all(...params));
-              return { columns, rows, rowCount: rows.length };
-            },
-            catch: queryError,
-          }),
-        ),
+      query,
+      transaction: sequentialTransaction("sqlite", query),
       queryArrays: (statement) =>
         Effect.flatMap(sqliteParams(statement.params), (params) =>
           Effect.try({
@@ -183,7 +206,7 @@ type PgClient = {
   ) => Promise<unknown>;
 };
 
-function openPostgres(url: string, cwd: string) {
+function openPostgres(url: string, tls: boolean, cwd: string) {
   return Effect.gen(function* () {
     const pg = yield* importFromProject("pg", cwd);
     const pgClient = isRecord(pg) ? pg.Client : undefined;
@@ -194,29 +217,29 @@ function openPostgres(url: string, cwd: string) {
     }
     const client = yield* Effect.tryPromise({
       async try() {
-        const opened = new pgClient({ connectionString: url });
+        // Neon and PlanetScale refuse a plain connection: TLS is turned on when the URL is silent.
+        const opened = new pgClient({
+          connectionString: url,
+          ...(tls ? { ssl: true } : {}),
+        });
         await opened.connect();
         return opened;
       },
-      catch: (error) => new DatabaseUnavailableError({ reason: message(error) }),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
     });
+    function query(statement: Statement) {
+      return Effect.tryPromise({
+        async try() {
+          return readPgResult(await client.query(statement.sql, statement.params));
+        },
+        catch: queryError,
+      });
+    }
+
     const driver: Driver = {
       dialect: "postgresql",
-      query: (statement) =>
-        Effect.tryPromise({
-          async try() {
-            const result = await client.query(statement.sql, statement.params);
-            const rows = isRecord(result) ? rowsOf(result.rows) : [];
-            const fields = isRecord(result) && Array.isArray(result.fields) ? result.fields : [];
-            const columns = fields.filter(isRecord).map((field) => String(field.name));
-            const rowCount =
-              isRecord(result) && typeof result.rowCount === "number"
-                ? result.rowCount
-                : rows.length;
-            return { columns, rows, rowCount };
-          },
-          catch: queryError,
-        }),
+      query,
+      transaction: sequentialTransaction("postgresql", query),
       queryArrays: (statement) =>
         Effect.tryPromise({
           async try() {
@@ -225,18 +248,7 @@ function openPostgres(url: string, cwd: string) {
               values: statement.params,
               rowMode: "array",
             });
-            const rows = isRecord(result) ? rowArrays(result.rows) : [];
-            const fields = isRecord(result) && Array.isArray(result.fields) ? result.fields : [];
-            const rowCount =
-              isRecord(result) && typeof result.rowCount === "number"
-                ? result.rowCount
-                : rows.length;
-            return {
-              columns: fields.filter(isRecord).map((field) => String(field.name)),
-              rows,
-              rowCount,
-              insertId: null,
-            };
+            return readPgArrayResult(result);
           },
           catch: queryError,
         }),
@@ -258,7 +270,7 @@ type MysqlConnection = {
   readonly end: () => Promise<void>;
 };
 
-function openMysql(url: string, cwd: string) {
+function openMysql(url: string, tls: boolean, cwd: string) {
   return Effect.gen(function* () {
     const mysql = yield* importFromProject("mysql2/promise", cwd);
     const createConnection = isRecord(mysql) ? mysql.createConnection : undefined;
@@ -268,28 +280,24 @@ function openMysql(url: string, cwd: string) {
       });
     }
     const connection = yield* Effect.tryPromise({
-      try: () => createConnection(url),
-      catch: (error) => new DatabaseUnavailableError({ reason: message(error) }),
+      // PlanetScale refuses a plain connection: TLS is turned on when the URL is silent.
+      try: () => createConnection(tls ? { uri: url, ssl: { rejectUnauthorized: true } } : url),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
     });
+    function query(statement: Statement) {
+      return Effect.tryPromise({
+        async try() {
+          const [result, fields] = await connection.query(statement.sql, statement.params);
+          return readMysqlResult(result, fields);
+        },
+        catch: queryError,
+      });
+    }
+
     const driver: Driver = {
       dialect: "mysql",
-      query: (statement) =>
-        Effect.tryPromise({
-          async try() {
-            const [result, fields] = await connection.query(statement.sql, statement.params);
-            if (Array.isArray(result)) {
-              const rows = rowsOf(result);
-              const columns = Array.isArray(fields)
-                ? fields.filter(isRecord).map((field) => String(field.name))
-                : Object.keys(rows[0] ?? {});
-              return { columns, rows, rowCount: rows.length };
-            }
-            const affected =
-              isRecord(result) && typeof result.affectedRows === "number" ? result.affectedRows : 0;
-            return { columns: [], rows: [], rowCount: affected };
-          },
-          catch: queryError,
-        }),
+      query,
+      transaction: sequentialTransaction("mysql", query),
       queryArrays: (statement) =>
         Effect.tryPromise({
           async try() {
@@ -298,24 +306,7 @@ function openMysql(url: string, cwd: string) {
               values: statement.params,
               rowsAsArray: true,
             });
-            if (Array.isArray(result)) {
-              const columns = Array.isArray(fields)
-                ? fields.filter(isRecord).map((field) => String(field.name))
-                : [];
-              return {
-                columns,
-                rows: rowArrays(result),
-                rowCount: result.length,
-                insertId: null,
-              };
-            }
-            const header = isRecord(result) ? result : {};
-            return {
-              columns: [],
-              rows: [],
-              rowCount: typeof header.affectedRows === "number" ? header.affectedRows : 0,
-              insertId: typeof header.insertId === "number" ? header.insertId : null,
-            };
+            return readMysqlArrayResult(result, fields);
           },
           catch: queryError,
         }),
@@ -327,41 +318,172 @@ function openMysql(url: string, cwd: string) {
   });
 }
 
+type LibsqlStatement = { readonly sql: string; readonly args: unknown[] };
+
+type LibsqlClient = {
+  readonly execute: (statement: LibsqlStatement) => Promise<unknown>;
+  readonly batch: (statements: readonly LibsqlStatement[], mode: "write") => Promise<unknown>;
+  readonly close: () => void;
+};
+
+/** `@libsql/client`'s createClient, checked to be a function. */
+function isLibsqlConnect(
+  value: unknown,
+): value is (config: { readonly url: string; readonly authToken?: string }) => LibsqlClient {
+  return typeof value === "function";
+}
+
+function libsqlStatement(statement: Statement) {
+  return Effect.map(bindable("libsql", statement.params), (args) => ({ sql: statement.sql, args }));
+}
+
+function openLibsql(target: Extract<Connection, { readonly kind: "libsql" }>, cwd: string) {
+  return Effect.gen(function* () {
+    const libsql = yield* importFromProject("@libsql/client", cwd);
+    const createClient = isRecord(libsql) ? libsql.createClient : undefined;
+    if (!isLibsqlConnect(createClient)) {
+      return yield* new DatabaseUnavailableError({
+        reason: 'The "@libsql/client" package does not export createClient.',
+      });
+    }
+    const { url, authToken } = target;
+    const client = yield* Effect.try({
+      try: () => createClient({ url, ...(authToken === null ? {} : { authToken }) }),
+      catch: (error) => new DatabaseUnavailableError({ reason: errorMessage(error) }),
+    });
+    function execute(statement: Statement) {
+      return Effect.flatMap(libsqlStatement(statement), (prepared) =>
+        Effect.tryPromise({ try: () => client.execute(prepared), catch: queryError }).pipe(
+          Effect.map(readLibsqlResult),
+        ),
+      );
+    }
+    // The client connects lazily: a first statement says now whether the URL and token are good.
+    yield* execute({ sql: "SELECT 1", params: [] }).pipe(
+      Effect.tapError(() => Effect.sync(() => client.close())),
+      Effect.mapError((error) => new DatabaseUnavailableError({ reason: error.cause })),
+    );
+    const driver: Driver = {
+      dialect: "sqlite",
+      query: (statement) => Effect.map(execute(statement), answerResult),
+      queryArrays: (statement) => Effect.map(execute(statement), answerArrayResult),
+      // Each request to Turso stands alone, so BEGIN would not hold: the client's batch is one
+      // transaction on the server.
+      transaction: (statements) =>
+        Effect.flatMap(Effect.forEach(statements, libsqlStatement), (batch) =>
+          Effect.tryPromise({
+            try: () => client.batch(batch, "write"),
+            catch(error) {
+              const statement = statements[batchFailureIndex(error) ?? -1];
+              return statement === undefined
+                ? queryError(error)
+                : failedAt(queryError(error), statement);
+            },
+          }),
+        ),
+      close: Effect.try(() => client.close()).pipe(
+        Effect.catch((error) => Effect.logWarning("cannot close the libSQL client", error)),
+      ),
+    };
+    return driver;
+  });
+}
+
+/** One request to D1's `/raw` endpoint, answered with each statement's result. */
+function d1Request(target: D1Connection, body: unknown) {
+  return Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(target.endpoint, {
+          method: "POST",
+          headers: { authorization: `Bearer ${target.token}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      catch: queryError,
+    });
+    const text = yield* Effect.tryPromise({ try: () => response.text(), catch: queryError });
+    // A body that is not JSON is not dropped: readD1Response quotes it as the failure.
+    const json: unknown = yield* Effect.try(() => JSON.parse(text)).pipe(
+      Effect.match({ onSuccess: (value: unknown) => value, onFailure: () => undefined }),
+    );
+    const read = readD1Response({ status: response.status, text, body: json });
+    return "error" in read ? yield* new DatabaseError({ cause: read.error }) : read.answers;
+  });
+}
+
+type D1Connection = Extract<Connection, { readonly kind: "d1" }>;
+
+/** Every statement in one request; D1 runs a batch as one transaction. */
+function d1Post(target: D1Connection, statements: readonly Statement[]) {
+  return Effect.flatMap(
+    Effect.forEach(statements, (statement) => bindable("d1", statement.params)),
+    () => d1Request(target, d1Body(statements)),
+  );
+}
+
+/** One statement, and its answer. */
+function d1One(target: D1Connection, statement: Statement) {
+  return Effect.flatMap(d1Post(target, [statement]), (answers) => {
+    const answer = answers[0];
+    return answer === undefined
+      ? Effect.fail(new DatabaseError({ cause: "D1 answered no result" }))
+      : Effect.succeed(answer);
+  });
+}
+
+function openD1(target: D1Connection) {
+  return Effect.gen(function* () {
+    // Each request stands alone: a first statement says now whether the endpoint and token are good.
+    yield* d1One(target, { sql: "SELECT 1", params: [] }).pipe(
+      Effect.mapError((error) => new DatabaseUnavailableError({ reason: error.cause })),
+    );
+    const driver: Driver = {
+      dialect: "sqlite",
+      query: (statement) => Effect.map(d1One(target, statement), answerResult),
+      queryArrays: (statement) => Effect.map(d1One(target, statement), answerArrayResult),
+      transaction: (statements) =>
+        statements.length === 0 ? Effect.void : Effect.asVoid(d1Post(target, statements)),
+      close: Effect.void,
+    };
+    return driver;
+  });
+}
+
 /**
- * Opens a connection to the user's database with the driver their project has installed:
- * node:sqlite for SQLite, `pg` for PostgreSQL, `mysql2` for MySQL. Every statement of the
- * connection is an Effect that fails with the driver's message.
+ * Opens a connection to the user's database: node:sqlite for a SQLite file, `@libsql/client` for
+ * Turso, Cloudflare's HTTP API for D1, `pg` for PostgreSQL (Neon, PlanetScale), `mysql2` for MySQL
+ * (PlanetScale). The packages are the ones the user's project has installed. Every statement of
+ * the connection is an Effect that fails with the driver's message.
  *
  * ```mermaid
  * flowchart LR
- *   in[input.dialect + input.url] --> which{dialect}
+ *   in[input.connection] --> which{kind}
  *   which -- sqlite --> sqlite[(node:sqlite: input.file)]
+ *   which -- libsql --> libsql[(@libsql/client from the project)]
+ *   which -- d1 --> d1[(Cloudflare D1 HTTP API)]
  *   which -- postgresql --> pg[(pg from the project)]
  *   which -- mysql --> mysql[(mysql2 from the project)]
- *   which -- unknown --> err[DatabaseUnavailableError]
- *   sqlite --> driver[Driver: query, queryArrays, close]
+ *   which -- unsupported --> err[DatabaseUnavailableError]
+ *   sqlite --> driver[Driver: query, queryArrays, transaction, close]
+ *   libsql --> driver
+ *   d1 --> driver
  *   pg --> driver
  *   mysql --> driver
  * ```
  *
- * @param input.dialect - the database the URL names, or null for a URL drizzler does not know
- * @param input.url - the connection URL, used by PostgreSQL and MySQL
- * @param input.file - the SQLite file the URL names (`:memory:` for an in-memory database)
+ * @param input.connection - how to reach the database, from makeConnection: the SQLite file (`:memory:` for an in-memory database), the Turso URL and token, D1's endpoint and token, or the URL and whether to turn TLS on; `unsupported` fails with its reason
  * @param input.cwd - the project directory: drivers are loaded from it, and a relative SQLite file is resolved against it
  * @returns the open connection; fails with DatabaseUnavailableError when it cannot be opened
  */
 export function openDriver(input: {
-  readonly dialect: Dialect | null;
-  readonly url: string;
-  readonly file: string;
+  readonly connection: Connection;
   readonly cwd: string;
 }): Effect.Effect<Driver, DatabaseUnavailableError> {
-  if (input.dialect === "sqlite") return openSqlite(input.file, input.cwd);
-  if (input.dialect === "postgresql") return openPostgres(input.url, input.cwd);
-  if (input.dialect === "mysql") return openMysql(input.url, input.cwd);
-  return Effect.fail(
-    new DatabaseUnavailableError({
-      reason: `Unsupported database URL. Use file:./dev.db (SQLite), postgres://... or mysql://...`,
-    }),
-  );
+  const { connection, cwd } = input;
+  if (connection.kind === "sqlite") return openSqlite(connection.file, cwd);
+  if (connection.kind === "libsql") return openLibsql(connection, cwd);
+  if (connection.kind === "d1") return openD1(connection);
+  if (connection.kind === "postgresql") return openPostgres(connection.url, connection.tls, cwd);
+  if (connection.kind === "mysql") return openMysql(connection.url, connection.tls, cwd);
+  return Effect.fail(new DatabaseUnavailableError({ reason: connection.reason }));
 }

@@ -2,8 +2,9 @@ import path from "node:path";
 import { Faker, allLocales } from "@faker-js/faker";
 import { Clock, Config, Effect, Option } from "effect";
 import { emitRaw } from "../emit/index.js";
-import { makeDialect, makeSqlitePath } from "../studio/server/domain/sql.js";
+import { TOKEN_ENV, makeConnection, makeDialect } from "../studio/server/domain/sql.js";
 import { openDriver } from "../studio/server/services/database.js";
+import { readEnv } from "../studio/server/services/env.js";
 import type { SeedConfig } from "./config.js";
 import { SeedConfigError, SeedDatabaseError } from "./errors.js";
 import { generateSeedRows } from "./generate/index.js";
@@ -153,8 +154,9 @@ function seedProgram(overrides: SeedOverrides, cwd: string) {
         message: `The schema is ${schema.dialect}, but the database URL is ${urlDialect}.`,
       });
     }
+    const env = yield* readEnv({ names: Object.values(TOKEN_ENV).flat() });
     const written = yield* Effect.acquireUseRelease(
-      openDriver({ dialect: urlDialect, url, file: makeSqlitePath({ url }), cwd: base }).pipe(
+      openDriver({ connection: makeConnection({ url, env }), cwd: base }).pipe(
         Effect.mapError((error) => new SeedDatabaseError({ message: error.reason })),
       ),
       (driver) =>

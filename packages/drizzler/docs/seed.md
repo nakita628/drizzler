@@ -49,7 +49,7 @@ nullability is respected; a relation that only `defineRelations` declares is fil
 foreign key. On a foreign-key column, a field rule that only sets `nullRate` keeps the column
 linked to a parent row; any other rule fills the column as it says. Every row is checked against
 its columns before anything is written, and the rows go in one transaction (on PostgreSQL, the
-sequences are moved past them). The seeder fills tables that exist; create them first, with
+sequences are moved past them; on Turso and Cloudflare D1, it is one batch request). The seeder fills tables that exist; create them first, with
 drizzle-kit or your migrations.
 
 | Option                     | What it does                                                                                                                        |
@@ -59,7 +59,7 @@ drizzle-kit or your migrations.
 | `count`                    | Rows for every table without a rule of its own                                                                                      |
 | `nullRate`                 | How often a nullable column is null, from 0 to 1                                                                                    |
 | `dates`                    | The window every date falls in (`{ from, to }`)                                                                                     |
-| `url`                      | The database (`file:./dev.db`, `postgres://...`, `mysql://...`)                                                                     |
+| `url`                      | The database (`file:./dev.db`, `libsql://...`, `d1://<account id>/<database id>`, `postgres://...`, `mysql://...`)                  |
 | `output`                   | Write SQL to this file instead of inserting                                                                                         |
 | `reset`                    | Delete every row of the seeded tables first                                                                                         |
 | `models.<table>.fields`    | Per column: a function `(faker, { index, row }) => value`, or `value`, `values`, `min` / `max`, `from` / `to`, `length`, `nullRate` |
