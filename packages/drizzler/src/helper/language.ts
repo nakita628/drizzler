@@ -1,16 +1,16 @@
 // What the editor's TypeScript answers, shaped for the client: pure functions over what the
 // language service returned. services/typescript.ts loads TypeScript, puts the text in place and
-// asks; TypeScript's own display-part formatter is passed in as \`parts\`.
+// asks; TypeScript's own display-part formatter is passed in as `parts`.
 
 /** A span of the language service's file. */
 type Span = { readonly start: number; readonly length: number };
 
-/** Turns TypeScript's display parts into text (\`ts.displayPartsToString\`). */
+/** Turns TypeScript's display parts into text (`ts.displayPartsToString`). */
 type Parts = (parts: readonly unknown[] | undefined) => string;
 
 /**
- * A span of the language service's file as one of the text the editor sent, which starts \`base\`
- * characters into the file and is \`length\` long; null outside it (in the query's preamble).
+ * A span of the language service's file as one of the text the editor sent, which starts `base`
+ * characters into the file and is `length` long; null outside it (in the query's preamble).
  */
 export function localSpan(span: Span, base: number, length: number) {
   const start = span.start - base;
@@ -19,8 +19,8 @@ export function localSpan(span: Span, base: number, length: number) {
 }
 
 /**
- * The query file's text, the lines in front, the query and what closes it; \`base\` is where the
- * query starts in it, and \`position\` the editor's offset in the file, kept within the query.
+ * The query file's text, the lines in front, the query and what closes it; `base` is where the
+ * query starts in it, and `position` the editor's offset in the file, kept within the query.
  */
 export function queryDocument(input: {
   readonly preamble: string;
@@ -53,7 +53,7 @@ export function severityOf(
 }
 
 /**
- * The completions to offer: the preamble's own \`__\` names left out, and a replacement span read
+ * The completions to offer: the preamble's own `__` names left out, and a replacement span read
  * as one of the editor's text.
  */
 export function completionItems(

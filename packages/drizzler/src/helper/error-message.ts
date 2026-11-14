@@ -1,5 +1,5 @@
-// What a caught failure says, as text: the one way the library turns an \`unknown\` it caught into
-// a message (lint/custom.js \`use-error-message\` reports a hand-written one).
+// What a caught failure says, as text: the one way the library turns an `unknown` it caught into
+// a message (lint/custom.js `use-error-message` reports a hand-written one).
 
 /** What a caught failure says: an Error's message, or anything else as text. */
 export function errorMessage(error: unknown) {

@@ -10,7 +10,10 @@ import {
   pickDatabaseUrl,
   resolveLocales,
   seedFailureMessage,
+  seedMessages,
+  seedOutputPath,
   startOfUtcDay,
+  urlDialectProblem,
   withOverrides,
 } from "./overrides.js";
 import { SeedConfigError, SeedDatabaseError } from "./errors.js";
@@ -18,6 +21,7 @@ import { generateSeedRows } from "./generate/index.js";
 import { loadSeedConfig, resolveConfigPath } from "./load-config.js";
 import { resolveSeedConfig } from "./options.js";
 import { makeSeedPlan } from "./plan.js";
+import { makeSeedReport } from "./report.js";
 import { withTypeScriptImports } from "./resolve.js";
 import type { Result } from "./result.js";
 import { readSchema } from "./schema.js";
@@ -43,7 +47,7 @@ function makeFaker(seed: number | null, locales: readonly string[] | null, now: 
     const resolved = resolveLocales(locales ?? [], LOCALES);
     if ("unknown" in resolved) {
       return yield* new SeedConfigError({
-        message: `Unknown faker locale: ${resolved.unknown.join(", ")}.\n   Use one of ${Object.keys(allLocales).join(", ")}.`,
+        message: seedMessages.unknownLocales(resolved.unknown, Object.keys(allLocales)),
       });
     }
     const faker = new Faker({
@@ -73,10 +77,7 @@ function databaseUrl(
       cwd,
     });
     if (picked !== null) return picked;
-    return yield* new SeedDatabaseError({
-      message:
-        "No database to seed.\n   Pass --url, set `url` in drizzler.config.ts or DATABASE_URL, or pass --sql <file> to write the rows as SQL instead.",
-    });
+    return yield* new SeedDatabaseError({ message: seedMessages.noDatabase });
   });
 }
 
@@ -92,19 +93,20 @@ function seedProgram(overrides: SeedOverrides, cwd: string) {
     const tables = yield* fromResult(makeSeedPlan(schema.tables));
     const faker = yield* makeFaker(config.seed, config.locale, now);
     const entries = yield* fromResult(generateSeedRows({ tables, config, faker }));
-    const report = {
+    const report = makeSeedReport({
       seed: config.seed,
-      locale: config.locale ?? [],
+      locale: config.locale,
       configPath,
       dialect: schema.dialect,
-      tables: entries.map((entry) => ({
-        name: entry.table.name,
-        table: entry.table.table,
-        rows: entry.rows.length,
-      })),
-    };
+      entries,
+    });
     if (config.output !== null) {
-      const output = path.resolve(overrides.output === null ? configDir : cwd, config.output);
+      const output = seedOutputPath({
+        output: config.output,
+        fromCommandLine: overrides.output !== null,
+        configDir,
+        cwd,
+      });
       const sql = makeSeedSql({
         dialect: schema.dialect,
         entries,
@@ -118,12 +120,8 @@ function seedProgram(overrides: SeedOverrides, cwd: string) {
       return { ...report, target: { kind: "sql" as const, path: output } };
     }
     const { url, base } = yield* databaseUrl(overrides, config.url, configDir, cwd);
-    const urlDialect = makeDialect({ url });
-    if (urlDialect !== null && urlDialect !== schema.dialect) {
-      return yield* new SeedConfigError({
-        message: `The schema is ${schema.dialect}, but the database URL is ${urlDialect}.`,
-      });
-    }
+    const mismatch = urlDialectProblem(schema.dialect, makeDialect({ url }));
+    if (mismatch !== null) return yield* new SeedConfigError({ message: mismatch });
     const env = yield* readEnv({ names: Object.values(TOKEN_ENV).flat() });
     const written = yield* Effect.acquireUseRelease(
       openDriver({ connection: makeConnection({ url, env }), cwd: base }).pipe(

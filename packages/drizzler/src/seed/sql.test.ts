@@ -20,7 +20,8 @@ import { generateSeedRows } from "./generate/index.js";
 import { resolveSeedConfig } from "./options.js";
 import { makeSeedPlan } from "./plan.js";
 import { readSchema } from "./schema.js";
-import { insertStatements, makeSeedSql, renderLiteral } from "./sql.js";
+import { insertStatements, makeSeedSql, makeSeedStatements, renderLiteral } from "./sql.js";
+import { makeSeedReport } from "./report.js";
 import type { Result } from "./result.js";
 
 /** A step's value; a failure fails the test with it. */
@@ -141,6 +142,43 @@ describe("makeSeedSql", () => {
     const counts = await db.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM authors");
     expect(counts.rows[0]?.n).toBe(3);
     await db.close();
+  });
+});
+
+describe("makeSeedStatements", () => {
+  it("resets, inserts every row, then moves PostgreSQL's sequences, in that order", () => {
+    const made = entries();
+    const statements = makeSeedStatements({ dialect: "postgresql", entries: made, reset: true });
+    const inserts = made.flatMap((entry) => insertStatements("postgresql", entry, false));
+    const sqls = statements.map((statement) => statement.sql);
+    const firstInsert = sqls.findIndex((sql) => sql.startsWith("INSERT"));
+    const lastInsert = sqls.findLastIndex((sql) => sql.startsWith("INSERT"));
+    expect(sqls.slice(0, firstInsert).every((sql) => !sql.startsWith("INSERT"))).toBe(true);
+    expect(firstInsert).toBeGreaterThan(0);
+    expect(sqls.slice(firstInsert, lastInsert + 1)).toStrictEqual(inserts.map((i) => i.sql));
+    expect(sqls.slice(lastInsert + 1).length).toBeGreaterThan(0);
+  });
+
+  it("sends only the inserts without a reset, and no sequence fix-up on SQLite", () => {
+    const made = entries();
+    expect(makeSeedStatements({ dialect: "sqlite", entries: made, reset: false })).toStrictEqual(
+      made.flatMap((entry) => insertStatements("sqlite", entry, false)),
+    );
+  });
+});
+
+describe("makeSeedReport", () => {
+  it("counts the rows made for each table", () => {
+    const made = entries();
+    const report = makeSeedReport({
+      seed: 3,
+      locale: null,
+      configPath: "a.ts",
+      dialect: "postgresql",
+      entries: made,
+    });
+    expect(report.locale).toStrictEqual([]);
+    expect(report.tables.map((t) => t.rows)).toStrictEqual(made.map((entry) => entry.rows.length));
   });
 });
 

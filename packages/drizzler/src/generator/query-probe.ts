@@ -84,7 +84,7 @@ export function makeProbeModule(input: {
     `export default __still(() => [`,
     ...input.examples.map((example) => `  __sql(() => ${example.code}),`),
     `]);`,
-    // The tables' definitions, as \`drizzle-kit generate\` writes them for an empty database.
+    // The tables' definitions, as `drizzle-kit generate` writes them for an empty database.
     `export const ddl = await (async () => {`,
     `  try {`,
     `    const kit = await import("${KITS[input.dialect]}");`,

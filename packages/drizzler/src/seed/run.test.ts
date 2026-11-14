@@ -30,8 +30,8 @@ export const relations = defineRelations({ user, post }, (r) => ({
 }));
 `;
 
-// The config is a plain object here: \`defineConfig\` only types it, and the test does not build
-// the package for \`import { defineConfig } from "drizzler"\` to resolve.
+// The config is a plain object here: `defineConfig` only types it, and the test does not build
+// the package for `import { defineConfig } from "drizzler"` to resolve.
 const CONFIG = `import * as schema from "./schema";
 
 export default {

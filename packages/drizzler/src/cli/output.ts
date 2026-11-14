@@ -1,4 +1,4 @@
-// What the \`drizzler\` command prints and decides from its arguments: pure, so cli/index.ts only
+// What the `drizzler` command prints and decides from its arguments: pure, so cli/index.ts only
 // reads the schema, writes the output and prints these.
 import path from "node:path";
 import type {

@@ -418,6 +418,53 @@ export function makeUnknownFieldsMessage(input: z.infer<typeof MakeUnknownFields
   return `Unknown column${unknown.length > 1 ? "s" : ""} of ${name}: ${unknown.join(", ")}`;
 }
 
+const MakeRowInputProblemInput = z
+  .object({
+    table: Table,
+    name: z.string().meta({ description: "The table's name in the schema", example: "post" }),
+    inputs: z
+      .array(
+        z
+          .object({
+            field: z.string().meta({ description: "The request field", example: "where" }),
+            values: Values,
+            required: z.boolean().meta({ description: "Whether it must name a column" }),
+          })
+          .readonly(),
+      )
+      .readonly()
+      .meta({ description: "The request's column values, in the order they are checked" }),
+  })
+  .readonly()
+  .meta({ description: "A row write's inputs against the table" });
+
+/**
+ * The first problem of a row write's inputs, for a 422: an input that must name a column and
+ * names none, then one that names a column the table does not have; null when they are fine.
+ *
+ * @param input - The `table`, its schema `name` and the request's `inputs` in order.
+ * @returns The `field` and `message` of the first problem, or null.
+ * @example
+ * ```ts
+ * makeRowInputProblem({ table, name: "post", inputs: [{ field: "where", values: {}, required: true }] });
+ * // => { field: "where", message: "where must name at least one column" }
+ * ```
+ */
+export function makeRowInputProblem(input: z.infer<typeof MakeRowInputProblemInput>) {
+  const empty = input.inputs.find((each) => each.required && Object.keys(each.values).length === 0);
+  if (empty !== undefined) {
+    return { field: empty.field, message: `${empty.field} must name at least one column` };
+  }
+  for (const each of input.inputs) {
+    const message = makeUnknownFieldsMessage({
+      name: input.name,
+      unknown: makeUnknownFields({ table: input.table, values: each.values }),
+    });
+    if (message !== null) return { field: each.field, message };
+  }
+  return null;
+}
+
 const MakeCountInput = z
   .object({
     rows: z

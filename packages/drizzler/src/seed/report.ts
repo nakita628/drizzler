@@ -1,4 +1,27 @@
+import type { SeedRow } from "./config.js";
 import type { SeedReport } from "./run.js";
+import type { Dialect, SeedTableRows } from "./schema.js";
+
+/** What the seed made, before it is written: its seed, locales, config, dialect and rows by table. */
+export function makeSeedReport(input: {
+  readonly seed: number | null;
+  readonly locale: readonly string[] | null;
+  readonly configPath: string;
+  readonly dialect: Dialect;
+  readonly entries: readonly SeedTableRows<SeedRow>[];
+}) {
+  return {
+    seed: input.seed,
+    locale: input.locale ?? [],
+    configPath: input.configPath,
+    dialect: input.dialect,
+    tables: input.entries.map((entry) => ({
+      name: entry.table.name,
+      table: entry.table.table,
+      rows: entry.rows.length,
+    })),
+  };
+}
 
 /** The lines `drizzler seed` prints when it is done. */
 export function seedBanner(report: SeedReport) {

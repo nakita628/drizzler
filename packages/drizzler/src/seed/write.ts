@@ -3,8 +3,7 @@ import type { Driver } from "../studio/server/services/database.js";
 import type { SeedRow } from "./config.js";
 import { SeedDatabaseError } from "./errors.js";
 import type { SeedTableRows } from "./schema.js";
-import type { SeedStatement } from "./sql.js";
-import { insertStatements, resetSql, sequenceSql } from "./sql.js";
+import { makeSeedStatements } from "./sql.js";
 
 /**
  * Writes every table through the open connection in one transaction (one batch on Turso and D1):
@@ -18,13 +17,11 @@ export function seedWithDriver(input: {
 }) {
   return Effect.gen(function* () {
     const { driver } = input;
-    const dialect = driver.dialect;
-    const tables = input.entries.map((entry) => entry.table);
-    const statements: readonly SeedStatement[] = [
-      ...(input.reset ? resetSql(dialect, tables).map((sql) => ({ sql, params: [] })) : []),
-      ...input.entries.flatMap((entry) => insertStatements(dialect, entry, false)),
-      ...sequenceSql(dialect, tables).map((sql) => ({ sql, params: [] })),
-    ];
+    const statements = makeSeedStatements({
+      dialect: driver.dialect,
+      entries: input.entries,
+      reset: input.reset,
+    });
     yield* driver
       .transaction(statements)
       .pipe(Effect.mapError((error) => new SeedDatabaseError({ message: error.cause })));

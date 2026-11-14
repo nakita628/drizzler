@@ -1,6 +1,7 @@
-// What \`drizzler seed\` decides from its inputs: the config with the command line laid over it,
+// What `drizzler seed` decides from its inputs: the config with the command line laid over it,
 // the faker locales, the day dates start from, and the database to seed. Pure: seed/run.ts reads
 // the config, the clock and the environment, and hands them in.
+import path from "node:path";
 import type { SeedConfig } from "./config.js";
 
 export type SeedOverrides = {
@@ -41,8 +42,8 @@ export function withOverrides(config: SeedConfig, overrides: SeedOverrides): See
 }
 
 /**
- * The locale definitions for the codes a config gives (\`ja\`, \`pt-BR\` / \`pt_BR\`), or the codes
- * \`locales\` does not have.
+ * The locale definitions for the codes a config gives (`ja`, `pt-BR` / `pt_BR`), or the codes
+ * `locales` does not have.
  */
 export function resolveLocales<T>(
   codes: readonly string[],
@@ -59,7 +60,7 @@ export function resolveLocales<T>(
 }
 
 /**
- * The day dates fall back from when the config has no \`dates\` window: midnight UTC of \`now\`,
+ * The day dates fall back from when the config has no `dates` window: midnight UTC of `now`,
  * not the millisecond, so two seeded runs on the same day agree.
  */
 export function startOfUtcDay(now: Date) {
@@ -67,7 +68,7 @@ export function startOfUtcDay(now: Date) {
 }
 
 /**
- * The database to seed: \`--url\`, the config's \`url\`, then DATABASE_URL; and the directory a
+ * The database to seed: `--url`, the config's `url`, then DATABASE_URL; and the directory a
  * relative SQLite file is read from (the config's for its own url, else the working directory).
  * Null when none names one.
  */
@@ -90,3 +91,31 @@ export function seedFailureMessage(message: string, reset: boolean) {
     ? `${message}\n   The tables already hold rows; pass --reset to empty the seeded tables first.`
     : message;
 }
+
+/**
+ * Where the seed's SQL goes: `--sql <file>` is read from the working directory, the config's
+ * `output` from the config's own directory.
+ */
+export function seedOutputPath(input: {
+  readonly output: string;
+  readonly fromCommandLine: boolean;
+  readonly configDir: string;
+  readonly cwd: string;
+}) {
+  return path.resolve(input.fromCommandLine ? input.cwd : input.configDir, input.output);
+}
+
+/** Why the database URL cannot take this schema's rows: it speaks another dialect; null when it can. */
+export function urlDialectProblem(schemaDialect: string, urlDialect: string | null) {
+  return urlDialect !== null && urlDialect !== schemaDialect
+    ? `The schema is ${schemaDialect}, but the database URL is ${urlDialect}.`
+    : null;
+}
+
+/** What `drizzler seed` says when the locales or the database are missing. */
+export const seedMessages = {
+  unknownLocales: (unknown: readonly string[], available: readonly string[]) =>
+    `Unknown faker locale: ${unknown.join(", ")}.\n   Use one of ${available.join(", ")}.`,
+  noDatabase:
+    "No database to seed.\n   Pass --url, set `url` in drizzler.config.ts or DATABASE_URL, or pass --sql <file> to write the rows as SQL instead.",
+} as const;

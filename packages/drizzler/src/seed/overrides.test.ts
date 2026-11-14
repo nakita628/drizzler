@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import type { SeedConfig } from "./config.js";
 import type { SeedOverrides } from "./overrides.js";
@@ -5,7 +6,10 @@ import {
   pickDatabaseUrl,
   resolveLocales,
   seedFailureMessage,
+  seedMessages,
+  seedOutputPath,
   startOfUtcDay,
+  urlDialectProblem,
   withOverrides,
 } from "./overrides.js";
 
@@ -90,5 +94,38 @@ describe("seedFailureMessage", () => {
     expect(seedFailureMessage("UNIQUE constraint failed", false)).toContain("pass --reset");
     expect(seedFailureMessage("UNIQUE constraint failed", true)).toBe("UNIQUE constraint failed");
     expect(seedFailureMessage("no such table", false)).toBe("no such table");
+  });
+});
+
+describe("seedOutputPath", () => {
+  it("reads --sql from the working directory, the config's output from its directory", () => {
+    const dirs = { configDir: path.join("/app", "config"), cwd: "/app" };
+    expect(seedOutputPath({ output: "seed.sql", fromCommandLine: true, ...dirs })).toBe(
+      path.resolve("/app", "seed.sql"),
+    );
+    expect(seedOutputPath({ output: "seed.sql", fromCommandLine: false, ...dirs })).toBe(
+      path.resolve("/app/config", "seed.sql"),
+    );
+  });
+});
+
+describe("urlDialectProblem", () => {
+  it("says when the URL speaks another dialect, and nothing for one it does not know", () => {
+    expect(urlDialectProblem("postgresql", "mysql")).toBe(
+      "The schema is postgresql, but the database URL is mysql.",
+    );
+    expect(urlDialectProblem("postgresql", "postgresql")).toBeNull();
+    expect(urlDialectProblem("postgresql", null)).toBeNull();
+  });
+});
+
+describe("seedMessages", () => {
+  it("says what is missing, word for word as before", () => {
+    expect(seedMessages.unknownLocales(["xx"], ["en", "ja"])).toBe(
+      "Unknown faker locale: xx.\n   Use one of en, ja.",
+    );
+    expect(seedMessages.noDatabase).toBe(
+      "No database to seed.\n   Pass --url, set `url` in drizzler.config.ts or DATABASE_URL, or pass --sql <file> to write the rows as SQL instead.",
+    );
   });
 });
