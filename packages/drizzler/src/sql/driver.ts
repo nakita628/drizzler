@@ -268,14 +268,6 @@ export function answerArrayResult(answer: DriverAnswer): DriverArrayResult {
   };
 }
 
-/** What went wrong, with the reason under it: a network failure says only "fetch failed". */
-export function errorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  return error.cause instanceof Error
-    ? `${error.message}: ${errorMessage(error.cause)}`
-    : error.message;
-}
-
 /** A refused statement's message, with the start of the statement it was running. */
 export function failedStatement(cause: string, sql: string) {
   return `${cause}\n   while running: ${sql.slice(0, 200)}`;
@@ -290,19 +282,6 @@ export function batchFailureIndex(error: unknown) {
 export function driverParam(dialect: "sqlite" | "postgresql" | "mysql", param: unknown) {
   if (dialect !== "sqlite" || typeof param !== "boolean") return param;
   return param ? 1 : 0;
-}
-
-/**
- * What a query threw, with the causes it wraps, each on its own line: Drizzle reports a rejected
- * statement as `Failed query: ...` and keeps the database's own words in `cause`. A cause the
- * message already says is not repeated.
- */
-export function causeLines(thrown: unknown): string {
-  if (!(thrown instanceof Error)) return String(thrown);
-  const cause = thrown.cause === undefined ? null : causeLines(thrown.cause);
-  return cause === null || thrown.message.includes(cause)
-    ? thrown.message
-    : `${thrown.message}\n${cause}`;
 }
 
 /** SQLite's proxy driver: the rows of `all` / `get`, as arrays or, for `rowMode: "object"`, by name. */

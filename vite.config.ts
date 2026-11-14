@@ -466,6 +466,18 @@ export default defineConfig({
     },
     // When overrides set the same rule, the later one wins.
     overrides: [
+      {
+        // Why: a caught failure becomes text in one place (helper/error-message.ts); the client is
+        //      its own bundle and keeps its own (studio/client/lib/problem.ts).
+        // NG:   error instanceof Error ? error.message : String(error)
+        // OK:   errorMessage(error)
+        files: ["packages/drizzler/src/**"],
+        rules: { "custom/use-error-message": "error" },
+      },
+      {
+        files: ["packages/drizzler/src/studio/client/**"],
+        rules: { "custom/use-error-message": "off" },
+      },
       // ---------------------------------------------------------------------
       // Pure by default: every module of the library takes values and returns values. The modules
       // that touch the outside world are named in the next block; a new module is pure unless it

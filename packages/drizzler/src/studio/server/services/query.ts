@@ -7,13 +7,15 @@ import type ts from "typescript";
 import { QueryRunError } from "../errors/index.js";
 import { isProjectTypeScript } from "../../../schema/module-url.js";
 import {
-  causeLines,
   driverParam,
   proxyCallbackResult,
   sqliteProxyRows,
   sqliteProxyRun,
 } from "../../../sql/driver.js";
 import type { Driver } from "./database.js";
+import { causeLines } from "../../../helper/error-message.js";
+import { durationMs } from "../../../helper/duration.js";
+import { nearestCacheDir } from "../../../helper/find-up.js";
 
 /** How long a query may run before the studio stops waiting for it. */
 const QUERY_TIMEOUT_MS = 30_000;
@@ -102,14 +104,7 @@ function registerHooks(typescript: typeof ts) {
  */
 function queryDir(schemaPath: string) {
   const start = path.dirname(path.resolve(schemaPath));
-  return cacheDirFrom(start) ?? path.join(start, ".drizzler");
-}
-
-function cacheDirFrom(dir: string): string | null {
-  const modules = path.join(dir, "node_modules");
-  if (fs.existsSync(modules)) return path.join(modules, ".cache", "drizzler");
-  const parent = path.dirname(dir);
-  return parent === dir ? null : cacheDirFrom(parent);
+  return nearestCacheDir(start, fs.existsSync) ?? path.join(start, ".drizzler");
 }
 
 /** The statements a query sent, in order, each recorded as it finishes. */
@@ -154,7 +149,7 @@ function makeExecutor(driver: Driver, executed: ExecutedLog, toJson: (value: unk
       sql,
       params: params.map((param) => toJson(param)),
       rowCount: result.rowCount,
-      durationMs: Math.round((performance.now() - started) * 100) / 100,
+      durationMs: durationMs(performance.now() - started),
     });
     return result;
   }
@@ -265,7 +260,7 @@ export function runQuery(input: {
     return {
       ...outcome,
       statements: [...executed.values()],
-      durationMs: Math.round(Duration.toMillis(took) * 100) / 100,
+      durationMs: durationMs(Duration.toMillis(took)),
     };
   });
 }

@@ -10,6 +10,8 @@ import { makeProbeModule, readProbeResult } from "../generator/query-probe.js";
 import { isProjectFile, isProjectTypeScript } from "../schema/module-url.js";
 import { resolveImport } from "../schema/sources.js";
 import { elideTypeOnlyImports } from "../schema/strip-imports.js";
+import { errorMessage } from "../helper/error-message.js";
+import { nearestCacheDir } from "../helper/find-up.js";
 
 /** The schema could not be loaded, or drizzle-orm could not build the examples' SQL. */
 export class QuerySqlError extends Data.TaggedError("QuerySqlError")<{
@@ -61,19 +63,6 @@ function registerHooks() {
   });
 }
 
-// The cache directory of the project's node_modules above `dir`, where the probe module is
-// written so `drizzle-orm` resolves to the project's own.
-function cacheDirFrom(dir: string): string | null {
-  const modules = path.join(dir, "node_modules");
-  if (fs.existsSync(modules)) return path.join(modules, ".cache", "drizzler");
-  const parent = path.dirname(dir);
-  return parent === dir ? null : cacheDirFrom(parent);
-}
-
-function messageOf(thrown: unknown) {
-  return thrown instanceof Error ? thrown.message : String(thrown);
-}
-
 /**
  * The SQL of a schema as it runs: its files are imported (with the project's drizzle-orm), each
  * example's `.toSQL()` is read from a proxy driver of the schema's dialect, and the tables'
@@ -113,7 +102,7 @@ export function schemaSql(input: {
       });
     }
     const [first] = input.files;
-    const dir = first === undefined ? null : cacheDirFrom(path.dirname(first));
+    const dir = first === undefined ? null : nearestCacheDir(path.dirname(first), fs.existsSync);
     if (dir === null) {
       return yield* new QuerySqlError({
         message: "no node_modules above the schema to load drizzle-orm from",
@@ -134,7 +123,7 @@ export function schemaSql(input: {
         );
         return import(/* @vite-ignore */ pathToFileURL(file).href);
       },
-      catch: (thrown) => new QuerySqlError({ message: messageOf(thrown) }),
+      catch: (thrown) => new QuerySqlError({ message: errorMessage(thrown) }),
     }).pipe(Effect.ensuring(Effect.sync(() => fs.rmSync(file, { force: true }))));
     const result = readProbeResult(loaded, input.examples);
     if (result === null) {

@@ -381,14 +381,14 @@ describe("makeCount", () => {
 });
 
 describe("makeSqlResult", () => {
-  it("reads the columns from the first row when the driver names none, and rounds the time", () => {
+  it("reads the columns from the first row when the driver names none", () => {
     expect(
-      makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, millis: 1.234567 }),
+      makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, durationMs: 1.23 }),
     ).toStrictEqual({ columns: ["n"], rows: [{ n: 1 }], rowCount: 1, durationMs: 1.23 });
   });
 
   it("is empty when no statement ran", () => {
-    expect(makeSqlResult({ result: null, millis: 0 })).toStrictEqual({
+    expect(makeSqlResult({ result: null, durationMs: 0 })).toStrictEqual({
       columns: [],
       rows: [],
       rowCount: 0,

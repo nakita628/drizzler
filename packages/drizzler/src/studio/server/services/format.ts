@@ -7,6 +7,7 @@ import type { FormatOptions } from "../../../helper/format-options.js";
 import { pickFormatOptions } from "../../../helper/format-options.js";
 import { stripJsonc } from "../../../helper/jsonc.js";
 import { FileReadError, FormatError } from "../errors/index.js";
+import { errorMessage } from "../../../helper/error-message.js";
 
 export type { FormatOptions } from "../../../helper/format-options.js";
 
@@ -60,7 +61,7 @@ function parseConfig(config: { readonly path: string; readonly text: string }) {
     try: (): unknown => JSON.parse(stripJsonc(config.text)),
     catch: (error) =>
       new FormatError({
-        message: `${config.path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        message: `${config.path} is not valid JSON: ${errorMessage(error)}`,
       }),
   });
 }
@@ -110,8 +111,7 @@ export function formatSource(input: { readonly source: string; readonly options:
   return Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
       try: () => format("schema.ts", input.source, input.options),
-      catch: (error) =>
-        new FormatError({ message: error instanceof Error ? error.message : String(error) }),
+      catch: (error) => new FormatError({ message: errorMessage(error) }),
     });
     if (result.errors.length > 0) {
       return yield* new FormatError({ message: result.errors.map((e) => e.message).join("\n") });

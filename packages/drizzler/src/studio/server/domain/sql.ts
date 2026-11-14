@@ -454,20 +454,22 @@ const MakeSqlResultInput = z
       .readonly()
       .nullable()
       .meta({ description: "The last statement's result; null when none ran" }),
-    millis: z.number().meta({ description: "How long the statements took", example: 1.234567 }),
+    durationMs: z
+      .number()
+      .meta({ description: "How long the statements took, as the studio shows it", example: 1.23 }),
   })
   .readonly()
   .meta({ description: "What a SQL run gave back" });
 
 /**
  * The SQL page's answer: the last statement's columns (read from its first row when the driver
- * names none) and rows as cells, its row count, and the time taken to a hundredth of a millisecond.
+ * names none) and rows as cells, its row count, and the time taken.
  *
- * @param input - The last statement's `result` and the `millis` the run took.
+ * @param input - The last statement's `result` and the `durationMs` the run took.
  * @returns The `columns`, `rows`, `rowCount` and `durationMs`.
  * @example
  * ```ts
- * makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, millis: 1.234567 });
+ * makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, durationMs: 1.23 });
  * // => { columns: ["n"], rows: [{ n: 1 }], rowCount: 1, durationMs: 1.23 }
  * ```
  */
@@ -480,7 +482,7 @@ export function makeSqlResult(input: z.infer<typeof MakeSqlResultInput>) {
       Object.fromEntries(Object.entries(row).map(([key, value]) => [key, makeCell({ value })])),
     ),
     rowCount: result.rowCount,
-    durationMs: Math.round(input.millis * 100) / 100,
+    durationMs: input.durationMs,
   };
 }
 

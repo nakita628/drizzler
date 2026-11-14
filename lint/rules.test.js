@@ -157,3 +157,42 @@ describe("pure-no-throw", () => {
     expect(lint("pure-no-throw", code, label === "a test file" ? "src/x.test.ts" : file)).toBe(0);
   });
 });
+
+describe("use-error-message", () => {
+  const file = "packages/drizzler/src/core/x.ts";
+
+  it("reports a hand-written error message", () => {
+    expect(
+      lint(
+        "use-error-message",
+        "const m = error instanceof Error ? error.message : String(error);",
+        file,
+      ),
+    ).toBe(1);
+    expect(
+      lint("use-error-message", "const m = e instanceof Error ? e.message : `${e}`;", file),
+    ).toBe(1);
+  });
+
+  it.each([
+    ["the helper itself", "packages/drizzler/src/helper/error-message.ts"],
+    ["a test file", "packages/drizzler/src/core/x.test.ts"],
+  ])("leaves alone %s", (_, filename) => {
+    expect(
+      lint(
+        "use-error-message",
+        "const m = error instanceof Error ? error.message : String(error);",
+        filename,
+      ),
+    ).toBe(0);
+  });
+
+  it("leaves alone another instanceof test", () => {
+    expect(
+      lint("use-error-message", "const n = value instanceof Date ? value.getTime() : 0;", file),
+    ).toBe(0);
+    expect(
+      lint("use-error-message", "const s = error instanceof Error ? error.stack : null;", file),
+    ).toBe(0);
+  });
+});

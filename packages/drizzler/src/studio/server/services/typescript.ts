@@ -15,16 +15,14 @@ import {
   signatureHelp,
 } from "../../../helper/language.js";
 import { LanguageUnavailableError } from "../errors/index.js";
+import { errorMessage } from "../../../helper/error-message.js";
+import { findUp } from "../../../helper/find-up.js";
 
 type TypeScript = typeof ts;
 
 /** A display part as TypeScript's formatter takes it. */
 function isDisplayPart(value: unknown): value is ts.SymbolDisplayPart {
   return typeof value === "object" && value !== null && "text" in value && "kind" in value;
-}
-
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function isTypeScript(value: unknown): value is TypeScript {
@@ -42,14 +40,10 @@ function isTypeScript(value: unknown): value is TypeScript {
  * at its whole store when it runs a bin, and a TypeScript the project does not have would answer.
  */
 function projectTypeScript(schemaPath: string) {
-  return typeScriptFrom(path.dirname(path.resolve(schemaPath)));
-}
-
-function typeScriptFrom(dir: string): string | null {
-  const candidate = path.join(dir, "node_modules", "typescript");
-  if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
-  const parent = path.dirname(dir);
-  return parent === dir ? null : typeScriptFrom(parent);
+  const found = findUp(path.dirname(path.resolve(schemaPath)), (dir) =>
+    fs.existsSync(path.join(dir, "node_modules", "typescript", "package.json")),
+  );
+  return found === null ? null : path.join(found, "node_modules", "typescript");
 }
 
 /**
@@ -74,7 +68,7 @@ function loadTypeScript(schemaPath: string) {
       },
       catch: (error) =>
         new LanguageUnavailableError({
-          reason: `Cannot load "typescript" next to ${schemaPath}: ${message(error)}. Install it (npm install -D typescript) for completion in the editor.`,
+          reason: `Cannot load "typescript" next to ${schemaPath}: ${errorMessage(error)}. Install it (npm install -D typescript) for completion in the editor.`,
         }),
     });
     if (!isTypeScript(loaded)) {

@@ -5,14 +5,14 @@ import * as CanvasDomain from "../domain/canvas.js";
 import * as ParseDomain from "../domain/parse.js";
 import { RenderError, SchemaParseError } from "../errors/index.js";
 import * as ParseService from "../services/parse.js";
+import { errorMessage } from "../../../helper/error-message.js";
 
 type Theme = "light" | "dark";
 
 function render<A>(draw: () => A) {
   return Effect.try({
     try: draw,
-    catch: (error) =>
-      new RenderError({ message: error instanceof Error ? error.message : String(error) }),
+    catch: (error) => new RenderError({ message: errorMessage(error) }),
   });
 }
 

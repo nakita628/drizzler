@@ -5,7 +5,6 @@ import {
   batchFailureIndex,
   d1Body,
   d1Param,
-  errorMessage,
   failedStatement,
   readD1Response,
   readLibsqlResult,
@@ -15,7 +14,6 @@ import {
   readPgResult,
   rowsByName,
   bindError,
-  causeLines,
   driverParam,
   proxyCallbackResult,
   sqliteProxyRows,
@@ -208,12 +206,6 @@ describe("answers", () => {
 });
 
 describe("errors", () => {
-  it("says the reason under a network failure", () => {
-    const error = new Error("fetch failed", { cause: new Error("connect ECONNREFUSED") });
-    expect(errorMessage(error)).toBe("fetch failed: connect ECONNREFUSED");
-    expect(errorMessage("plain")).toBe("plain");
-  });
-
   it("names the statement a failure came from, and the batch index libSQL gives", () => {
     expect(failedStatement("UNIQUE", "INSERT INTO t")).toBe(
       "UNIQUE\n   while running: INSERT INTO t",
@@ -249,13 +241,5 @@ describe("Drizzle's proxy drivers", () => {
       affectedRows: 2,
       insertId: 7,
     });
-  });
-
-  it("writes a query's causes on lines of their own, once", () => {
-    const thrown = new Error("Failed query: select 1", { cause: new Error("no such table: x") });
-    expect(causeLines(thrown)).toBe("Failed query: select 1\nno such table: x");
-    expect(
-      causeLines(new Error("no such table: x", { cause: new Error("no such table: x") })),
-    ).toBe("no such table: x");
   });
 });

@@ -1,4 +1,5 @@
 import { Duration, Effect } from "effect";
+import { durationMs } from "../../../helper/duration.js";
 import { analyze, paramsByStatement, splitStatements } from "../../../sql/index.js";
 import * as DocsDomain from "../domain/docs.js";
 import * as PlanDomain from "../domain/plan.js";
@@ -404,7 +405,7 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
     );
     return SqlDomain.makeSqlResult({
       result: results.at(-1) ?? null,
-      millis: Duration.toMillis(took),
+      durationMs: durationMs(Duration.toMillis(took)),
     });
   });
 }

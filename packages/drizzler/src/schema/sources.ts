@@ -15,6 +15,7 @@ import {
 import { stripJsonc } from "../helper/jsonc.js";
 import type { PathAliases } from "./paths.js";
 import { stripImports } from "./strip-imports.js";
+import { errorMessage } from "../helper/error-message.js";
 
 /** A schema input that cannot be read: a path that is not there, a glob that matches nothing. */
 export class SchemaInputError extends Data.TaggedError("SchemaInputError")<{
@@ -26,8 +27,7 @@ export class SchemaInputError extends Data.TaggedError("SchemaInputError")<{
 function attempt<A>(run: () => A) {
   return Effect.try({
     try: run,
-    catch: (error) =>
-      new SchemaInputError({ message: error instanceof Error ? error.message : String(error) }),
+    catch: (error) => new SchemaInputError({ message: errorMessage(error) }),
   });
 }
 

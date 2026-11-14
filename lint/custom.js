@@ -12,6 +12,7 @@
 //   require-as-const        module-level object / array constants end with `as const`
 //   no-type-assertion       no `x as T` / `<T>x` (`as const` is fine)
 // 3. Do not hide failures
+//   use-error-message       a caught failure becomes text through helper/error-message.ts
 //   match-exhaustive        `Match.value(...).pipe(...)` ends with `Match.exhaustive`; no `Match.orElse`
 //   catch-must-log          recovering from a failure logs it or turns it into another failure
 //   promise-catch-must-log  a Promise `.catch` logs, rethrows or rejects (studio server)
@@ -80,6 +81,42 @@ const plugin = {
               message:
                 "Do not use `let`. A reassigned variable makes the reader track what it holds at each line. Compute the value once with `const` (map / filter / reduce / a ternary), or return a new value instead of updating the old one.",
             });
+          },
+        };
+      },
+    },
+
+    // Why: a caught failure is turned into text one way, in helper/error-message.ts. Copies of it
+    //      drift: one forgets the cause, another prints "[object Object]".
+    //   NG: error instanceof Error ? error.message : String(error)
+    //   OK: errorMessage(error)  /  errorWithCauses(error)
+    "use-error-message": {
+      meta: {
+        docs: { description: "turn a caught failure into text with helper/error-message.ts" },
+      },
+      create(context) {
+        const filename = getFilename(context);
+        if (TEST_FILE.test(filename) || /helper[\\/]error-message\.ts$/.test(filename)) return {};
+        return {
+          ConditionalExpression(node) {
+            const test = node.test;
+            const consequent = node.consequent;
+            if (
+              test.type === "BinaryExpression" &&
+              test.operator === "instanceof" &&
+              test.right.type === "Identifier" &&
+              test.right.name === "Error" &&
+              consequent.type === "MemberExpression" &&
+              !consequent.computed &&
+              consequent.property.type === "Identifier" &&
+              consequent.property.name === "message"
+            ) {
+              context.report({
+                node,
+                message:
+                  "Turn a caught failure into text with `errorMessage(error)` (or `errorWithCauses` / `causeLines`) from helper/error-message.ts, so every message is made the same way.",
+              });
+            }
           },
         };
       },
