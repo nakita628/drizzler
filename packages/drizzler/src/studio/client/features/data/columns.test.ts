@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { columnsStorageKey, loadHiddenColumns, saveHiddenColumns } from "./columns.js";
+import { loadJson, saveJson } from "../../lib/storage.js";
+import { columnsStorageKey, hiddenColumnsOf } from "./columns.js";
+
+// What the table page does: the hidden set kept under the table's key, as JSON.
+function loadHiddenColumns(table: string) {
+  return hiddenColumnsOf(loadJson(columnsStorageKey(table)));
+}
+
+function saveHiddenColumns(table: string, hidden: ReadonlySet<string>) {
+  saveJson(columnsStorageKey(table), [...hidden]);
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -65,5 +75,14 @@ describe("saveHiddenColumns and loadHiddenColumns", () => {
       },
     });
     expect(loadHiddenColumns("User")).toStrictEqual(new Set());
+  });
+});
+
+describe("hiddenColumnsOf", () => {
+  it("reads a list of names, and nothing from any other value", () => {
+    expect(hiddenColumnsOf(["email", "bio"])).toStrictEqual(new Set(["email", "bio"]));
+    expect(hiddenColumnsOf(null)).toStrictEqual(new Set());
+    expect(hiddenColumnsOf({ email: true })).toStrictEqual(new Set());
+    expect(hiddenColumnsOf(["email", 1])).toStrictEqual(new Set());
   });
 });

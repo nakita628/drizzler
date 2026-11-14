@@ -19,24 +19,11 @@ import { SCHEMA_MODEL, setLanguageEnabled, setTypeMarkers } from "./language.js"
 import { bindFormatter, setParseMarker } from "./monaco.js";
 import { SchemaCanvas } from "../diagram/canvas.js";
 import type { CanvasSchema } from "../diagram/types.js";
-
-type ParseError = { readonly message: string; readonly line: number; readonly column: number };
+import type { ParseError } from "./save-status.js";
+import { saveStatus } from "./save-status.js";
 
 const DRAW_DEBOUNCE_MS = 250;
 const CHECK_DEBOUNCE_MS = 500;
-
-function saveStatus(input: {
-  readonly parseError: ParseError | null;
-  readonly saving: boolean;
-  readonly dirty: boolean;
-}) {
-  if (input.parseError) {
-    return { label: `Line ${input.parseError.line}: syntax error`, color: "danger" } as const;
-  }
-  if (input.saving) return { label: "Saving…", color: "warning" } as const;
-  if (input.dirty) return { label: "Unsaved", color: "warning" } as const;
-  return { label: "Saved", color: "success" } as const;
-}
 
 /**
  * The schema file in Monaco on the left and its ER diagram on the right, redrawn as you type;

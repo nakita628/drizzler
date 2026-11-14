@@ -4,25 +4,12 @@ import type { SortDescriptor } from "react-aria-components";
 import { LuCopy, LuDownload } from "react-icons/lu";
 
 import { displayCell, toCsv, toJson, toTsv } from "../features/data/cells.js";
+import { shownRows } from "../features/data/rows.js";
 import { copyText } from "../lib/copy.js";
 import { downloadFile } from "../lib/download.js";
 import { MarkedText } from "./marked-text.js";
 
 type Row = Record<string, string | number | boolean | null>;
-
-// One collator for the whole sort: `localeCompare` with options builds a new one per call, which
-// dominates sorting a result of thousands of rows.
-const COLLATOR = new Intl.Collator(undefined, { numeric: true });
-
-function compare(a: Row[string], b: Row[string]) {
-  if (a === b) return 0;
-  // NULLs go last whichever way the column is sorted, as they do in a spreadsheet.
-  if (a === null) return 1;
-  if (b === null) return -1;
-  return typeof a === "number" && typeof b === "number"
-    ? a - b
-    : COLLATOR.compare(String(a), String(b));
-}
 
 function ResultTableComponent({
   columns,
@@ -34,23 +21,16 @@ function ResultTableComponent({
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortDescriptor | null>(null);
 
-  const shown = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    const kept =
-      needle === ""
-        ? rows
-        : rows.filter((row) =>
-            columns.some((column) =>
-              displayCell(row[column] ?? null)
-                .toLowerCase()
-                .includes(needle),
-            ),
-          );
-    if (sort === null) return kept;
-    const column = String(sort.column);
-    const ordered = kept.toSorted((a, b) => compare(a[column] ?? null, b[column] ?? null));
-    return sort.direction === "descending" ? ordered.toReversed() : ordered;
-  }, [rows, columns, filter, sort]);
+  const shown = useMemo(
+    () =>
+      shownRows({
+        rows,
+        columns,
+        filter,
+        sort: sort === null ? null : { column: String(sort.column), direction: sort.direction },
+      }),
+    [rows, columns, filter, sort],
+  );
 
   function copy(action: string | number) {
     if (action === "tsv") copyText(toTsv(columns, shown), `${shown.length} rows`);

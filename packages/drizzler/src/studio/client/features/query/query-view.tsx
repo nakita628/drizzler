@@ -25,6 +25,7 @@ import { ResultPane } from "./result-pane.js";
 import { QuerySchemaPane } from "./schema-pane.js";
 import { useTouched } from "./touched.js";
 import type { TouchedTable } from "./touched.js";
+import { sqlParam, startingCode, whyUnavailable } from "./query-input.js";
 
 const CODE_KEY = "drizzler-studio:query";
 const CHECK_DEBOUNCE_MS = 500;
@@ -36,35 +37,6 @@ const EDITOR_KEY = "drizzler-studio:query-editor-height";
 /** Puts code in the Query page's editor, for the page to open with: the docs' examples go there. */
 export function presetQuery(code: string) {
   saveString(CODE_KEY, `${code}\n`);
-}
-
-// What earlier studios put in the editor for a start; a browser that kept it opens empty instead.
-const FORMER_STARTER = "// `db` is Drizzle over the connected database";
-
-function initialCode() {
-  const stored = loadString(CODE_KEY) ?? "";
-  return stored.startsWith(FORMER_STARTER) ? "" : stored;
-}
-
-// A bound value as the SQL page takes it: a scalar as it is, anything else as JSON.
-function sqlParam(value: unknown) {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  return JSON.stringify(value);
-}
-
-// Why a query cannot run: no database, or the project's TypeScript did not load (`missing` is
-// the language status when it did not); null when it can.
-function whyUnavailable(connected: boolean, missing: { readonly reason: string | null } | null) {
-  if (!connected) return "Start the studio with --url (or set DATABASE_URL) to run queries.";
-  if (missing !== null) return `Running a query needs the project's TypeScript: ${missing.reason}`;
-  return null;
 }
 
 /**
@@ -89,7 +61,7 @@ export function QueryView() {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const checkSeq = useRef(0);
-  const text = code ?? (db === null ? null : initialCode());
+  const text = code ?? (db === null ? null : startingCode(loadString(CODE_KEY)));
   const { tables, analyze } = useTouched(text ?? "", snapshot?.source ?? null);
 
   useEffect(() => {

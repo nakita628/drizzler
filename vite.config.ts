@@ -569,6 +569,79 @@ export default defineConfig({
         },
       },
       {
+        // The client's logic modules (the .ts files beside its components) are pure too: values in,
+        // values out, with no browser, framework or network in them, so they test without a DOM.
+        // The ones that touch the browser or hold React state are named in the next block.
+        files: ["packages/drizzler/src/studio/client/**/*.ts"],
+        rules: {
+          "custom/domain-no-nondeterminism": "error",
+          "custom/domain-no-side-effects": "error",
+          "custom/pure-no-throw": "error",
+          // Why: a logic module that imports the framework or the API starts doing I/O unnoticed.
+          // NG:   import { useState } from "react"  /  import { dbClient } from "../../api/index.js"
+          // OK:   import type { Edge } from "@xyflow/react"  /  import { displayCell } from "./cells.js"
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  group: [
+                    "react",
+                    "react-dom",
+                    "react-dom/*",
+                    "@tanstack/*",
+                    "zustand",
+                    "zustand/*",
+                    "monaco-editor",
+                    "monaco-editor/*",
+                    "@monaco-editor/*",
+                    "@codemirror/*",
+                    "@heroui/*",
+                    "@xyflow/*",
+                    "**/api/index.js",
+                    "**/hooks/index.js",
+                  ],
+                  allowTypeImports: true,
+                  message:
+                    "A client logic module takes values and returns values; the component or hook that uses it brings the framework, the browser and the API.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        // The client modules that touch the browser (the DOM, storage, the clipboard, timers),
+        // hold React or store state, or set up the editors; and the generated API client and hooks.
+        files: [
+          "packages/drizzler/src/studio/client/**/*.test.ts",
+          "packages/drizzler/src/studio/client/api/**",
+          "packages/drizzler/src/studio/client/hooks/**",
+          "packages/drizzler/src/studio/client/vite-env.d.ts",
+          "packages/drizzler/src/studio/client/features/diagram/export.ts",
+          "packages/drizzler/src/studio/client/features/diagram/geometry.ts",
+          "packages/drizzler/src/studio/client/features/diagram/saved-diagram.ts",
+          "packages/drizzler/src/studio/client/features/editor/language.ts",
+          "packages/drizzler/src/studio/client/features/editor/monaco.ts",
+          "packages/drizzler/src/studio/client/features/editor/monaco-features.ts",
+          "packages/drizzler/src/studio/client/features/query/touched.ts",
+          "packages/drizzler/src/studio/client/features/sql/analysis.ts",
+          "packages/drizzler/src/studio/client/lib/copy.ts",
+          "packages/drizzler/src/studio/client/lib/debounce.ts",
+          "packages/drizzler/src/studio/client/lib/download.ts",
+          "packages/drizzler/src/studio/client/lib/events.ts",
+          "packages/drizzler/src/studio/client/lib/layout.ts",
+          "packages/drizzler/src/studio/client/lib/storage.ts",
+          "packages/drizzler/src/studio/client/lib/store.ts",
+        ],
+        rules: {
+          "custom/domain-no-nondeterminism": "off",
+          "custom/domain-no-side-effects": "off",
+          "custom/pure-no-throw": "off",
+          "no-restricted-imports": "off",
+        },
+      },
+      {
         // Why off: the SQL parser is recursive descent; a statement that does not parse unwinds by
         // `throw new ParseFailure`, caught in readStatement, which returns it as an `invalid`
         // statement. Nothing escapes the module: parseStatements returns values.

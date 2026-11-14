@@ -150,13 +150,13 @@ describe("makeSeedStatements", () => {
     const made = entries();
     const statements = makeSeedStatements({ dialect: "postgresql", entries: made, reset: true });
     const inserts = made.flatMap((entry) => insertStatements("postgresql", entry, false));
-    const sqls = statements.map((statement) => statement.sql);
-    const firstInsert = sqls.findIndex((sql) => sql.startsWith("INSERT"));
-    const lastInsert = sqls.findLastIndex((sql) => sql.startsWith("INSERT"));
-    expect(sqls.slice(0, firstInsert).every((sql) => !sql.startsWith("INSERT"))).toBe(true);
+    const texts = statements.map((statement) => statement.sql);
+    const firstInsert = texts.findIndex((sql) => sql.startsWith("INSERT"));
+    const lastInsert = texts.findLastIndex((sql) => sql.startsWith("INSERT"));
+    expect(texts.slice(0, firstInsert).every((sql) => !sql.startsWith("INSERT"))).toBe(true);
     expect(firstInsert).toBeGreaterThan(0);
-    expect(sqls.slice(firstInsert, lastInsert + 1)).toStrictEqual(inserts.map((i) => i.sql));
-    expect(sqls.slice(lastInsert + 1).length).toBeGreaterThan(0);
+    expect(texts.slice(firstInsert, lastInsert + 1)).toStrictEqual(inserts.map((i) => i.sql));
+    expect(texts.slice(lastInsert + 1).length).toBeGreaterThan(0);
   });
 
   it("sends only the inserts without a reset, and no sequence fix-up on SQLite", () => {
