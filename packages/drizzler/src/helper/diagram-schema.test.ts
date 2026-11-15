@@ -158,3 +158,48 @@ describe("diagramSchema", () => {
     expect(diagramSchema(code).models[1]?.fields[0]?.isForeignKey).toBe(true);
   });
 });
+
+describe("diagramSchema of tables built in a function", () => {
+  it("draws the tables, their keys and the foreign keys between them", () => {
+    const schema = diagramSchema([
+      "export function defineTables(schema = {}) {",
+      "  const users = schema.users ?? sqliteTable('user', {",
+      "    id: text('id').primaryKey(),",
+      "    email: text('email').unique(),",
+      "  })",
+      "  const accounts = schema.accounts ?? sqliteTable('account', {",
+      "    userId: text('userId').notNull().references(() => users.id, { onDelete: 'cascade' }),",
+      "    provider: text('provider').notNull(),",
+      "    providerAccountId: text('providerAccountId').notNull(),",
+      "  }, (account) => ({",
+      "    compositePk: primaryKey({ columns: [account.provider, account.providerAccountId] }),",
+      "  }))",
+      "  return { users, accounts }",
+      "}",
+      "",
+      "export const { users, accounts } = defineTables()",
+    ]);
+
+    expect(
+      schema.models.map((m) => ({
+        name: m.name,
+        dbName: m.dbName,
+        primaryKey: m.primaryKey,
+        ids: m.fields.filter((f) => f.isId).map((f) => f.name),
+        unique: m.fields.filter((f) => f.isUnique).map((f) => f.name),
+      })),
+    ).toStrictEqual([
+      { name: "users", dbName: "user", primaryKey: null, ids: ["id"], unique: ["email"] },
+      {
+        name: "accounts",
+        dbName: "account",
+        primaryKey: ["provider", "providerAccountId"],
+        ids: [],
+        unique: [],
+      },
+    ]);
+    expect(schema.relations.map((r) => [r.from.model, r.to.model, r.onDelete])).toStrictEqual([
+      ["users", "accounts", "cascade"],
+    ]);
+  });
+});

@@ -11,6 +11,7 @@ import {
   columnProperties,
   descriptionBefore,
   callsIn,
+  fallbackValue,
   declaratorName,
   topLevelDeclarations,
   isArrow,
@@ -494,7 +495,8 @@ function resolveBuilder(callee: string, aliases: ReadonlyMap<string, string>) {
 }
 
 /**
- * The top-level `xxxTable("name", { ...columns }, constraints)` calls, exported in place or in an
+ * The `xxxTable("name", { ...columns }, constraints)` calls at the top level or in a top-level
+ * function (`schema.users ?? sqliteTable(...)` too), exported in place or in an
  * `export { ... }` list, with the variable they are bound to and the builder they call, aliases
  * resolved (`snakeCase.table` for `const table = snakeCase.table; table(...)`).
  */
@@ -504,7 +506,7 @@ export function tableCalls(program: Program, text: string) {
     const varName = declaratorName(declarator);
     if (varName === null) return [];
 
-    const init = declarator.init;
+    const init = declarator.init ? fallbackValue(declarator.init) : null;
     if (!isCall(init)) return [];
     const builder = resolveBuilder(textOf(text, init.callee).replace(/\s+/gu, ""), aliases);
     if (!isTableBuilder(builder)) return [];

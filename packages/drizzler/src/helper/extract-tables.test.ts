@@ -607,3 +607,69 @@ describe("schemas split over files, as layered projects write them", () => {
     ]);
   });
 });
+
+// The tables a function opened by `head` builds and returns.
+function tablesIn(head: string) {
+  return parseTableInfo([
+    head,
+    "  const user = pgTable('user', { id: uuid('id').primaryKey() })",
+    "  return { user }",
+    "}",
+  ]).map((t) => t.name);
+}
+
+describe("tables built in a function", () => {
+  // The Auth.js Drizzle adapter's shape: each table falls back to its default when the caller
+  // hands none, and the module exports what the function returns.
+  const code = [
+    "export function defineTables(schema = {}) {",
+    "  /** Everyone who can sign in */",
+    "  const usersTable =",
+    "    schema.usersTable ??",
+    "    sqliteTable('user', {",
+    "      id: text('id').primaryKey(),",
+    "      email: text('email').unique(),",
+    "    })",
+    "  const sessionsTable = schema.sessionsTable ?? sqliteTable('session', {",
+    "    sessionToken: text('sessionToken').primaryKey(),",
+    "    userId: text('userId').notNull().references(() => usersTable.id, { onDelete: 'cascade' }),",
+    "  })",
+    "  return { usersTable, sessionsTable }",
+    "}",
+    "",
+    "export const { usersTable, sessionsTable } = defineTables()",
+  ];
+
+  it.concurrent("reads the tables, their columns and their descriptions", () => {
+    expect(
+      parseTableInfo(code).map((t) => [t.name, t.description, t.fields.map((f) => f.name)]),
+    ).toStrictEqual([
+      ["usersTable", "Everyone who can sign in", ["id", "email"]],
+      ["sessionsTable", null, ["sessionToken", "userId"]],
+    ]);
+  });
+
+  it.concurrent("reads the foreign keys between them", () => {
+    expect(
+      extractRelationsFromSchema(code).map((r) => [r.fromModel, r.fromField, r.toModel, r.toField]),
+    ).toStrictEqual([["usersTable", "id", "sessionsTable", "userId"]]);
+  });
+
+  it.concurrent("reads a default-exported function and an arrow bound to a const", () => {
+    expect(tablesIn("export default function () {")).toStrictEqual(["user"]);
+    expect(tablesIn("const define = () => {")).toStrictEqual(["user"]);
+    expect(tablesIn("export const define = function () {")).toStrictEqual(["user"]);
+  });
+
+  it.concurrent("leaves a table built deeper than the function's own body out", () => {
+    expect(
+      parseTableInfo([
+        "function define(flag) {",
+        "  if (flag) {",
+        "    const user = pgTable('user', { id: uuid('id').primaryKey() })",
+        "  }",
+        "}",
+      ]),
+    ).toStrictEqual([]);
+  });
+});

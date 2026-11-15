@@ -124,22 +124,68 @@ export function exportedDeclarations(program: ReturnType<typeof parseSource>["pr
 
 type Program = ReturnType<typeof parseSource>["program"];
 
+type Statement = Program["body"][number];
+
 /**
- * The first declarator of every top-level `const` (or `let`, `var`), exported in place or not,
- * with the offsets of the statement. A schema split over files often declares its tables plainly
+ * Every declarator of every top-level `const` (or `let`, `var`), exported in place or not, with
+ * the offsets of the statement. A schema split over files often declares its tables plainly
  * and exports them in a list at the end (`const user = pgTable(...); export { user };`), so a
  * table is found by how it is built, not by how it is exported.
+ *
+ * The declarations at the top of a top-level function's body are read in place as well: a
+ * schema may build its tables in a function and export what it returns
+ * (`export const { users } = defineTables()`, as the Auth.js adapter does), so the tables are
+ * values only once the module runs.
  */
 export function topLevelDeclarations(program: Program) {
-  return program.body.flatMap((stmt) => {
-    const decl = stmt.type === "ExportNamedDeclaration" ? stmt.declaration : stmt;
-    if (decl?.type !== "VariableDeclaration") return [];
-    return decl.declarations.map((declarator) => ({
-      declarator,
-      start: stmt.start,
-      end: stmt.end,
-    }));
+  return program.body.flatMap((stmt) => [
+    ...declarationsOf(stmt),
+    ...functionBody(stmt).flatMap(declarationsOf),
+  ]);
+}
+
+// The declarators a statement makes, `export const ...` included.
+function declarationsOf(stmt: Statement) {
+  const decl = stmt.type === "ExportNamedDeclaration" ? stmt.declaration : stmt;
+  if (decl?.type !== "VariableDeclaration") return [];
+  return decl.declarations.map((declarator) => ({
+    declarator,
+    start: stmt.start,
+    end: stmt.end,
+  }));
+}
+
+// The statements of the function a top-level statement declares: `function f() {}`, exported or
+// the default export, and `const f = () => {}` or `const f = function () {}`.
+function functionBody(stmt: Statement): Statement[] {
+  const decl =
+    stmt.type === "ExportNamedDeclaration" || stmt.type === "ExportDefaultDeclaration"
+      ? stmt.declaration
+      : stmt;
+  if (decl === null || decl === undefined) return [];
+  if (decl.type === "FunctionDeclaration" || decl.type === "FunctionExpression") {
+    return decl.body?.body ?? [];
+  }
+  if (decl.type !== "VariableDeclaration") return [];
+  return decl.declarations.flatMap((declarator) => {
+    const init = declarator.init ? unwrapTypes(declarator.init) : null;
+    if (init?.type === "FunctionExpression") return init.body?.body ?? [];
+    if (init?.type === "ArrowFunctionExpression" && init.body.type === "BlockStatement") {
+      return init.body.body;
+    }
+    return [];
   });
+}
+
+/**
+ * The value a declaration is given when it is not handed one: `sqliteTable(...)` in
+ * `schema.users ?? sqliteTable(...)`, the fallback a table built in a function falls back to.
+ */
+export function fallbackValue(node: Expression): Expression {
+  const expr = unwrapTypes(node);
+  return expr.type === "LogicalExpression" && (expr.operator === "??" || expr.operator === "||")
+    ? fallbackValue(expr.right)
+    : expr;
 }
 
 // `x as const` and `x satisfies T` are `x` to a reader of the schema.
