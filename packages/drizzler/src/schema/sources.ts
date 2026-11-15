@@ -19,7 +19,12 @@ import type { PathAliases } from "./paths.js";
 import { stripImports } from "./strip-imports.js";
 import { errorMessage } from "../helper/error-message.js";
 
-/** A schema input that cannot be read: a path that is not there, a glob that matches nothing. */
+/**
+ * A schema input that cannot be read: a path that is not there, a glob that matches nothing. It
+ * is exported because the declaration of an exported function names it in its error channel.
+ *
+ * @public
+ */
 export class SchemaInputError extends Data.TaggedError("SchemaInputError")<{
   readonly message: string;
 }> {}

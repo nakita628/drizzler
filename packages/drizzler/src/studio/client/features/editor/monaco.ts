@@ -12,7 +12,7 @@ import { registerLanguage } from "./language.js";
 import { mutableRef } from "../../lib/mutable-ref.js";
 import type { Theme } from "../../lib/store.js";
 
-export const EDITOR_FONT =
+const EDITOR_FONT =
   "ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'Noto Sans Mono CJK JP', monospace";
 
 export const BASE_OPTIONS = {

@@ -8,7 +8,7 @@ import { Dialect } from "./sql.js";
  * What drizzle-orm exports for writing queries, in scope without an import. One that the
  * installed version lacks is simply undefined at run time.
  */
-export const OPERATORS = [
+const OPERATORS = [
   "eq",
   "ne",
   "gt",

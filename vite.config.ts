@@ -424,11 +424,15 @@ export default defineConfig({
       "custom/require-tsdoc": "error",
 
       // Why: TSDoc tags are a fixed vocabulary; a misspelt tag (`@return`, `@params`) is lost.
+      // `@public` marks an export that knip should keep although no other module imports it.
       // NG:   /** @return the rows */
       // OK:   /** @returns the rows */
       "jsdoc/check-tag-names": [
         "error",
-        { typed: true, definedTags: ["remarks", "typeParam", "defaultValue", "privateRemarks"] },
+        {
+          typed: true,
+          definedTags: ["remarks", "typeParam", "defaultValue", "privateRemarks", "public"],
+        },
       ],
 
       // Why: a `@param` / `@returns` that names nothing, or says nothing, documents nothing.

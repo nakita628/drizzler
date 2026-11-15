@@ -5,16 +5,7 @@ import type { Expression, Node, Program } from "oxc-parser";
 import { parseSync } from "oxc-parser";
 
 /** The extensions a schema module may have. */
-export const MODULE_EXTENSIONS = [
-  ".ts",
-  ".mts",
-  ".cts",
-  ".tsx",
-  ".js",
-  ".mjs",
-  ".cjs",
-  ".jsx",
-] as const;
+const MODULE_EXTENSIONS = [".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"] as const;
 
 /** What `drizzle.config.*` drizzler looks for when no input is given, in this order. */
 export const DRIZZLE_CONFIG_FILES = [
@@ -102,7 +93,7 @@ const TWINS: Readonly<Record<string, readonly string[]>> = {
  * The files a module path may name, in the order they are tried: itself, its `.ts` twin for a
  * `.js` import, the path with an extension added, and an index module inside it.
  */
-export function moduleCandidates(candidate: string) {
+function moduleCandidates(candidate: string) {
   const ext = path.extname(candidate);
   const stem = candidate.slice(0, candidate.length - ext.length);
   return [
@@ -117,7 +108,7 @@ export function moduleCandidates(candidate: string) {
  * The paths an aliased import may stand for, in the order the tsconfig's `paths` give them
  * (`#/db/*` → `./src/db/*`). Empty when no alias matches.
  */
-export function aliasTargets(specifier: string, aliases: PathAliases) {
+function aliasTargets(specifier: string, aliases: PathAliases) {
   return Object.entries(aliases.paths).flatMap(([pattern, targets]) => {
     const star = pattern.indexOf("*");
     const prefix = star === -1 ? pattern : pattern.slice(0, star);

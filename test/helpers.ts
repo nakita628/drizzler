@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const PACKAGE_DIR = path.dirname(require.resolve("drizzler/package.json"));
 
 /** The packaged command, as `npx drizzler` runs it. */
-export const BIN = path.join(PACKAGE_DIR, "dist/cli.js");
+const BIN = path.join(PACKAGE_DIR, "dist/cli.js");
 
 /** The studio's built client, as the package ships it. */
 export const STUDIO_ASSETS = path.join(PACKAGE_DIR, "dist/studio/assets");

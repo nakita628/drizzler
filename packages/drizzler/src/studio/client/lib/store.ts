@@ -4,7 +4,7 @@ import { loadString, saveString } from "./storage.js";
 export type Theme = "light" | "dark";
 
 /** Whether the page is following the schema file: the server's event stream is open, not yet, or lost. */
-export type Connection = "connecting" | "live" | "offline";
+type Connection = "connecting" | "live" | "offline";
 
 const THEME_KEY = "drizzler-studio:theme";
 const SIDEBAR_KEY = "drizzler-studio:sidebar";

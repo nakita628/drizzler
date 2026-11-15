@@ -54,7 +54,7 @@ function commentLines(comment: Source["comments"][number]) {
  * run, so a file header is not taken for the first table's comment, and a comment that ends a
  * line of code is that line's.
  */
-export function commentsBefore(source: Source, start: number) {
+function commentsBefore(source: Source, start: number) {
   return commentRun(source, endingBy(source.comments, start), start).flatMap(commentLines);
 }
 
@@ -109,7 +109,7 @@ export function textOf(text: string, node: { readonly start: number; readonly en
  * offsets of the statement: `start` is the `export` keyword its leading comments
  * sit above.
  */
-export function exportedDeclarations(program: ReturnType<typeof parseSource>["program"]) {
+function exportedDeclarations(program: ReturnType<typeof parseSource>["program"]) {
   return program.body.flatMap((stmt) => {
     if (stmt.type !== "ExportNamedDeclaration") return [];
     const decl = stmt.declaration;

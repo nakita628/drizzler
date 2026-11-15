@@ -14,7 +14,7 @@ export type Dialect = "postgresql" | "mysql" | "sqlite";
  * text a `mode: "string"` date or timestamp column takes, `unknown` a type the seeder cannot make
  * (a geometry, a custom type) and leaves to a rule.
  */
-export type ColumnKind =
+type ColumnKind =
   | "string"
   | "uuid"
   | "enum"
@@ -34,7 +34,7 @@ export type ColumnKind =
   | "unknown";
 
 /** How a column fills itself when an insert leaves it out. */
-export type ColumnDefault =
+type ColumnDefault =
   | { readonly kind: "value"; readonly value: unknown }
   | { readonly kind: "fn"; readonly fn: () => unknown }
   | { readonly kind: "sql" }

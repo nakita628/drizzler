@@ -86,7 +86,7 @@ function writeOutput(
 }
 
 /** Reads the schema and writes what the output path asks for; the line it prints names it. */
-export function generate(args: GenerateArgs) {
+function generate(args: GenerateArgs) {
   return Effect.gen(function* () {
     const cwd = process.cwd();
     const inputs = yield* schemaInputs(args.input, cwd);

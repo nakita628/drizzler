@@ -55,7 +55,7 @@ function center(box: Box): Point {
  * An edge whose ends are not both on a card that has been measured is left out; the edge draws
  * React Flow's own path until the next pass has it.
  */
-export function diagramGeometry(
+function diagramGeometry(
   edges: readonly GeometryEdge[],
   cards: ReadonlyMap<string, GeometryCard>,
 ): DiagramGeometry {
