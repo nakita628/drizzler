@@ -1,7 +1,5 @@
 import * as z from "zod";
 
-import { loadString, saveString } from "../../lib/storage.js";
-
 const HiddenColumnsSchema = z
   .array(z.string().meta({ description: "A column the grid is not showing", example: "bio" }))
   .meta({ description: "The columns folded away on one table, as stored in localStorage" });
@@ -12,22 +10,12 @@ export function columnsStorageKey(table: string) {
 }
 
 /**
- * What is stored is what is hidden, not what is shown: a column added to the schema afterwards
- * then appears on its own rather than staying invisible until someone goes looking for it.
+ * The columns a table hides, from what storage kept under its key (read with lib/storage.ts's
+ * loadJson): nothing for a value that is missing or not a list of names. What is stored is what
+ * is hidden, not what is shown: a column added to the schema afterwards then appears on its own
+ * rather than staying invisible until someone goes looking for it.
  */
-export function loadHiddenColumns(table: string): ReadonlySet<string> {
-  try {
-    const raw = loadString(columnsStorageKey(table));
-    if (raw === null) return new Set();
-    const json: unknown = JSON.parse(raw);
-    const result = HiddenColumnsSchema.safeParse(json);
-    return new Set(result.success ? result.data : []);
-  } catch {
-    return new Set();
-  }
-}
-
-/** Remembers which columns of a table the grid hides. */
-export function saveHiddenColumns(table: string, hidden: ReadonlySet<string>) {
-  saveString(columnsStorageKey(table), JSON.stringify([...hidden]));
+export function hiddenColumnsOf(stored: unknown): ReadonlySet<string> {
+  const result = HiddenColumnsSchema.safeParse(stored);
+  return new Set(result.success ? result.data : []);
 }

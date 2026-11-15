@@ -1,3 +1,6 @@
+import { Effect } from "effect";
+import { NO_DATABASE_MESSAGE } from "../constants/index.js";
+import { DatabaseUnavailableError } from "../errors/index.js";
 import type { Database } from "./database.js";
 import type { Language } from "./typescript.js";
 
@@ -67,4 +70,26 @@ export function getLanguage() {
  */
 export function getStudio() {
   return configured().studio;
+}
+
+/**
+ * The open database connection, or a DatabaseUnavailableError that says why there is none: the
+ * reason the connection failed, else that no database was given.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   state[(studio state)] --> driver{driver?}
+ *   driver -- yes --> ok[the driver]
+ *   driver -- no --> err[DatabaseUnavailableError: status.error or NO_DATABASE_MESSAGE]
+ * ```
+ *
+ * @returns the driver; fails with DatabaseUnavailableError without one
+ */
+export function connectedDriver() {
+  return Effect.suspend(() => {
+    const { driver, status } = configured().studio.database;
+    return driver === null
+      ? Effect.fail(new DatabaseUnavailableError({ reason: status.error ?? NO_DATABASE_MESSAGE }))
+      : Effect.succeed(driver);
+  });
 }

@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import type { Result } from "../result.js";
+import { fail, ok } from "../result.js";
 import type { SeedRow } from "../config.js";
 import { SeedGenerationError } from "../errors.js";
 import type { ModelTable, ParentSide } from "../schema.js";
@@ -32,41 +33,40 @@ function relatedCounts(context: Context, side: ParentSide, rows: readonly SeedRo
 }
 
 /** Every relation rule against the rows made: each row must have between `min` and `max` children. */
-export function checkCardinality(context: Context) {
-  return Effect.gen(function* () {
-    const problems = Object.entries(context.config.models).flatMap(([name, rule]) => {
-      const table = modelTable(context.tables, name);
-      const rows = context.rowsByModel.get(name) ?? [];
-      if (table === undefined) return [];
-      const sides = Map.groupBy(table.parents, (parent) => parent.name);
-      return Object.entries(rule.relations ?? {}).flatMap(([relation, bound]) => {
-        const side = sides.get(relation)?.[0];
-        if (side === undefined) return [];
-        const counts = relatedCounts(context, side, rows);
-        return counts.flatMap((count, index) => {
-          const row = rows[index];
-          if (row === undefined) return [];
-          const where = `${labelOf(table, index, row)}.${relation}: ${count} row${count === 1 ? "" : "s"}`;
-          if (bound.min !== undefined && count < bound.min) {
-            return [
-              `${where}, at least ${bound.min} expected (models.${name}.relations.${relation}.min)`,
-            ];
-          }
-          if (bound.max !== undefined && count > bound.max) {
-            return [
-              `${where}, at most ${bound.max} expected (models.${name}.relations.${relation}.max)`,
-            ];
-          }
-          return [];
-        });
+export function checkCardinality(context: Context): Result<void, SeedGenerationError> {
+  const problems = Object.entries(context.config.models).flatMap(([name, rule]) => {
+    const table = modelTable(context.tables, name);
+    const rows = context.rowsByModel.get(name) ?? [];
+    if (table === undefined) return [];
+    const sides = Map.groupBy(table.parents, (parent) => parent.name);
+    return Object.entries(rule.relations ?? {}).flatMap(([relation, bound]) => {
+      const side = sides.get(relation)?.[0];
+      if (side === undefined) return [];
+      const counts = relatedCounts(context, side, rows);
+      return counts.flatMap((count, index) => {
+        const row = rows[index];
+        if (row === undefined) return [];
+        const where = `${labelOf(table, index, row)}.${relation}: ${count} row${count === 1 ? "" : "s"}`;
+        if (bound.min !== undefined && count < bound.min) {
+          return [
+            `${where}, at least ${bound.min} expected (models.${name}.relations.${relation}.min)`,
+          ];
+        }
+        if (bound.max !== undefined && count > bound.max) {
+          return [
+            `${where}, at most ${bound.max} expected (models.${name}.relations.${relation}.max)`,
+          ];
+        }
+        return [];
       });
     });
-    if (problems.length > 0) {
-      const shown = problems.slice(0, 20);
-      const more = problems.length - shown.length;
-      yield* new SeedGenerationError({
-        message: `Relations out of bounds, nothing was inserted.\n   ${shown.join("\n   ")}${more > 0 ? `\n   ... and ${more} more` : ""}`,
-      });
-    }
   });
+  if (problems.length === 0) return ok(undefined);
+  const shown = problems.slice(0, 20);
+  const more = problems.length - shown.length;
+  return fail(
+    new SeedGenerationError({
+      message: `Relations out of bounds, nothing was inserted.\n   ${shown.join("\n   ")}${more > 0 ? `\n   ... and ${more} more` : ""}`,
+    }),
+  );
 }

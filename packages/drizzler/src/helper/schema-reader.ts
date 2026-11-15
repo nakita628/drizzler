@@ -1,8 +1,8 @@
 import { parseSync, Visitor } from "oxc-parser";
 import type { Node } from "oxc-parser";
-import { parseSource, unwrapParens } from "../../../helper/ast.js";
-import { diagramSchema, relationFields, tableCalls } from "../../../helper/index.js";
-import { stripImports } from "../../../schema/strip-imports.js";
+import { parseSource, unwrapParens } from "./ast.js";
+import { diagramSchema, relationFields, tableCalls } from "./index.js";
+import { stripImports } from "../schema/strip-imports.js";
 
 /** How many sources each reader remembers: the saved schema and the editor's text, with room to spare. */
 const REMEMBERED = 4;

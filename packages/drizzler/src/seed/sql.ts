@@ -197,6 +197,24 @@ export function sequenceSql(dialect: Dialect, tables: readonly ModelTable[]) {
   );
 }
 
+/**
+ * The statements a seed sends to a database, in order: the optional reset, the INSERTs with their
+ * values bound, and, on PostgreSQL, the sequences moved past the rows.
+ */
+export function makeSeedStatements(input: {
+  readonly dialect: Dialect;
+  readonly entries: readonly SeedTableRows<SeedRow>[];
+  readonly reset: boolean;
+}): readonly SeedStatement[] {
+  const { dialect } = input;
+  const tables = input.entries.map((entry) => entry.table);
+  return [
+    ...(input.reset ? resetSql(dialect, tables).map((sql) => ({ sql, params: [] })) : []),
+    ...input.entries.flatMap((entry) => insertStatements(dialect, entry, false)),
+    ...sequenceSql(dialect, tables).map((sql) => ({ sql, params: [] })),
+  ];
+}
+
 /** The whole seed as one SQL script: a transaction around the optional reset, the inserts and the sequence fix-ups. */
 export function makeSeedSql(input: {
   readonly dialect: Dialect;

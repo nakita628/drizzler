@@ -4,7 +4,16 @@ import {
   makeExplainStatement,
   makeCell,
   makeDeleteStatement,
+  makeConnection,
+  makeCount,
+  makeRowInputProblem,
+  makeSqlResult,
+  makeUnknownFieldsMessage,
+  makeConnectionKind,
+  makeD1Target,
   makeDialect,
+  makeLibsqlTarget,
+  makeTlsRequired,
   makeInsertStatement,
   makeRedactedUrl,
   makeCountStatement,
@@ -31,6 +40,8 @@ describe("makeDialect", () => {
     ["mariadb://h/db", "mysql"],
     ["file:./dev.db", "sqlite"],
     ["./local.sqlite", "sqlite"],
+    ["libsql://app-ada.turso.io", "sqlite"],
+    ["d1://account/database", "sqlite"],
     ["redis://h", null],
   ] as const)("reads %s as %s", (url, dialect) => {
     expect(makeDialect({ url })).toBe(dialect);
@@ -42,6 +53,161 @@ describe("makeDialect", () => {
     expect(makeRedactedUrl({ url: "postgres://admin:s3cr3t@db:5432/app" })).toBe(
       "postgres://admin:****@db:5432/app",
     );
+  });
+});
+
+describe("makeConnectionKind", () => {
+  it.each([
+    ["file:./dev.db", "sqlite"],
+    [":memory:", "sqlite"],
+    ["libsql://app-ada.turso.io?authToken=t", "libsql"],
+    ["d1://0123abcd/5678-ef90", "d1"],
+    ["postgres://u:p@ep-cool-1.us-east-2.aws.neon.tech/app?sslmode=require", "postgresql"],
+    ["mysql://u:p@aws.connect.psdb.cloud/app", "mysql"],
+    ["https://app-ada.turso.io", null],
+  ] as const)("reads %s as %s", (url, kind) => {
+    expect(makeConnectionKind({ url })).toBe(kind);
+  });
+});
+
+describe("makeConnection", () => {
+  const none = { TURSO_AUTH_TOKEN: null, CLOUDFLARE_D1_TOKEN: null, CLOUDFLARE_API_TOKEN: null };
+
+  it("opens a SQLite file, and Neon with TLS", () => {
+    expect(makeConnection({ url: "file:./dev.db", env: none })).toStrictEqual({
+      kind: "sqlite",
+      file: "./dev.db",
+    });
+    expect(
+      makeConnection({ url: "postgres://u:p@ep-1.us-east-2.aws.neon.tech/app", env: none }),
+    ).toStrictEqual({
+      kind: "postgresql",
+      url: "postgres://u:p@ep-1.us-east-2.aws.neon.tech/app",
+      tls: true,
+    });
+  });
+
+  it("takes Turso's token from the URL first, then TURSO_AUTH_TOKEN", () => {
+    const env = { ...none, TURSO_AUTH_TOKEN: "from-env" };
+    expect(makeConnection({ url: "libsql://app.turso.io?authToken=abc", env })).toStrictEqual({
+      kind: "libsql",
+      url: "libsql://app.turso.io",
+      authToken: "abc",
+    });
+    expect(makeConnection({ url: "libsql://app.turso.io", env })).toStrictEqual({
+      kind: "libsql",
+      url: "libsql://app.turso.io",
+      authToken: "from-env",
+    });
+    expect(makeConnection({ url: "libsql://app.turso.io", env: none })).toMatchObject({
+      authToken: null,
+    });
+  });
+
+  it("gives D1's endpoint, with the token from the URL, CLOUDFLARE_D1_TOKEN, then CLOUDFLARE_API_TOKEN", () => {
+    const endpoint = "https://api.cloudflare.com/client/v4/accounts/acc/d1/database/db/raw";
+    expect(makeConnection({ url: "d1://acc/db?token=url", env: none })).toStrictEqual({
+      kind: "d1",
+      endpoint,
+      token: "url",
+    });
+    expect(
+      makeConnection({
+        url: "d1://acc/db",
+        env: { ...none, CLOUDFLARE_D1_TOKEN: "d1", CLOUDFLARE_API_TOKEN: "api" },
+      }),
+    ).toMatchObject({ token: "d1" });
+    expect(
+      makeConnection({ url: "d1://acc/db", env: { ...none, CLOUDFLARE_API_TOKEN: "api" } }),
+    ).toMatchObject({ token: "api" });
+  });
+
+  it("says why it cannot open a D1 URL without both ids or a token, or an unknown URL", () => {
+    expect(makeConnection({ url: "d1://acc", env: none })).toMatchObject({
+      kind: "unsupported",
+      reason: expect.stringContaining("d1://<account id>/<database id>"),
+    });
+    expect(
+      makeConnection({ url: "d1://acc/db", env: { ...none, CLOUDFLARE_D1_TOKEN: "" } }),
+    ).toMatchObject({
+      kind: "unsupported",
+      reason: expect.stringContaining("CLOUDFLARE_D1_TOKEN"),
+    });
+    expect(makeConnection({ url: "redis://h", env: none })).toMatchObject({
+      kind: "unsupported",
+      reason: expect.stringContaining("libsql://"),
+    });
+  });
+});
+
+describe("makeLibsqlTarget", () => {
+  it("takes the token out of the URL", () => {
+    expect(makeLibsqlTarget({ url: "libsql://app-ada.turso.io?authToken=abc" })).toStrictEqual({
+      url: "libsql://app-ada.turso.io",
+      authToken: "abc",
+    });
+  });
+
+  it("keeps the other parameters, and has no token when the URL has none", () => {
+    expect(makeLibsqlTarget({ url: "libsql://127.0.0.1:8080?tls=0&authToken=abc" })).toStrictEqual({
+      url: "libsql://127.0.0.1:8080?tls=0",
+      authToken: "abc",
+    });
+    expect(makeLibsqlTarget({ url: "libsql://app-ada.turso.io" })).toStrictEqual({
+      url: "libsql://app-ada.turso.io",
+      authToken: null,
+    });
+  });
+});
+
+describe("makeD1Target", () => {
+  it("reads the account, the database and the token", () => {
+    expect(makeD1Target({ url: "d1://0123abcd/5678-ef90?token=secret" })).toStrictEqual({
+      accountId: "0123abcd",
+      databaseId: "5678-ef90",
+      token: "secret",
+    });
+    expect(makeD1Target({ url: "d1://0123abcd/5678-ef90/" })).toStrictEqual({
+      accountId: "0123abcd",
+      databaseId: "5678-ef90",
+      token: null,
+    });
+  });
+
+  it.each(["d1://0123abcd", "d1://0123abcd/", "d1://0123abcd/a/b"])(
+    "has no target for %s",
+    (url) => {
+      expect(makeD1Target({ url })).toBeNull();
+    },
+  );
+});
+
+describe("makeTlsRequired", () => {
+  it.each([
+    ["postgres://u:p@ep-cool-1.us-east-2.aws.neon.tech/app", true],
+    ["postgres://u:p@ep-cool-1.us-east-2.aws.neon.tech/app?sslmode=require", false],
+    ["mysql://u:p@aws.connect.psdb.cloud/app", true],
+    ['mysql://u:p@aws.connect.psdb.cloud/app?ssl={"rejectUnauthorized":true}', false],
+    ["postgres://u:p@us-east-3.pg.psdb.cloud/app", true],
+    ["postgres://u:p@localhost/app", false],
+    ["mysql://u:p@localhost/app", false],
+  ] as const)("%s: %s", (url, required) => {
+    expect(makeTlsRequired({ url })).toBe(required);
+  });
+});
+
+describe("makeRedactedUrl", () => {
+  it("hides the tokens Turso and D1 carry as parameters", () => {
+    expect(makeRedactedUrl({ url: "libsql://app.turso.io?authToken=abc&tls=1" })).toBe(
+      "libsql://app.turso.io?authToken=****&tls=1",
+    );
+    expect(makeRedactedUrl({ url: "d1://acc/db?token=secret" })).toBe("d1://acc/db?token=****");
+  });
+});
+
+describe("makeCell", () => {
+  it("writes the ArrayBuffer libSQL hands a blob back as in hex", () => {
+    expect(makeCell({ value: new Uint8Array([0xde, 0xad]).buffer })).toBe("\\xdead");
   });
 });
 
@@ -189,5 +355,89 @@ describe("makeAnalysisSchema", () => {
         },
       ],
     });
+  });
+});
+
+describe("makeUnknownFieldsMessage", () => {
+  it("names the fields, in the plural for more than one, and is null for none", () => {
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: ["body"] })).toBe(
+      "Unknown column of post: body",
+    );
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: ["body", "slug"] })).toBe(
+      "Unknown columns of post: body, slug",
+    );
+    expect(makeUnknownFieldsMessage({ name: "post", unknown: [] })).toBeNull();
+  });
+});
+
+describe("makeCount", () => {
+  it.each([
+    [[{ count: 3 }], 3],
+    [[{ count: "42" }], 42],
+    [[{ count: 7n }], 7],
+    [[], 0],
+  ])("reads %o as %d", (rows, count) => {
+    expect(makeCount({ rows })).toBe(count);
+  });
+});
+
+describe("makeSqlResult", () => {
+  it("reads the columns from the first row when the driver names none", () => {
+    expect(
+      makeSqlResult({ result: { columns: [], rows: [{ n: 1n }], rowCount: 1 }, durationMs: 1.23 }),
+    ).toStrictEqual({ columns: ["n"], rows: [{ n: 1 }], rowCount: 1, durationMs: 1.23 });
+  });
+
+  it("is empty when no statement ran", () => {
+    expect(makeSqlResult({ result: null, durationMs: 0 })).toStrictEqual({
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      durationMs: 0,
+    });
+  });
+});
+
+describe("makeRowInputProblem", () => {
+  const where = { field: "where", values: { postId: 1 }, required: true };
+
+  it("is null when every input names known columns", () => {
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [where, { field: "values", values: { note: "x" }, required: true }],
+      }),
+    ).toBeNull();
+  });
+
+  it("names an empty required input before any unknown column", () => {
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [
+          { field: "where", values: { nope: 1 }, required: true },
+          { field: "values", values: {}, required: true },
+        ],
+      }),
+    ).toStrictEqual({ field: "values", message: "values must name at least one column" });
+  });
+
+  it("names the first input with a column the table does not have", () => {
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [where, { field: "values", values: { body: "x", slug: "y" }, required: false }],
+      }),
+    ).toStrictEqual({ field: "values", message: "Unknown columns of postTags: body, slug" });
+    expect(
+      makeRowInputProblem({
+        table,
+        name: "postTags",
+        inputs: [{ field: "values", values: {}, required: false }],
+      }),
+    ).toBeNull();
   });
 });

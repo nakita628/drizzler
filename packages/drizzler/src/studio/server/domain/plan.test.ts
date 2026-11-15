@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { makeMysqlPlan, makePostgresPlan, makeSqlitePlan } from "./plan.js";
+import {
+  makeMysqlPlan,
+  makePlan,
+  makePlanDocument,
+  makePostgresPlan,
+  makeSqlitePlan,
+} from "./plan.js";
 
 describe("makeSqlitePlan", () => {
   it("flattens EXPLAIN QUERY PLAN rows with their parents and indents the raw text", () => {
@@ -102,11 +108,40 @@ describe("makePostgresPlan", () => {
     ]);
   });
 
-  it("reads a JSON string and yields no steps for a shape it does not know", () => {
-    expect(makePostgresPlan({ document: '[{"Plan":{"Node Type":"Result"}}]' }).nodes).toStrictEqual(
-      [{ id: "1", parent: null, label: "Result", detail: null, cost: null, rows: null }],
-    );
-    expect(makePostgresPlan({ document: "not json" })).toStrictEqual({ nodes: [], raw: "null" });
+  it("yields no steps for a shape it does not know", () => {
+    expect(makePostgresPlan({ document: undefined })).toStrictEqual({ nodes: [], raw: undefined });
+    expect(makePostgresPlan({ document: { Plan: "no" } }).nodes).toStrictEqual([]);
+  });
+});
+
+describe("makePlanDocument", () => {
+  it("takes the JSON column of PostgreSQL's and MySQL's first row, and none for SQLite", () => {
+    expect(
+      makePlanDocument({ dialect: "postgresql", rows: [{ "QUERY PLAN": [1] }] }),
+    ).toStrictEqual([1]);
+    expect(makePlanDocument({ dialect: "mysql", rows: [{ EXPLAIN: "{}" }] })).toBe("{}");
+    expect(makePlanDocument({ dialect: "mysql", rows: [] })).toBeNull();
+    expect(makePlanDocument({ dialect: "sqlite", rows: [{ detail: "SCAN" }] })).toBeNull();
+  });
+});
+
+describe("makePlan", () => {
+  it("reads each dialect's plan", () => {
+    expect(
+      makePlan({ dialect: "postgresql", rows: [], document: [{ Plan: { "Node Type": "Result" } }] })
+        .nodes,
+    ).toStrictEqual([
+      { id: "1", parent: null, label: "Result", detail: null, cost: null, rows: null },
+    ]);
+    expect(
+      makePlan({
+        dialect: "sqlite",
+        rows: [{ id: 2, parent: 0, notused: 0, detail: "SCAN users" }],
+        document: null,
+      }).nodes,
+    ).toStrictEqual([
+      { id: "2", parent: null, label: "SCAN users", detail: null, cost: null, rows: null },
+    ]);
   });
 });
 

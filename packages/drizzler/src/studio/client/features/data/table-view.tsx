@@ -31,7 +31,8 @@ import { useDebounced } from "../../lib/debounce.js";
 import { downloadFile } from "../../lib/download.js";
 import { problemMessage } from "../../lib/problem.js";
 import { keyLabel, keyOf, rowId, toCsv, toJson, toTsv } from "./cells.js";
-import { loadHiddenColumns, saveHiddenColumns } from "./columns.js";
+import { loadJson, saveJson } from "../../lib/storage.js";
+import { columnsStorageKey, hiddenColumnsOf } from "./columns.js";
 import { PAGE_SIZE } from "./paging.js";
 import type { GridEnum, GridTable } from "./table.js";
 
@@ -75,7 +76,9 @@ export function TableView({
   const [pending, setPending] = useState<readonly Row[] | null>(null);
   // Which columns are folded away, per table and remembered. Everything that copies or exports
   // takes what is on screen, so this is also how a copy is narrowed to two columns of forty.
-  const [hidden, setHidden] = useState(() => loadHiddenColumns(table.name));
+  const [hidden, setHidden] = useState(() =>
+    hiddenColumnsOf(loadJson(columnsStorageKey(table.name))),
+  );
   const searchBox = useRef<HTMLInputElement>(null);
   // The box holds what is being typed; the query behind it settles first, so a table of a million
   // rows is read once per pause rather than once per letter.
@@ -153,7 +156,7 @@ export function TableView({
 
   function hideColumns(next: ReadonlySet<string>) {
     setHidden(next);
-    saveHiddenColumns(table.name, next);
+    saveJson(columnsStorageKey(table.name), [...next]);
   }
 
   function search(value: string) {

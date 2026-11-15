@@ -137,3 +137,128 @@ describe("domain-no-nondeterminism and domain-no-side-effects", () => {
     expect(lint(name, code)).toBe(0);
   });
 });
+
+describe("pure-no-throw", () => {
+  const file = "packages/drizzler/src/sql/x.ts";
+
+  it.each([
+    ["a throw", 'export function f() { throw new Error("bad"); }'],
+    ["a try", "export function f() { try { g(); } catch { return null; } }"],
+    ["a JSON.parse", "export function f(text) { return JSON.parse(text); }"],
+  ])("reports %s", (_, code) => {
+    expect(lint("pure-no-throw", code, file)).toBe(1);
+  });
+
+  it.each([
+    ["a failure returned as a value", 'export function f() { return { error: "bad" }; }'],
+    ["JSON.stringify", "export function f(value) { return JSON.stringify(value); }"],
+    ["a test file", 'throw new Error("bad");'],
+  ])("leaves alone %s", (label, code) => {
+    expect(lint("pure-no-throw", code, label === "a test file" ? "src/x.test.ts" : file)).toBe(0);
+  });
+});
+
+describe("use-error-message", () => {
+  const file = "packages/drizzler/src/core/x.ts";
+
+  it("reports a hand-written error message", () => {
+    expect(
+      lint(
+        "use-error-message",
+        "const m = error instanceof Error ? error.message : String(error);",
+        file,
+      ),
+    ).toBe(1);
+    expect(
+      lint("use-error-message", "const m = e instanceof Error ? e.message : `${e}`;", file),
+    ).toBe(1);
+  });
+
+  it.each([
+    ["the helper itself", "packages/drizzler/src/helper/error-message.ts"],
+    ["a test file", "packages/drizzler/src/core/x.test.ts"],
+  ])("leaves alone %s", (_, filename) => {
+    expect(
+      lint(
+        "use-error-message",
+        "const m = error instanceof Error ? error.message : String(error);",
+        filename,
+      ),
+    ).toBe(0);
+  });
+
+  it("leaves alone another instanceof test", () => {
+    expect(
+      lint("use-error-message", "const n = value instanceof Date ? value.getTime() : 0;", file),
+    ).toBe(0);
+    expect(
+      lint("use-error-message", "const s = error instanceof Error ? error.stack : null;", file),
+    ).toBe(0);
+  });
+});
+
+describe("service-does-io", () => {
+  const file = "packages/drizzler/src/studio/server/services/x.ts";
+
+  it.each([
+    ["a pure computation", "export function readSchema(input) { return parse(input.source); }"],
+    [
+      "a pure computation that calls only pure functions of its own",
+      "function twice(n) { return n * 2; } export function size(input) { return twice(input.length); }",
+    ],
+    [
+      "a pure computation beside module state it does not use",
+      "const cache = new Map(); export function size(input) { return input.length; }",
+    ],
+  ])("reports %s", (_, code) => {
+    expect(lint("service-does-io", code, file)).toBe(1);
+  });
+
+  it.each([
+    [
+      "an Effect",
+      "export function readText(input) { return Effect.gen(function* () { yield* read(input.file); }); }",
+    ],
+    [
+      "the module's state",
+      'const current = new Map(); export function getStudio() { return current.get("current"); }',
+    ],
+    [
+      "the module's state through a function of its own",
+      'const current = new Map(); function configured() { return current.get("c"); } export function getStudio() { return configured().studio; }',
+    ],
+    ["a function that is not exported", "function helper(input) { return input; }"],
+  ])("leaves alone %s", (_, code) => {
+    expect(lint("service-does-io", code, file)).toBe(0);
+  });
+
+  it("leaves alone a file outside services", () => {
+    expect(
+      lint(
+        "service-does-io",
+        "export function f(input) { return input; }",
+        "packages/drizzler/src/studio/server/domain/x.ts",
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("no-escaped-backtick-in-comment", () => {
+  it.each([
+    ["a line comment", "// What \\`drizzler seed\\` decides\nconst a = 1;"],
+    ["a doc comment", "/**\n * The \\`url\\` of the config.\n */\nconst a = 1;"],
+  ])("reports %s", (_, code) => {
+    expect(lint("no-escaped-backtick-in-comment", code)).toBe(1);
+  });
+
+  it.each([
+    ["a backtick as it is", "// What `drizzler seed` decides\nconst a = 1;"],
+    [
+      "an escaped backtick inside a code span",
+      "// (`sql\\`CURRENT_TIMESTAMP\\``) fills it\nconst a = 1;",
+    ],
+    ["an escaped backtick in a template literal", "const a = `say \\`hi\\``;"],
+  ])("leaves alone %s", (_, code) => {
+    expect(lint("no-escaped-backtick-in-comment", code)).toBe(0);
+  });
+});

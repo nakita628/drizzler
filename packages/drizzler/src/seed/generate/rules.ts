@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import type { Result } from "../result.js";
+import { fail, ok } from "../result.js";
 import type { LooseModelRule, SeedRow } from "../config.js";
 import { SeedGenerationError } from "../errors.js";
 import type { ResolvedSeedConfig } from "../options.js";
@@ -114,11 +115,14 @@ function checkModel(name: string, rule: LooseModelRule, tables: readonly ModelTa
 }
 
 /** Fails when a model rule names a table, column or relation the schema does not have. */
-export function checkRules(tables: readonly ModelTable[], config: ResolvedSeedConfig) {
-  return Effect.gen(function* () {
-    const problems = Object.entries(config.models).flatMap(([name, rule]) =>
-      checkModel(name, rule, tables),
-    );
-    if (problems.length > 0) yield* new SeedGenerationError({ message: problems.join("\n   ") });
-  });
+export function checkRules(
+  tables: readonly ModelTable[],
+  config: ResolvedSeedConfig,
+): Result<void, SeedGenerationError> {
+  const problems = Object.entries(config.models).flatMap(([name, rule]) =>
+    checkModel(name, rule, tables),
+  );
+  return problems.length > 0
+    ? fail(new SeedGenerationError({ message: problems.join("\n   ") }))
+    : ok(undefined);
 }

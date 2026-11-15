@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import * as DocsDomain from "../domain/docs.js";
 import * as ParseDomain from "../domain/parse.js";
 import { readText } from "../services/file.js";
-import * as ParseService from "../services/parse.js";
+import * as SchemaReader from "../../../helper/schema-reader.js";
 import { getStudio } from "../services/studio.js";
 
 /**
@@ -15,7 +15,7 @@ import { getStudio } from "../services/studio.js";
  * sequenceDiagram
  *   participant U as DocsUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   U->>F: readText({ file: schemaPath })
  *   F-->>U: source
@@ -36,12 +36,12 @@ export function readDocs() {
     const source = yield* readText({ file: getStudio().schemaPath });
     const parseError = ParseDomain.makeParseError({
       source,
-      error: ParseService.findSyntaxError({ source }),
+      error: SchemaReader.findSyntaxError({ source }),
     });
     if (parseError !== null) return { tables: [], enums: [], parseError };
     const docs = DocsDomain.makeDocs({
-      ...ParseService.readSchema({ source }),
-      relationFields: ParseService.readRelationFields({ source }),
+      ...SchemaReader.readSchema({ source }),
+      relationFields: SchemaReader.readRelationFields({ source }),
     });
     return { ...docs, parseError: null };
   });

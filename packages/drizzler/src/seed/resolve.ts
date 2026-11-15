@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import nodeModule from "node:module";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { Effect } from "effect";
+import { seedImportBase, seedImportCandidates } from "../schema/module-url.js";
 
 function isFile(candidate: string) {
   return existsSync(candidate) && statSync(candidate).isFile();
@@ -19,21 +19,9 @@ export function resolveTypeScript(
   context: { readonly parentURL?: string | undefined },
   next: (specifier: string) => { readonly url: string; readonly shortCircuit?: boolean },
 ) {
-  const parent = context.parentURL;
-  const relative = specifier.startsWith("./") || specifier.startsWith("../");
-  if (!(relative || specifier.startsWith("file:"))) return next(specifier);
-  if (relative && (parent === undefined || !parent.startsWith("file:"))) return next(specifier);
-  const base = fileURLToPath(relative ? new URL(specifier, parent) : new URL(specifier));
-  if (isFile(base)) return next(specifier);
-  const found = [
-    base.replace(/\.js$/u, ".ts"),
-    `${base}.ts`,
-    `${base}.mts`,
-    `${base}.js`,
-    `${base}.mjs`,
-    path.join(base, "index.ts"),
-    path.join(base, "index.js"),
-  ].find(isFile);
+  const base = seedImportBase(specifier, context.parentURL);
+  if (base === null || isFile(base)) return next(specifier);
+  const found = seedImportCandidates(base).find(isFile);
   // The file is answered directly: a `require` in the project gets the same hook, and Node's own
   // CommonJS resolver does not take a `file:` URL as a specifier.
   return found === undefined

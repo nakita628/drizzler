@@ -1,15 +1,15 @@
 import { Duration, Effect } from "effect";
+import { durationMs } from "../../../helper/duration.js";
 import { analyze, paramsByStatement, splitStatements } from "../../../sql/index.js";
 import * as DocsDomain from "../domain/docs.js";
+import * as PlanDomain from "../domain/plan.js";
 import * as QueryDomain from "../domain/query.js";
 import * as SqlDomain from "../domain/sql.js";
-import type { CellValue, Dialect } from "../domain/sql.js";
-import { DatabaseUnavailableError, InvalidInputError, UnknownTableError } from "../errors/index.js";
-import { NO_DATABASE_MESSAGE } from "../constants/index.js";
+import type { CellValue } from "../domain/sql.js";
+import { InvalidInputError, UnknownTableError } from "../errors/index.js";
 import { readText } from "../services/file.js";
-import * as ParseService from "../services/parse.js";
-import * as PlanService from "../services/plan.js";
-import { getStudio } from "../services/studio.js";
+import * as SchemaReader from "../../../helper/schema-reader.js";
+import { connectedDriver, getStudio } from "../services/studio.js";
 
 type Values = Readonly<Record<string, CellValue>>;
 
@@ -17,21 +17,10 @@ type Values = Readonly<Record<string, CellValue>>;
 function tables() {
   return Effect.gen(function* () {
     const source = yield* readText({ file: getStudio().schemaPath });
-    return ParseService.findSyntaxError({ source }) === null
-      ? DocsDomain.makeDbTables({ models: ParseService.readSchema({ source }).models })
+    return SchemaReader.findSyntaxError({ source }) === null
+      ? DocsDomain.makeDbTables({ models: SchemaReader.readSchema({ source }).models })
       : [];
   });
-}
-
-function driver() {
-  const { driver } = getStudio().database;
-  return driver === null
-    ? Effect.fail(
-        new DatabaseUnavailableError({
-          reason: getStudio().database.status.error ?? NO_DATABASE_MESSAGE,
-        }),
-      )
-    : Effect.succeed(driver);
 }
 
 function table(name: string) {
@@ -42,28 +31,17 @@ function table(name: string) {
   });
 }
 
-function checkFields(
+/** Fails with the first problem of a row write's inputs (makeRowInputProblem). */
+function checkInputs(
   found: Effect.Success<ReturnType<typeof table>>,
-  values: Values,
-  field: string,
+  inputs: readonly {
+    readonly field: string;
+    readonly values: Values;
+    readonly required: boolean;
+  }[],
 ) {
-  const unknown = SqlDomain.makeUnknownFields({ table: found, values });
-  return unknown.length === 0
-    ? Effect.void
-    : Effect.fail(
-        new InvalidInputError({
-          field,
-          message: `Unknown column${unknown.length > 1 ? "s" : ""} of ${found.name}: ${unknown.join(", ")}`,
-        }),
-      );
-}
-
-function requireSome(values: Values, field: string) {
-  return Object.keys(values).length > 0
-    ? Effect.void
-    : Effect.fail(
-        new InvalidInputError({ field, message: `${field} must name at least one column` }),
-      );
+  const problem = SqlDomain.makeRowInputProblem({ table: found, name: found.name, inputs });
+  return problem === null ? Effect.void : Effect.fail(new InvalidInputError(problem));
 }
 
 /**
@@ -76,7 +54,7 @@ function requireSome(values: Values, field: string) {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   U->>F: readText({ file: schemaPath })
  *   U->>P: readSchema(source)
@@ -92,14 +70,15 @@ export function readStatus() {
 }
 
 /** The plan an EXPLAIN gave, read as the dialect writes it. */
-function planOf(dialect: Dialect, rows: readonly Readonly<Record<string, unknown>>[]) {
-  if (dialect === "postgresql") {
-    return PlanService.makePostgresPlan({ document: rows[0]?.["QUERY PLAN"] ?? null });
-  }
-  if (dialect === "mysql") {
-    return PlanService.makeMysqlPlan({ document: rows[0]?.["EXPLAIN"] ?? null });
-  }
-  return PlanService.makeSqlitePlan({ rows });
+/**
+ * The plan's JSON document parsed when the driver handed it back as text (MySQL does); text that
+ * is not JSON is passed on as it is, and the plan shows no steps.
+ */
+function parsedDocument(document: unknown) {
+  if (typeof document !== "string") return Effect.succeed(document);
+  return Effect.try((): unknown => JSON.parse(document)).pipe(
+    Effect.catch((error) => Effect.as(Effect.logWarning("the plan is not JSON", error), document)),
+  );
 }
 
 /**
@@ -111,7 +90,7 @@ function planOf(dialect: Dialect, rows: readonly Readonly<Record<string, unknown
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -129,10 +108,10 @@ function planOf(dialect: Dialect, rows: readonly Readonly<Record<string, unknown
  */
 export function readCounts() {
   return Effect.gen(function* () {
-    const db = yield* driver();
+    const db = yield* connectedDriver();
     const counted = yield* Effect.forEach(yield* tables(), (t) =>
       db.query(SqlDomain.makeCountStatement({ dialect: db.dialect, table: t })).pipe(
-        Effect.map((result) => [[t.name, Number(result.rows[0]?.count ?? 0)] as const]),
+        Effect.map((result) => [[t.name, SqlDomain.makeCount({ rows: result.rows })] as const]),
         Effect.catch((error) =>
           Effect.logDebug(`cannot count the rows of ${t.name}`, error).pipe(Effect.as([])),
         ),
@@ -156,7 +135,7 @@ export function readCounts() {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -184,7 +163,7 @@ export function readRows(input: {
   readonly search: string;
 }) {
   return Effect.gen(function* () {
-    const db = yield* driver();
+    const db = yield* connectedDriver();
     const found = yield* table(input.table);
     const search = input.search.trim();
     const total = yield* db.query(
@@ -201,7 +180,7 @@ export function readRows(input: {
     );
     return {
       rows: page.rows.map((row) => SqlDomain.makeRow({ table: found, row })),
-      total: Number(total.rows[0]?.count ?? 0),
+      total: SqlDomain.makeCount({ rows: total.rows }),
       skip: input.skip,
       take: input.take,
       search,
@@ -221,7 +200,7 @@ export function readRows(input: {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -244,9 +223,9 @@ export function readRows(input: {
  */
 export function insertRow(input: { readonly table: string; readonly values: Values }) {
   return Effect.gen(function* () {
-    const db = yield* driver();
+    const db = yield* connectedDriver();
     const found = yield* table(input.table);
-    yield* checkFields(found, input.values, "values");
+    yield* checkInputs(found, [{ field: "values", values: input.values, required: false }]);
     const result = yield* db.query(
       SqlDomain.makeInsertStatement({ dialect: db.dialect, table: found, values: input.values }),
     );
@@ -267,7 +246,7 @@ export function insertRow(input: { readonly table: string; readonly values: Valu
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -293,12 +272,12 @@ export function updateRow(input: {
   readonly values: Values;
 }) {
   return Effect.gen(function* () {
-    const db = yield* driver();
+    const db = yield* connectedDriver();
     const found = yield* table(input.table);
-    yield* requireSome(input.where, "where");
-    yield* requireSome(input.values, "values");
-    yield* checkFields(found, input.where, "where");
-    yield* checkFields(found, input.values, "values");
+    yield* checkInputs(found, [
+      { field: "where", values: input.where, required: true },
+      { field: "values", values: input.values, required: true },
+    ]);
     const result = yield* db.query(
       SqlDomain.makeUpdateStatement({
         dialect: db.dialect,
@@ -323,7 +302,7 @@ export function updateRow(input: {
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant B as Driver
  *   alt no database
@@ -345,10 +324,9 @@ export function updateRow(input: {
  */
 export function deleteRow(input: { readonly table: string; readonly where: Values }) {
   return Effect.gen(function* () {
-    const db = yield* driver();
+    const db = yield* connectedDriver();
     const found = yield* table(input.table);
-    yield* requireSome(input.where, "where");
-    yield* checkFields(found, input.where, "where");
+    yield* checkInputs(found, [{ field: "where", values: input.where, required: true }]);
     const result = yield* db.query(
       SqlDomain.makeDeleteStatement({ dialect: db.dialect, table: found, where: input.where }),
     );
@@ -398,25 +376,17 @@ function statementsOf(sql: string) {
  */
 export function runSql(input: { readonly sql: string; readonly params: readonly CellValue[] }) {
   return Effect.gen(function* () {
-    const db = yield* driver();
+    const db = yield* connectedDriver();
     const statements = yield* statementsOf(input.sql);
     const params = input.params.map((value) => SqlDomain.makeParam({ dialect: db.dialect, value }));
     const bound = paramsByStatement(statements, params);
     const [took, results] = yield* Effect.timed(
       Effect.forEach(statements, (sql, index) => db.query({ sql, params: bound[index] ?? [] })),
     );
-    const result = results.at(-1) ?? { columns: [], rows: [], rowCount: 0 };
-    const columns = result.columns.length > 0 ? result.columns : Object.keys(result.rows[0] ?? {});
-    return {
-      columns: [...columns],
-      rows: result.rows.map((row) =>
-        Object.fromEntries(
-          Object.entries(row).map(([key, value]) => [key, SqlDomain.makeCell({ value })]),
-        ),
-      ),
-      rowCount: result.rowCount,
-      durationMs: Math.round(Duration.toMillis(took) * 100) / 100,
-    };
+    return SqlDomain.makeSqlResult({
+      result: results.at(-1) ?? null,
+      durationMs: durationMs(Duration.toMillis(took)),
+    });
   });
 }
 
@@ -434,7 +404,7 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
  *   participant S as sql
  *   participant D as SqlDomain
  *   participant B as Driver
- *   participant L as PlanService
+ *   participant L as PlanDomain
  *   alt no database
  *     U-->>U: DatabaseUnavailableError
  *   end
@@ -445,13 +415,13 @@ export function runSql(input: { readonly sql: string; readonly params: readonly 
  *   U->>D: makeExplainStatement
  *   U->>B: query(explain)
  *   B-->>U: rows
- *   U->>L: make(Postgres|Mysql|Sqlite)Plan
+ *   U->>L: makePlanDocument, parsed when text, then makePlan
  *   L-->>U: nodes, raw
  * ```
  */
 export function explainSql(input: { readonly sql: string; readonly params: readonly CellValue[] }) {
   return Effect.gen(function* () {
-    const db = yield* driver();
+    const db = yield* connectedDriver();
     const [first = ""] = yield* statementsOf(input.sql);
     const params = paramsByStatement(
       [first],
@@ -461,7 +431,10 @@ export function explainSql(input: { readonly sql: string; readonly params: reado
       sql: SqlDomain.makeExplainStatement({ dialect: db.dialect, sql: first }),
       params: params ?? [],
     });
-    const plan = planOf(db.dialect, rows);
+    const document = yield* parsedDocument(
+      PlanDomain.makePlanDocument({ dialect: db.dialect, rows }),
+    );
+    const plan = PlanDomain.makePlan({ dialect: db.dialect, rows, document });
     return { dialect: db.dialect, nodes: [...plan.nodes], raw: plan.raw };
   });
 }
@@ -478,12 +451,12 @@ export function explainSql(input: { readonly sql: string; readonly params: reado
  * sequenceDiagram
  *   participant U as DbUseCase
  *   participant F as file
- *   participant P as ParseService
+ *   participant P as SchemaReader
  *   participant D as Domain
  *   participant S as sql
  *   U->>F: readText({ file: schemaPath })
  *   U->>P: findSyntaxError(source)
- *   U->>D: QueryDomain.makeSchemaDialect (no database)
+ *   U->>D: QueryDomain.makeWorkingDialect (the database's, else the schema's)
  *   U->>P: readSchema(source) (when it parses)
  *   U->>D: SqlDomain.makeAnalysisSchema
  *   U->>S: analyze(sql, schema)
@@ -493,14 +466,17 @@ export function explainSql(input: { readonly sql: string; readonly params: reado
 export function analyzeSql(input: { readonly sql: string }) {
   return Effect.gen(function* () {
     const source = yield* readText({ file: getStudio().schemaPath });
-    const parses = ParseService.findSyntaxError({ source }) === null;
-    const dialect =
-      getStudio().database.status.dialect ?? QueryDomain.makeSchemaDialect({ source }) ?? "sqlite";
+    const parses = SchemaReader.findSyntaxError({ source }) === null;
+    const dialect = QueryDomain.makeWorkingDialect({
+      purpose: "sql",
+      connected: getStudio().database.status.dialect,
+      source,
+    });
     return analyze(
       input.sql,
       SqlDomain.makeAnalysisSchema({
         dialect,
-        models: parses ? ParseService.readSchema({ source }).models : [],
+        models: parses ? SchemaReader.readSchema({ source }).models : [],
       }),
     );
   });
