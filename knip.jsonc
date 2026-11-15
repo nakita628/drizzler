@@ -1,0 +1,57 @@
+{
+  // Finds unused files, exports and dependencies across the workspaces: `pnpm knip` (CI runs it in
+  // the Lint workflow). The vite-plus plugin reads each workspace's vite.config.ts, so the test
+  // files are entries without being listed here. https://knip.dev/reference/configuration
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "workspaces": {
+    ".": {
+      // The oxlint JS plugins vite.config.ts loads (custom.js) and the modules they import.
+      "entry": ["lint/*.js"],
+      "project": ["lint/**/*.js"],
+      // `drizzler` is linked at the root so `npx drizzler` runs the local build from anywhere.
+      "ignoreDependencies": ["drizzler"],
+    },
+    "packages/drizzler": {
+      // The CLI (src/index.ts) is found from vite.config.ts. src/seed/config.ts is what
+      // `import { defineConfig } from "drizzler"` loads. The studio client is built by
+      // vite.studio.config.ts from index.html, which loads main.tsx and styles.css, and its pages
+      // are the file-based routes of the TanStack Router plugin; knip reads neither from there.
+      "entry": [
+        "src/seed/config.ts",
+        "src/studio/client/main.tsx",
+        "src/studio/client/styles.css",
+        "src/studio/client/routes/**/*.tsx",
+        "hono-takibi.config.ts",
+        "vite.studio.config.ts",
+      ],
+      "project": ["src/**/*.{ts,tsx,css}", "*.ts"],
+      // `hono-takibi` compiles main.tsp with the TypeSpec compiler and the libraries it imports.
+      "ignoreDependencies": ["@typespec/.+"],
+    },
+    "examples/*": {
+      // Schemas and seeds are read by the drizzler CLI, not imported.
+      "entry": ["**/schema.ts", "drizzler.config.ts", "sqlite/*.mjs"],
+      "project": ["**/*.{ts,mjs}"],
+      // drizzler loads the project's drizzle-kit at runtime to write the tables' DDL.
+      "ignoreDependencies": ["drizzle-kit"],
+    },
+    "fixtures/*": {
+      "entry": ["**/db/schema.ts", "*.mjs"],
+      "project": ["**/*.{ts,mjs}"],
+    },
+    "test": {
+      // The e2e tests check the DDL that drizzler writes through the project's drizzle-kit.
+      "ignoreDependencies": ["drizzle-kit"],
+    },
+  },
+  "ignoreIssues": {
+    // Written by hono-takibi (`pnpm studio:api`) and the TanStack Router plugin: their exports are
+    // the generator's full surface, not the studio's choice.
+    "packages/drizzler/src/studio/server/routes/index.ts": ["exports", "types"],
+    "packages/drizzler/src/studio/client/api/index.ts": ["exports", "types"],
+    "packages/drizzler/src/studio/client/hooks/index.ts": ["exports", "types"],
+    "packages/drizzler/src/studio/client/routeTree.gen.ts": ["exports", "types"],
+    // EDGE_OFFSET is one step of GRID today, but names a different measure.
+    "packages/drizzler/src/constants/diagram.ts": ["duplicates"],
+  },
+}

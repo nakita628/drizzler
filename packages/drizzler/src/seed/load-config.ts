@@ -15,9 +15,6 @@ import {
   strippedSiblingPath,
 } from "./config-file.js";
 
-/** The file `drizzler seed` looks for when `--config` is omitted. */
-export { CONFIG_FILE } from "./config-file.js";
-
 /**
  * The explicit config path when it is a TypeScript file that exists, else `drizzler.config.ts` in
  * `cwd` when that exists, else null. The config is TypeScript only: it is typed against the

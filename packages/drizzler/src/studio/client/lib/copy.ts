@@ -1,5 +1,4 @@
 import { toast } from "@heroui/react";
-import { useCallback, useState } from "react";
 
 /**
  * Writes text to the clipboard and says so. The clipboard gives no feedback of its own, and a
@@ -16,24 +15,4 @@ export function copyText(text: string, what: string) {
     }
   }
   void write();
-}
-
-/** Copies text to the clipboard and reports "copied" for a moment. */
-export function useCopy() {
-  const [copied, setCopied] = useState(false);
-  const copy = useCallback((text: string) => {
-    async function write() {
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => {
-          setCopied(false);
-        }, 1500);
-      } catch {
-        setCopied(false);
-      }
-    }
-    void write();
-  }, []);
-  return { copied, copy };
 }

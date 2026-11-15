@@ -47,7 +47,7 @@ function sqlType(field: SchemaField, enums: ReadonlyMap<string, string>) {
 }
 
 /** One end of a relation, by the names the database knows the table and column by. */
-export type SqlRelationEnd = {
+type SqlRelationEnd = {
   readonly table: string;
   readonly column: string;
   readonly cardinality: Cardinality;

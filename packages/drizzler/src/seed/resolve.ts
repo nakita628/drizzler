@@ -14,7 +14,7 @@ function isFile(candidate: string) {
  * there is no `x.js`. Node.js alone wants the exact file name; the config and the schema it
  * imports are TypeScript that `drizzler seed` runs as such.
  */
-export function resolveTypeScript(
+function resolveTypeScript(
   specifier: string,
   context: { readonly parentURL?: string | undefined },
   next: (specifier: string) => { readonly url: string; readonly shortCircuit?: boolean },

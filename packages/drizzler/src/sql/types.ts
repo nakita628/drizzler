@@ -13,7 +13,7 @@ export type Dialect = "postgresql" | "mysql" | "sqlite";
  *
  * @param upper - the declared type in upper case, as `sqlite_master` and `PRAGMA table_info` spell it
  */
-export function sqliteAffinity(upper: string) {
+function sqliteAffinity(upper: string) {
   if (upper.includes("INT")) return "integer";
   if (upper.includes("CHAR") || upper.includes("CLOB") || upper.includes("TEXT")) return "text";
   if (upper.includes("REAL") || upper.includes("FLOA") || upper.includes("DOUB")) return "real";

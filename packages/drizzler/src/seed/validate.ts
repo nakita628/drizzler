@@ -89,7 +89,7 @@ function scalarSchema(column: SeedColumn) {
 }
 
 /** The zod schema a column's value must pass: the scalar, in a list or nullable as declared. */
-export function columnSchema(column: SeedColumn) {
+function columnSchema(column: SeedColumn) {
   const scalar = scalarSchema(column);
   const shaped = column.isList ? z.array(scalar) : scalar;
   return column.isRequired ? shaped : shaped.nullable();

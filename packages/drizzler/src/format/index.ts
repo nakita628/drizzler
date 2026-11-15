@@ -1,7 +1,12 @@
 import { Data, Effect } from "effect";
 import { format } from "oxfmt";
 
-/** oxfmt could not format the generated code. */
+/**
+ * oxfmt could not format the generated code. It is exported because the declaration of an
+ * exported function names it in its error channel.
+ *
+ * @public
+ */
 export class FormatError extends Data.TaggedError("FormatError")<{
   readonly message: string;
 }> {}

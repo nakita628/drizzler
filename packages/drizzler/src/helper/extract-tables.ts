@@ -318,7 +318,7 @@ function relationTables(arg: Node | undefined, tableNames: readonly string[]) {
  * `r.many.X(...)` on a table. `from` and `to` are null for a relation that names no columns, the
  * reverse side of a pair the other table declares.
  */
-export function relationDefinitions(program: Program, text: string) {
+function relationDefinitions(program: Program, text: string) {
   const tableNames = tableCalls(program, text).map(({ varName }) => varName);
   return topLevelDeclarations(program).flatMap(({ declarator }) => {
     const exportName = declaratorName(declarator);
@@ -458,7 +458,7 @@ function extractRelationsFromDefinitions(
  * and the `.table` of a casing or a schema (`snakeCase.table`, `camelCase.table`,
  * `pgSchema("auth").table`, `authSchema.table`); never `defineRelations`, whatever it is named.
  */
-export function isTableBuilder(callee: string) {
+function isTableBuilder(callee: string) {
   return /(?:Table|\.table)(?:\.withRLS)?$/u.test(callee.replace(/\s+/gu, ""));
 }
 

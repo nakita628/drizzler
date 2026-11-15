@@ -11,14 +11,14 @@ const MAX_PARAMS = 30_000;
 const MAX_ROWS = 200;
 
 /** A table or column name quoted for the dialect. */
-export function quoteIdentifier(dialect: Dialect, name: string) {
+function quoteIdentifier(dialect: Dialect, name: string) {
   return dialect === "mysql"
     ? `\`${name.replaceAll("`", "``")}\``
     : `"${name.replaceAll('"', '""')}"`;
 }
 
 /** The table as the dialect names it: `"auth"."users"` when it lives in a PostgreSQL schema. */
-export function qualifiedName(dialect: Dialect, table: ModelTable) {
+function qualifiedName(dialect: Dialect, table: ModelTable) {
   const name = quoteIdentifier(dialect, table.table);
   return table.schema === null ? name : `${quoteIdentifier(dialect, table.schema)}.${name}`;
 }
@@ -59,7 +59,7 @@ function elementText(value: unknown) {
  * on SQLite, a date to the text or number its mode stores, JSON to text), then what is left made
  * bindable for the dialect.
  */
-export function driverValue(dialect: Dialect, column: SeedColumn, value: SeedValue | undefined) {
+function driverValue(dialect: Dialect, column: SeedColumn, value: SeedValue | undefined) {
   if (value === null || value === undefined) return null;
   const mapped: unknown = column.toDriver(value);
   if (mapped === null || mapped === undefined) return null;
@@ -169,7 +169,7 @@ export function insertStatements(
 }
 
 /** `DELETE FROM` every seeded table, children first, so no key is left dangling. */
-export function resetSql(dialect: Dialect, tables: readonly ModelTable[]) {
+function resetSql(dialect: Dialect, tables: readonly ModelTable[]) {
   const deletes = tables
     .toReversed()
     .map((table) => `DELETE FROM ${qualifiedName(dialect, table)}`);
@@ -184,7 +184,7 @@ export function resetSql(dialect: Dialect, tables: readonly ModelTable[]) {
  * column with 1..n the next insert would reuse 1. These move each sequence past the rows. SQLite
  * and MySQL move on by themselves.
  */
-export function sequenceSql(dialect: Dialect, tables: readonly ModelTable[]) {
+function sequenceSql(dialect: Dialect, tables: readonly ModelTable[]) {
   if (dialect !== "postgresql") return [];
   return tables.flatMap((table) =>
     table.columns

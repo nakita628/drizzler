@@ -34,7 +34,7 @@ function normalizedName(name: string) {
 }
 
 /** Whether the value is a Drizzle `sql` expression: a default the seeder cannot bind. */
-export function isSqlExpression(value: unknown) {
+function isSqlExpression(value: unknown) {
   return typeof value === "object" && value !== null && "queryChunks" in value;
 }
 

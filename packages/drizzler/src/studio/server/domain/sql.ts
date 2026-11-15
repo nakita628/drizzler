@@ -307,7 +307,7 @@ const MakeIdentifierInput = z
  * makeIdentifier({ dialect: "mysql", name: "order" }); // => "`order`"
  * ```
  */
-export function makeIdentifier(input: z.infer<typeof MakeIdentifierInput>) {
+function makeIdentifier(input: z.infer<typeof MakeIdentifierInput>) {
   return input.dialect === "mysql"
     ? `\`${input.name.replaceAll("`", "``")}\``
     : `"${input.name.replaceAll('"', '""')}"`;
@@ -386,7 +386,7 @@ const MakeUnknownFieldsInput = z
  * // => ["body"]
  * ```
  */
-export function makeUnknownFields(input: z.infer<typeof MakeUnknownFieldsInput>) {
+function makeUnknownFields(input: z.infer<typeof MakeUnknownFieldsInput>) {
   return Object.keys(input.values).filter((name) => columnOf(input.table, name) === null);
 }
 

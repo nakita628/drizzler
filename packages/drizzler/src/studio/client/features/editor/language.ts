@@ -39,7 +39,7 @@ const KINDS: ReadonlyMap<string, keyof typeof languages.CompletionItemKind> = ne
 ]);
 
 /** The Monaco completion kind for a TypeScript completion kind name. */
-export function completionKindOf(kind: string) {
+function completionKindOf(kind: string) {
   return languages.CompletionItemKind[KINDS.get(kind) ?? "Text"];
 }
 

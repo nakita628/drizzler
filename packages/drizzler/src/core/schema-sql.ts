@@ -13,13 +13,15 @@ import { elideTypeOnlyImports } from "../schema/strip-imports.js";
 import { errorMessage } from "../helper/error-message.js";
 import { nearestCacheDir } from "../helper/find-up.js";
 
-/** The schema could not be loaded, or drizzle-orm could not build the examples' SQL. */
+/**
+ * The schema could not be loaded, or drizzle-orm could not build the examples' SQL. It is
+ * exported because the declaration of an exported function names it in its error channel.
+ *
+ * @public
+ */
 export class QuerySqlError extends Data.TaggedError("QuerySqlError")<{
   readonly message: string;
 }> {}
-
-/** The tables' definitions as drizzle-kit writes them, or why they could not be written. */
-export type { SchemaDdl } from "../generator/query-probe.js";
 
 // Whether the module hooks are registered; once per process.
 const hooks = new Set<"registered">();
