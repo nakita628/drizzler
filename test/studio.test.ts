@@ -77,29 +77,31 @@ describe("drizzler studio, the packaged command", () => {
   });
 
   it("answers the schema and its rows from the database", async () => {
-    const schema = await (await json("/api/schema")).json();
+    const schema = (await (await json("/api/schema")).json()) as { source: string };
     expect(schema.source).toContain('sqliteTable("users"');
 
-    const rows = await (await json("/api/db/rows/user?skip=0&take=10")).json();
-    expect(rows.rows.map((row: { name: string }) => row.name)).toStrictEqual(["Ada", "Linus"]);
+    const rows = (await (await json("/api/db/rows/user?skip=0&take=10")).json()) as {
+      rows: { name: string }[];
+    };
+    expect(rows.rows.map((row) => row.name)).toStrictEqual(["Ada", "Linus"]);
   });
 
   it("runs Drizzle code and SQL against the database", async () => {
-    const drizzle = await (
+    const drizzle = (await (
       await json("/api/drizzle", {
         method: "POST",
         body: { code: "db.select({ name: user.name }).from(user).orderBy(user.id)" },
       })
-    ).json();
+    ).json()) as { error: string | null; result: unknown };
     expect(drizzle.error).toBeNull();
     expect(drizzle.result).toStrictEqual([{ name: "Ada" }, { name: "Linus" }]);
 
-    const sql = await (
+    const sql = (await (
       await json("/api/db/sql", {
         method: "POST",
         body: { sql: "select count(*) as n from users", params: [] },
       })
-    ).json();
+    ).json()) as { rows: unknown[] };
     expect(sql.rows).toStrictEqual([{ n: 2 }]);
   });
 
@@ -107,7 +109,7 @@ describe("drizzler studio, the packaged command", () => {
     const res = await json("/api/schema", { method: "PUT", body: { source: 42 } });
     expect(res.status).toBe(422);
     expect(res.headers.get("content-type")).toContain("application/problem+json");
-    const problem = await res.json();
+    const problem = (await res.json()) as { type: string; errors: { field: string }[] };
     expect(problem.type).toBe("/problems/validation-failed");
     expect(problem.errors[0].field).toBe("source");
   });

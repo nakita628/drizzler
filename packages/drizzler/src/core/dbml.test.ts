@@ -72,7 +72,7 @@ describe("E2E: DBML generation", () => {
   });
 
   it("generates DBML with correct table and column definitions for EC schema", async () => {
-    fs.writeFileSync(path.join(tmpdir, "schema.ts"), ecSchemaContent, "utf-8");
+    fs.writeFileSync(path.join(tmpdir, "schema.ts"), ecSchemaContent, "utf8");
     const output = path.join(tmpdir, "output", "schema.dbml");
 
     const code = stripImports(ecSchemaContent);
@@ -80,65 +80,65 @@ describe("E2E: DBML generation", () => {
 
     expect(fs.existsSync(output)).toBe(true);
 
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
 
     // Tables exist
-    expect(content.includes("Table user {")).toBe(true);
-    expect(content.includes("Table order {")).toBe(true);
-    expect(content.includes("Table order_item {")).toBe(true);
+    expect(content).toContain("Table user {");
+    expect(content).toContain("Table order {");
+    expect(content).toContain("Table order_item {");
 
     // User columns
-    expect(content.includes("id varchar [pk, not null]")).toBe(true);
-    expect(content.includes("name varchar [not null]")).toBe(true);
-    expect(content.includes("email varchar [not null]")).toBe(true);
+    expect(content).toContain("id varchar [pk, not null]");
+    expect(content).toContain("name varchar [not null]");
+    expect(content).toContain("email varchar [not null]");
 
     // Order columns
-    expect(content.includes("user_id varchar [not null]")).toBe(true);
-    expect(content.includes("total decimal [not null]")).toBe(true);
-    expect(content.includes("created_at timestamp [not null]")).toBe(true);
+    expect(content).toContain("user_id varchar [not null]");
+    expect(content).toContain("total decimal [not null]");
+    expect(content).toContain("created_at timestamp [not null]");
 
     // OrderItem columns
-    expect(content.includes("order_id integer [not null]")).toBe(true);
-    expect(content.includes("product_name varchar [not null]")).toBe(true);
-    expect(content.includes("quantity integer [not null]")).toBe(true);
-    expect(content.includes("price decimal [not null]")).toBe(true);
+    expect(content).toContain("order_id integer [not null]");
+    expect(content).toContain("product_name varchar [not null]");
+    expect(content).toContain("quantity integer [not null]");
+    expect(content).toContain("price decimal [not null]");
 
     // Foreign key refs
-    expect(content.includes("Ref order_user_id_user_id_fk: order.user_id > user.id")).toBe(true);
-    expect(
-      content.includes("Ref order_item_order_id_order_id_fk: order_item.order_id > order.id"),
-    ).toBe(true);
+    expect(content).toContain("Ref order_user_id_user_id_fk: order.user_id > user.id");
+    expect(content).toContain(
+      "Ref order_item_order_id_order_id_fk: order_item.order_id > order.id",
+    );
     expect(() => run(content, "svg")).not.toThrow();
   });
 
   it("generates DBML with field descriptions as notes for auth schema", async () => {
-    fs.writeFileSync(path.join(tmpdir, "schema.ts"), pgAuthSchema, "utf-8");
+    fs.writeFileSync(path.join(tmpdir, "schema.ts"), pgAuthSchema, "utf8");
     const output = path.join(tmpdir, "output", "auth.dbml");
 
     const code = stripImports(pgAuthSchema);
     await runEffect(drizzlerDbml(code, output));
 
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
 
-    expect(content.includes("Table account {")).toBe(true);
-    expect(content.includes("note: 'Primary key'")).toBe(true);
-    expect(content.includes("note: 'User email address'")).toBe(true);
+    expect(content).toContain("Table account {");
+    expect(content).toContain("note: 'Primary key'");
+    expect(content).toContain("note: 'User email address'");
   });
 
   it("generates DBML for single-table schema without refs", async () => {
-    fs.writeFileSync(path.join(tmpdir, "schema.ts"), singleTableSchema, "utf-8");
+    fs.writeFileSync(path.join(tmpdir, "schema.ts"), singleTableSchema, "utf8");
     const output = path.join(tmpdir, "output", "config.dbml");
 
     const code = stripImports(singleTableSchema);
     await runEffect(drizzlerDbml(code, output));
 
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
 
-    expect(content.includes("Table config {")).toBe(true);
-    expect(content.includes("key text [pk, not null]")).toBe(true);
-    expect(content.includes("value text [not null]")).toBe(true);
+    expect(content).toContain("Table config {");
+    expect(content).toContain("key text [pk, not null]");
+    expect(content).toContain("value text [not null]");
     // No Ref lines
-    expect(content.includes("Ref ")).toBe(false);
+    expect(content).not.toContain("Ref ");
   });
 });
 

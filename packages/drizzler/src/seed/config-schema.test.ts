@@ -3,6 +3,11 @@ import { decodeSeedConfig } from "./config-schema.js";
 
 const schema = { users: {} };
 
+// Why a config was rejected; empty for one that was accepted.
+function messageOf(decoded: ReturnType<typeof decodeSeedConfig>) {
+  return decoded.ok ? "" : decoded.error.message;
+}
+
 describe("decodeSeedConfig", () => {
   it("accepts a config of what drizzler seed takes", () => {
     const config = {
@@ -26,7 +31,7 @@ describe("decodeSeedConfig", () => {
       typo: true,
     });
     expect(decoded.ok).toBe(false);
-    const message = decoded.ok ? "" : decoded.error.message;
+    const message = messageOf(decoded);
     expect(message.startsWith("Invalid config in a.ts:\n   ")).toBe(true);
     expect(message).toContain("count: ");
     expect(message).toContain("nullRate: ");
@@ -39,17 +44,13 @@ describe("decodeSeedConfig", () => {
       schema,
       models: { users: { fields: { name: 1 } } },
     });
-    expect(decoded.ok ? "" : decoded.error.message).toContain("models.users.fields.name: ");
+    expect(messageOf(decoded)).toContain("models.users.fields.name: ");
   });
 
   it("needs the schema module, and says what it must be", () => {
     const missing = decodeSeedConfig("a.ts", {});
-    expect(missing.ok ? "" : missing.error.message).toBe(
-      "Invalid config in a.ts:\n   schema: Missing key",
-    );
+    expect(messageOf(missing)).toBe("Invalid config in a.ts:\n   schema: Missing key");
     const wrong = decodeSeedConfig("a.ts", { schema: 1 });
-    expect(wrong.ok ? "" : wrong.error.message).toContain(
-      "the schema module: import * as schema from './db/schema'",
-    );
+    expect(messageOf(wrong)).toContain("the schema module: import * as schema from './db/schema'");
   });
 });

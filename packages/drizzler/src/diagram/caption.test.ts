@@ -51,7 +51,7 @@ describe("placeCaptions", () => {
     // Centred on the wire, so the relation it names runs under it; its right edge a gap of 6
     // short of the end symbol, which takes the last EDGE_OFFSET of the wire.
     expect(placed?.box.y).toBe(300 - height / 2);
-    expect((placed?.box.x ?? 0) + (placed?.box.width ?? 0)).toBe(700 - EDGE_OFFSET - 6);
+    expect(placed!.box.x + placed!.box.width).toBe(700 - EDGE_OFFSET - 6);
   });
 
   it("stands the caption of the next row out, just left of the one it would cover", () => {
@@ -66,14 +66,14 @@ describe("placeCaptions", () => {
       [],
     );
     expect(second?.box.y).toBe(300 + NODE_ROW_HEIGHT - height / 2);
-    expect((second?.box.x ?? 0) + (second?.box.width ?? 0)).toBe((first?.box.x ?? 0) - 6);
+    expect(second!.box.x + second!.box.width).toBe(first!.box.x - 6);
   });
 
   it("keeps a caption off the models", () => {
     const points = routePoints(source, { x: 700, y: 300 }, []);
     const card = { x: 450, y: 90, width: 200, height: 60 };
     const [placed] = placeCaptions([{ caption, points }], [card]);
-    expect(placed && overlaps(placed.box, card)).toBe(false);
+    expect(overlaps(placed!.box, card)).toBe(false);
   });
 
   it("fans two captions on the same wire apart", () => {
@@ -85,7 +85,7 @@ describe("placeCaptions", () => {
       ],
       [],
     );
-    expect(first && second && overlaps(first.box, second.box)).toBe(false);
+    expect(overlaps(first!.box, second!.box)).toBe(false);
   });
 
   it("says nothing for an edge without a caption", () => {
@@ -106,7 +106,7 @@ describe("placeCaptions", () => {
       [],
     );
     expect(placed).toBeDefined();
-    expect(placed && coversWire(placed.box, neighbour)).toBe(false);
+    expect(coversWire(placed!.box, neighbour)).toBe(false);
   });
 
   // Not merely off it: a wire is a box a pixel or two wide, so a chip that only avoids overlapping
@@ -122,13 +122,12 @@ describe("placeCaptions", () => {
       [],
     );
     expect(placed).toBeDefined();
-    const room = placed === undefined ? null : { ...placed.box };
+    const room = placed!.box;
     expect(
-      room &&
-        coversWire(
-          { x: room.x - 4, y: room.y - 4, width: room.width + 8, height: room.height + 8 },
-          neighbour,
-        ),
+      coversWire(
+        { x: room.x - 4, y: room.y - 4, width: room.width + 8, height: room.height + 8 },
+        neighbour,
+      ),
     ).toBe(false);
   });
 
@@ -138,19 +137,20 @@ describe("placeCaptions", () => {
     const points = selfLoopPoints(source, { x: 340, y: 122 });
     const [placed] = placeCaptions([{ caption: ["tree · one to many"], points }], []);
     expect(placed).toBeDefined();
-    expect(placed && coversWire(placed.box, points)).toBe(true);
-    expect(placed && points.every((point) => inside(point, placed.box))).toBe(false);
+    expect(coversWire(placed!.box, points)).toBe(true);
+    expect(points.every((point) => inside(point, placed!.box))).toBe(false);
   });
 
   it("stands the caption of a self relation on its loop, out in the room the loop keeps", () => {
     const loop = selfLoopPoints({ x: 340, y: 100 }, { x: 340, y: 144 });
     const [placed] = placeCaptions([{ caption, points: loop }], []);
     const room = loopRoom(loop, caption);
-    const turn = loop[1]?.x ?? 0;
-    const box = placed?.box ?? { x: 0, y: 0, width: 0, height: 0 };
+    const turn = loop[1]!.x;
+    const box = placed!.box;
     // Clear of the card, on the loop, and inside the room the other wires are kept out of.
     expect(box.x).toBeGreaterThan(340);
-    expect(box.x < turn && turn < box.x + box.width).toBe(true);
+    expect(box.x).toBeLessThan(turn);
+    expect(turn).toBeLessThan(box.x + box.width);
     expect(box.x + box.width).toBeLessThanOrEqual(room.x + room.width);
   });
 
@@ -163,7 +163,7 @@ describe("placeCaptions", () => {
     // Two ends a few pixels apart: every segment is a corner, so no spot qualifies.
     const points = routePoints({ x: 0, y: 0 }, { x: 6, y: 2 }, []);
     const [placed] = placeCaptions([{ caption, points }], []);
-    const box = placed?.box ?? { x: 0, y: 0, width: 0, height: 0 };
+    const box = placed!.box;
     expect({ x: box.x + box.width / 2, y: box.y + box.height / 2 }).toStrictEqual({ x: 3, y: 1 });
   });
 

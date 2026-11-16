@@ -205,7 +205,7 @@ describe("drizzlerMermaidER", () => {
   });
   it("drizzlerMermaidER", async () => {
     await runEffect(drizzlerMermaidER(TEST_CODE, "tmp-mermaid/mermaid-er-test.md"));
-    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
+    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf8");
     const expected = `\`\`\`mermaid
 erDiagram
     user ||--o{ post : "(id) - (user_id)"
@@ -228,7 +228,7 @@ erDiagram
     await runEffect(
       drizzlerMermaidER(TEST_CODE_WITHOUT_COMMENTS, "tmp-mermaid/mermaid-er-test.md"),
     );
-    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
+    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf8");
     const expected = `\`\`\`mermaid
 erDiagram
     user ||--o{ post : "(id) - (user_id)"
@@ -251,7 +251,7 @@ erDiagram
     await runEffect(
       drizzlerMermaidER(TEST_CODE_WITH_FOREIGN_KEY, "tmp-mermaid/mermaid-er-test.md"),
     );
-    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
+    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf8");
     const expected = `\`\`\`mermaid
 erDiagram
     User ||--o{ Post : "(id) - (userId)"
@@ -273,7 +273,7 @@ erDiagram
     await runEffect(
       drizzlerMermaidER(TEST_CODE_WITH_RELATIONS_BLOCK, "tmp-mermaid/mermaid-er-test.md"),
     );
-    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
+    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf8");
     const expected = `\`\`\`mermaid
 erDiagram
     User ||..o{ Post : "(id) - (userId)"
@@ -293,7 +293,7 @@ erDiagram
 
   it("detects relations without imports (simulates real usage)", async () => {
     await runEffect(drizzlerMermaidER(TEST_CODE_WITHOUT_IMPORTS, "tmp-mermaid/mermaid-er-test.md"));
-    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf-8");
+    const result = await fsp.readFile("tmp-mermaid/mermaid-er-test.md", "utf8");
     const expected = `\`\`\`mermaid
 erDiagram
     User ||--o{ Post : "(id) - (userId)"
@@ -324,7 +324,7 @@ describe("E2E: Mermaid ER generation", () => {
   });
 
   it("generates Mermaid ER with full erDiagram block for EC schema", async () => {
-    fs.writeFileSync(path.join(tmpdir, "schema.ts"), ecSchemaContent, "utf-8");
+    fs.writeFileSync(path.join(tmpdir, "schema.ts"), ecSchemaContent, "utf8");
     const output = path.join(tmpdir, "output", "ER.md");
 
     const code = stripImports(ecSchemaContent);
@@ -332,58 +332,58 @@ describe("E2E: Mermaid ER generation", () => {
 
     expect(fs.existsSync(output)).toBe(true);
 
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
 
     // Mermaid structure
     expect(content.startsWith("```mermaid\nerDiagram")).toBe(true);
     expect(content.endsWith("```\n")).toBe(true);
 
     // Relations (user -> order, order -> orderItem)
-    expect(content.includes('user ||--o{ order : "(id) - (user_id)"')).toBe(true);
-    expect(content.includes('order ||--o{ order_item : "(id) - (order_id)"')).toBe(true);
+    expect(content).toContain('user ||--o{ order : "(id) - (user_id)"');
+    expect(content).toContain('order ||--o{ order_item : "(id) - (order_id)"');
 
     // Table definitions
-    expect(content.includes("user {")).toBe(true);
-    expect(content.includes("order {")).toBe(true);
-    expect(content.includes("order_item {")).toBe(true);
+    expect(content).toContain("user {");
+    expect(content).toContain("order {");
+    expect(content).toContain("order_item {");
 
     // Field details
-    expect(content.includes("varchar id PK")).toBe(true);
-    expect(content.includes("varchar name")).toBe(true);
-    expect(content.includes("varchar user_id FK")).toBe(true);
-    expect(content.includes("integer order_id FK")).toBe(true);
+    expect(content).toContain("varchar id PK");
+    expect(content).toContain("varchar name");
+    expect(content).toContain("varchar user_id FK");
+    expect(content).toContain("integer order_id FK");
   });
 
   it("generates Mermaid ER for single-table schema without relations", async () => {
-    fs.writeFileSync(path.join(tmpdir, "schema.ts"), singleTableSchema, "utf-8");
+    fs.writeFileSync(path.join(tmpdir, "schema.ts"), singleTableSchema, "utf8");
     const output = path.join(tmpdir, "output", "ER.md");
 
     const code = stripImports(singleTableSchema);
     await runEffect(drizzlerMermaidER(code, output));
 
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
 
     expect(content.startsWith("```mermaid\nerDiagram")).toBe(true);
     expect(content.endsWith("```\n")).toBe(true);
-    expect(content.includes("config {")).toBe(true);
-    expect(content.includes("text key PK")).toBe(true);
-    expect(content.includes("text value")).toBe(true);
+    expect(content).toContain("config {");
+    expect(content).toContain("text key PK");
+    expect(content).toContain("text value");
     // No relation lines (no ||-- pattern)
-    expect(content.includes("||--")).toBe(false);
+    expect(content).not.toContain("||--");
   });
 
   it("generates Mermaid ER with field descriptions for auth schema", async () => {
-    fs.writeFileSync(path.join(tmpdir, "schema.ts"), pgAuthSchema, "utf-8");
+    fs.writeFileSync(path.join(tmpdir, "schema.ts"), pgAuthSchema, "utf8");
     const output = path.join(tmpdir, "output", "ER.md");
 
     const code = stripImports(pgAuthSchema);
     await runEffect(drizzlerMermaidER(code, output));
 
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
 
-    expect(content.includes("account {")).toBe(true);
-    expect(content.includes('uuid id PK "Primary key"')).toBe(true);
-    expect(content.includes('varchar email "User email address"')).toBe(true);
+    expect(content).toContain("account {");
+    expect(content).toContain('uuid id PK "Primary key"');
+    expect(content).toContain('varchar email "User email address"');
   });
 });
 

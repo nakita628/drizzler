@@ -128,7 +128,10 @@ export function makeLibsqlTarget(input: z.infer<typeof Url>) {
   if (parsed === null) return { url: input.url, authToken: null };
   const authToken = parsed.searchParams.get("authToken");
   parsed.searchParams.delete("authToken");
-  return { url: parsed.toString().replace(/\/(\?|$)/u, "$1"), authToken: authToken || null };
+  return {
+    url: parsed.toString().replace(/\/(\?|$)/u, "$1"),
+    authToken: authToken === "" ? null : authToken,
+  };
 }
 
 /**
@@ -147,9 +150,10 @@ export function makeD1Target(input: z.infer<typeof Url>) {
   const parsed = parseUrl(input.url);
   if (parsed === null) return null;
   const accountId = decodeURIComponent(parsed.hostname);
-  const databaseId = decodeURIComponent(parsed.pathname.replace(/^\/|\/$/gu, ""));
+  const databaseId = decodeURIComponent(parsed.pathname.replaceAll(/^\/|\/$/gu, ""));
   if (accountId === "" || databaseId === "" || databaseId.includes("/")) return null;
-  return { accountId, databaseId, token: parsed.searchParams.get("token") || null };
+  const token = parsed.searchParams.get("token");
+  return { accountId, databaseId, token: token === "" ? null : token };
 }
 
 // Hosted databases that refuse a connection without TLS, by host name: Neon, and PlanetScale's
@@ -193,7 +197,7 @@ export function makeTlsRequired(input: z.infer<typeof Url>) {
 export function makeRedactedUrl(input: z.infer<typeof Url>) {
   return input.url
     .replace(/(\/\/[^:/@]+:)[^@]*@/u, "$1****@")
-    .replace(/([?&](?:authToken|token|password)=)[^&#]*/giu, "$1****");
+    .replaceAll(/([?&](?:authToken|token|password)=)[^&#]*/giu, "$1****");
 }
 
 /** What `openDriver` needs to reach a database, decided from its URL and the environment. */
@@ -233,7 +237,11 @@ const MakeConnectionInput = z
 
 /** The first of the variables that holds a value. */
 function envToken(env: Readonly<Record<string, string | null>>, names: readonly string[]) {
-  return names.map((name) => env[name]).find((value) => !!value) ?? null;
+  return (
+    names
+      .map((name) => env[name])
+      .find((value) => value !== undefined && value !== null && value !== "") ?? null
+  );
 }
 
 /**

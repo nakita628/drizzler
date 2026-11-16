@@ -17,7 +17,7 @@ describe("collectModules", () => {
       e: [],
       f: ["b"],
     };
-    expect(collectModules(["a", "b"], (file) => imports[file] ?? [])).toStrictEqual([
+    expect(collectModules(["a", "b"], (file) => imports[file]!)).toStrictEqual([
       "a",
       "b",
       "c",

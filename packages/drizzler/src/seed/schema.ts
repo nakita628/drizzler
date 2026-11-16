@@ -161,6 +161,7 @@ function plain(kind: ColumnKind) {
   return { kind, format: null };
 }
 
+// oxlint-disable-next-line complexity -- one case per Drizzle column type
 function kindOf(column: AnyColumn): {
   readonly kind: ColumnKind;
   readonly format: SeedColumn["format"];
@@ -258,7 +259,10 @@ function makeColumn(field: string, column: AnyColumn, onlyKey: boolean): SeedCol
     default: defaultOf(column),
     databaseFills: false,
     onUpdate: column.onUpdateFn ?? null,
-    toDriver: (value) => column.mapToDriverValue(value),
+    toDriver(value) {
+      const mapped: unknown = column.mapToDriverValue(value);
+      return mapped;
+    },
   };
 }
 

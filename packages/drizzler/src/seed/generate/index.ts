@@ -14,6 +14,7 @@ import { claimOf } from "./parents.js";
 import { attemptRow } from "./rows.js";
 import { checkRules } from "./rules.js";
 
+// oxlint-disable-next-line complexity -- the per-model generation steps, each guarded by its rule
 function makeModelRows(
   context: Context,
   table: ModelTable,

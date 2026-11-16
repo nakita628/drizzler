@@ -27,6 +27,39 @@ function field(overrides: Partial<DiagramField> = {}): DiagramField {
   return { kind: "scalar", type: "String", documentation: null, ...overrides };
 }
 
+type Box = { name: string; x: number; y: number; width: number; height: number };
+
+// Each block of a laid-out schema as the rectangle it covers.
+function boxesOf(
+  layoutSchema: Parameters<typeof autoLayout>[0],
+  positions: ReturnType<typeof autoLayout>,
+): Box[] {
+  return Object.entries(positions).map(([name, position]) => {
+    const model = layoutSchema.models.find((m) => m.name === name);
+    const value = (layoutSchema.enums ?? []).find((e) => e.name === name);
+    const width = model ? NODE_WIDTH : ENUM_WIDTH;
+    const enumBlock = value ? enumHeight(value) : 0;
+    const height = model ? nodeHeight(model) : enumBlock;
+    return { name, x: position.x, y: position.y, width, height };
+  });
+}
+
+// The pairs of boxes that overlap, by name.
+function overlapping(boxes: readonly Box[]) {
+  return boxes.flatMap((a, i) =>
+    boxes
+      .slice(i + 1)
+      .filter(
+        (b) =>
+          a.x + a.width > b.x &&
+          b.x + b.width > a.x &&
+          a.y + a.height > b.y &&
+          b.y + b.height > a.y,
+      )
+      .map((b) => [a.name, b.name]),
+  );
+}
+
 describe("firstLine", () => {
   it("keeps the first line, trimmed", () => {
     expect(firstLine("  A user\nMore prose  ")).toBe("A user");
@@ -189,36 +222,17 @@ describe("autoLayout", () => {
 
   it("lays the relation out left to right: the referencing model, then the referenced one, then its enum", () => {
     const positions = autoLayout(schema);
-    const post = positions.Post;
-    const user = positions.User;
-    const role = positions.Role;
-    if (!post || !user || !role) throw new Error("every block is positioned");
+    const post = positions.Post!;
+    const user = positions.User!;
+    const role = positions.Role!;
     expect(post.x + NODE_WIDTH).toBeLessThanOrEqual(user.x);
     expect(user.x + NODE_WIDTH).toBeLessThanOrEqual(role.x);
     expect(role.x + ENUM_WIDTH).toBeGreaterThan(role.x);
   });
 
   it("does not overlap two blocks", () => {
-    const positions = autoLayout(schema);
-    const boxes = Object.entries(positions).map(([name, position]) => {
-      const model = schema.models.find((m) => m.name === name);
-      const value = schema.enums.find((e) => e.name === name);
-      const width = model ? NODE_WIDTH : ENUM_WIDTH;
-      const enumBlock = value ? enumHeight(value) : 0;
-      const height = model ? nodeHeight(model) : enumBlock;
-      return { name, x: position.x, y: position.y, width, height };
-    });
-    for (const a of boxes) {
-      for (const b of boxes) {
-        if (a.name === b.name) continue;
-        const apart =
-          a.x + a.width <= b.x ||
-          b.x + b.width <= a.x ||
-          a.y + a.height <= b.y ||
-          b.y + b.height <= a.y;
-        expect(apart, `${a.name} and ${b.name}`).toBe(true);
-      }
-    }
+    const boxes = boxesOf(schema, autoLayout(schema));
+    expect(overlapping(boxes)).toStrictEqual([]);
   });
 
   it("puts every block on the grid", () => {

@@ -110,7 +110,7 @@ describe("readD1Response", () => {
 describe("readLibsqlResult", () => {
   it("reads array-like rows by index and the inserted row's big integer id", () => {
     // libSQL's rows are array-likes that also carry the columns by name.
-    const row = Object.assign(Object.create(null), {
+    const row = Object.assign(Object.create(null) as object, {
       0: 1,
       1: "Ada",
       length: 2,

@@ -49,6 +49,7 @@ function plural(count: number) {
  * One table: its rows, a page at a time, searched, edited in place, copied and exported, or its
  * columns as the schema declares them — with the details of the table beside either.
  */
+// oxlint-disable-next-line complexity -- a page component; its branches are the states it renders
 export function TableView({
   table,
   enums,
@@ -418,7 +419,7 @@ export function TableView({
           dataPane()
         ) : (
           <>
-            {table.description ? (
+            {table.description !== null ? (
               <p className="m-0 border-b border-line bg-surface-2 px-6 py-2.5 whitespace-pre-wrap text-muted">
                 {table.description}
               </p>

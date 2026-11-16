@@ -32,6 +32,7 @@ const CHECK_DEBOUNCE_MS = 500;
  * The editor holds the text; `base` is the text on disk as far as the page knows. A change on
  * disk replaces a clean editor and waits behind a banner when there is unsaved work.
  */
+// oxlint-disable-next-line complexity -- a page component; its branches are the states it renders
 export function DrizzleView({
   focus,
   line,
@@ -83,7 +84,8 @@ export function DrizzleView({
   // The drawing follows the editor, unsaved text included; a stale answer is dropped.
   useEffect(() => {
     if (text === null) return;
-    const seq = ++drawSeq.current;
+    drawSeq.current += 1;
+    const seq = drawSeq.current;
     const timer = setTimeout(() => {
       draw.mutate(
         { json: { source: text } },
@@ -141,7 +143,8 @@ export function DrizzleView({
       setTypeMarkers(model, []);
       return;
     }
-    const seq = ++checkSeq.current;
+    checkSeq.current += 1;
+    const seq = checkSeq.current;
     const timer = setTimeout(() => {
       check.mutate(
         { json: { source: text } },

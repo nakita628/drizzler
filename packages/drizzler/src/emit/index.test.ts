@@ -24,7 +24,7 @@ describe("emit", () => {
   it("formats the code and writes it", async () => {
     const exit = await runExit(emit('console.log("Hello, world!")', `${testDir}/test.ts`));
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(fs.readFileSync(`${testDir}/test.ts`, "utf-8")).toBe("console.log('Hello, world!')\n");
+    expect(fs.readFileSync(`${testDir}/test.ts`, "utf8")).toBe("console.log('Hello, world!')\n");
   });
 
   it("creates the directories the output sits in", async () => {
@@ -61,7 +61,7 @@ describe("emitRaw", () => {
   it("writes text and bytes as they are", async () => {
     await runExit(emitRaw("Table t {}", `${testDir}/a.dbml`));
     await runExit(emitRaw(new Uint8Array([137, 80, 78, 71]), `${testDir}/b/c.png`));
-    expect(fs.readFileSync(`${testDir}/a.dbml`, "utf-8")).toBe("Table t {}");
+    expect(fs.readFileSync(`${testDir}/a.dbml`, "utf8")).toBe("Table t {}");
     expect([...fs.readFileSync(`${testDir}/b/c.png`)]).toStrictEqual([137, 80, 78, 71]);
   });
 });

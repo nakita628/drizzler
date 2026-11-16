@@ -262,3 +262,18 @@ describe("no-escaped-backtick-in-comment", () => {
     expect(lint("no-escaped-backtick-in-comment", code)).toBe(0);
   });
 });
+
+describe("require-tsdoc", () => {
+  const file = "packages/drizzler/src/x.ts";
+
+  it("reports an exported function without TSDoc, or with a plain comment above it", () => {
+    expect(lint("require-tsdoc", "export function f() {}", file)).toBe(1);
+    expect(lint("require-tsdoc", "// f\nexport function f() {}", file)).toBe(1);
+  });
+
+  it("finds the TSDoc above a disable directive, which has to sit right above the function", () => {
+    const code =
+      "/** Does f. */\n// oxlint-disable-next-line complexity -- one case per kind\nexport function f() {}";
+    expect(lint("require-tsdoc", code, file)).toBe(0);
+  });
+});

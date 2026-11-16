@@ -19,7 +19,7 @@ import {
   textOf,
   unwrapParens,
 } from "./ast.js";
-import { constraintEntries, tableCalls } from "./extract-tables.js";
+import { asksForTimezone, constraintEntries, tableCalls } from "./extract-tables.js";
 import { mergeRelations } from "./merge-relations.js";
 
 type ChainMethod = { readonly name: string; readonly args: CallExpression["arguments"] };
@@ -109,6 +109,7 @@ type Constraint =
   | { readonly kind: "index"; readonly index: DiagramIndex };
 
 function readConstraints(arg: CallExpression["arguments"][number] | undefined) {
+  // oxlint-disable-next-line complexity -- one branch per constraint builder (foreignKey, index, unique, primaryKey)
   return constraintEntries(arg).flatMap((entry): Constraint[] => {
     const chain = readChain(entry);
     if (chain === null) return [];
@@ -126,7 +127,7 @@ function readConstraints(arg: CallExpression["arguments"][number] | undefined) {
       function action(name: string) {
         return stringLiteral(methods.find((m) => m.name === name)?.args[0]);
       }
-      return column
+      return column !== undefined
         ? [{ kind: "fk", column, onDelete: action("onDelete"), onUpdate: action("onUpdate") }]
         : [];
     }
@@ -134,25 +135,29 @@ function readConstraints(arg: CallExpression["arguments"][number] | undefined) {
     if (!type) return [];
     // `primaryKey({ columns: [t.a, t.b] })`, or the older `primaryKey(t.a, t.b)`.
     const config = chain.args[0];
-    const listed =
-      isObject(config) &&
-      config.properties.find(
-        (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "columns",
-      );
+    const listed = isObject(config)
+      ? config.properties.find(
+          (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "columns",
+        )
+      : undefined;
     const fromConfig =
-      listed && isPropertyAssignment(listed) && listed.value.type === "ArrayExpression"
+      listed !== undefined &&
+      isPropertyAssignment(listed) &&
+      listed.value.type === "ArrayExpression"
         ? columnNames(listed.value.elements.filter((e) => e !== null))
         : columnNames(chain.args);
     const on = chain.methods.find((m) => m.name === "on");
     const fields = on ? columnNames(on.args) : fromConfig;
     // `index("users_email_idx")`, `unique("name")`, or `primaryKey({ name, columns })`.
-    const named =
-      isObject(config) &&
-      config.properties.find(
-        (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "name",
-      );
+    const named = isObject(config)
+      ? config.properties.find(
+          (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "name",
+        )
+      : undefined;
     const name =
-      named && isPropertyAssignment(named) ? stringLiteral(named.value) : stringLiteral(config);
+      named !== undefined && isPropertyAssignment(named)
+        ? stringLiteral(named.value)
+        : stringLiteral(config);
     const index: DiagramIndex = name === null ? { type, fields } : { type, fields, name };
     return fields.length > 0 ? [{ kind: "index", index }] : [];
   });
@@ -184,7 +189,9 @@ function readEnums(program: Program, source: Parameters<typeof descriptionBefore
 
 // A column name as drizzle's snake_case casing writes it: `emailVerified` -> `email_verified`.
 function toSnakeCase(name: string) {
-  const words = name.replace(/['\u2019]/gu, "").match(/[\da-z]+|[A-Z]+(?![a-z])|[A-Z][\da-z]+/gu);
+  const words = name
+    .replaceAll(/['\u2019]/gu, "")
+    .match(/[\da-z]+|[A-Z]+(?![a-z])|[A-Z][\da-z]+/gu);
   return (words ?? []).map((word) => word.toLowerCase()).join("_");
 }
 
@@ -257,18 +264,7 @@ export function diagramSchema(code: readonly string[]) {
       if (references) actions.set(`${varName}.${name}`, referentialActions(references.args[1]));
       const dbName = stringLiteral(chain.args[0]) ?? (snakeCase ? toSnakeCase(name) : name);
       const isId = has("primaryKey");
-      const withTimezone = chain.args.some(
-        (arg) =>
-          isObject(arg) &&
-          arg.properties.some(
-            (p) =>
-              isPropertyAssignment(p) &&
-              p.key.type === "Identifier" &&
-              p.key.name === "withTimezone" &&
-              p.value.type === "Literal" &&
-              p.value.value === true,
-          ),
-      );
+      const withTimezone = chain.args.some(asksForTimezone);
       return [
         {
           name,

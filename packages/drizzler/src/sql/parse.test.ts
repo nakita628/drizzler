@@ -10,6 +10,7 @@ function parseQueryText(text: string) {
 }
 
 /** The expression tree without ranges, for readable assertions. */
+// oxlint-disable-next-line complexity -- one case per expression type
 function shape(expr: Expr): unknown {
   switch (expr.type) {
     case "column":
@@ -35,9 +36,9 @@ function shape(expr: Expr): unknown {
       return { cast: shape(expr.expr), to: expr.to };
     case "case":
       return {
-        case: expr.operand === null ? null : shape(expr.operand),
+        case: shapeOf(expr.operand),
         whens: expr.whens.map((branch) => [shape(branch.when), shape(branch.result)]),
-        else: expr.otherwise === null ? null : shape(expr.otherwise),
+        else: shapeOf(expr.otherwise),
       };
     case "in":
       return {
@@ -84,6 +85,20 @@ function selectOf(text: string) {
   return query.body.columns.map((item) => [shape(item.expr), item.alias]);
 }
 
+// The node narrowed to one of its kinds; a node of another kind fails the test.
+function narrow<T extends { readonly type: string }, K extends T["type"]>(
+  node: T | null | undefined,
+  type: K,
+): Extract<T, { readonly type: K }> {
+  if (node?.type !== type) throw new Error(`expected ${type}, got ${node?.type ?? "nothing"}`);
+  return node as Extract<T, { readonly type: K }>;
+}
+
+// The shape of an optional clause, null when it is not there.
+function shapeOf(expr: Expr | null) {
+  return expr === null ? null : shape(expr);
+}
+
 function only(statements: readonly Statement[]) {
   const [first] = statements;
   if (first === undefined || statements.length !== 1) throw new Error("expected one statement");
@@ -94,11 +109,9 @@ describe("parseStatements", () => {
   it("reads the clauses of a SELECT with their ranges", () => {
     const text =
       "SELECT a, b AS bee FROM t WHERE a = 1 GROUP BY a HAVING count(*) > 1 ORDER BY b DESC LIMIT 10 OFFSET 5";
-    const statement = only(parseStatements(text));
-    if (statement.type !== "select" || statement.query.body.type !== "select") {
-      throw new Error("expected a SELECT");
-    }
-    const { body, orderBy, limit, offset } = statement.query;
+    const statement = narrow(only(parseStatements(text)), "select");
+    const { orderBy, limit, offset } = statement.query;
+    const body = narrow(statement.query.body, "select");
     expect(body.columns.map((item) => [shape(item.expr), item.alias])).toStrictEqual([
       ["a", null],
       ["b", "bee"],
@@ -111,14 +124,10 @@ describe("parseStatements", () => {
         range: { start: 24, end: 25 },
       },
     ]);
-    expect(body.where === null ? null : shape(body.where)).toStrictEqual([
-      "a",
-      "=",
-      { number: "1" },
-    ]);
+    expect(shapeOf(body.where)).toStrictEqual(["a", "=", { number: "1" }]);
     expect(body.where?.range).toStrictEqual({ start: 32, end: 37 });
     expect(body.groupBy.map(shape)).toStrictEqual(["a"]);
-    expect(body.having === null ? null : shape(body.having)).toStrictEqual([
+    expect(shapeOf(body.having)).toStrictEqual([
       { call: "count", args: ["*"], distinct: false, over: false },
       ">",
       { number: "1" },
@@ -126,8 +135,8 @@ describe("parseStatements", () => {
     expect(orderBy.map((item) => [shape(item.expr), item.direction])).toStrictEqual([
       ["b", "DESC"],
     ]);
-    expect(limit === null ? null : shape(limit)).toStrictEqual({ number: "10" });
-    expect(offset === null ? null : shape(offset)).toStrictEqual({ number: "5" });
+    expect(shapeOf(limit)).toStrictEqual({ number: "10" });
+    expect(shapeOf(offset)).toStrictEqual({ number: "5" });
     expect(statement.range).toStrictEqual({ start: 0, end: text.length });
   });
 
@@ -193,43 +202,35 @@ describe("parseStatements", () => {
     const query = parseQueryText(
       "SELECT * FROM a LEFT JOIN b ON b.a_id = a.id JOIN (SELECT id FROM c) sub USING (id)",
     );
-    if (query?.body.type !== "select") throw new Error("expected a SELECT");
-    const [from] = query.body.from;
-    if (from?.type !== "join" || from.left.type !== "join")
-      throw new Error("expected nested joins");
+    const [outer] = narrow(query?.body, "select").from;
+    const from = narrow(outer, "join");
+    const left = narrow(from.left, "join");
     expect(from.joinType).toBe("INNER");
     expect(from.using).toStrictEqual(["id"]);
     expect(from.right.type).toBe("subquery");
-    expect(from.left.joinType).toBe("LEFT");
-    expect(from.left.on === null ? null : shape(from.left.on)).toStrictEqual([
-      "b.a_id",
-      "=",
-      "a.id",
-    ]);
+    expect(left.joinType).toBe("LEFT");
+    expect(shapeOf(left.on)).toStrictEqual(["b.a_id", "=", "a.id"]);
   });
 
   it("reads CTEs, set operations and VALUES", () => {
     const query = parseQueryText(
       "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 5) SELECT x FROM n",
     );
-    if (query === null) throw new Error("expected a query");
-    expect(query.recursive).toBe(true);
-    expect(query.ctes.map((cte) => [cte.name, cte.columns])).toStrictEqual([["n", ["x"]]]);
-    const inner = query.ctes[0]?.query.body;
-    expect(inner?.type).toBe("setop");
-    if (inner?.type !== "setop") throw new Error("expected a set operation");
+    expect(query?.recursive).toBe(true);
+    expect(query?.ctes.map((cte) => [cte.name, cte.columns])).toStrictEqual([["n", ["x"]]]);
+    const inner = narrow(query?.ctes[0]?.query.body, "setop");
     expect([inner.op, inner.all]).toStrictEqual(["UNION", true]);
     const values = parseQueryText("VALUES (1, 2), (3, 4)");
     expect(values?.body.type).toBe("values");
   });
 
   it("reads INSERT, UPDATE and DELETE with RETURNING", () => {
-    const [insert, update, remove] = parseStatements(
+    const [first, second, third] = parseStatements(
       "INSERT INTO t (a, b) VALUES (?, ?), (1, 2) ON CONFLICT (a) DO NOTHING RETURNING id; UPDATE t AS x SET a = ?, b = DEFAULT WHERE id = $1 RETURNING *; DELETE FROM t WHERE a IN (:ids)",
     );
-    if (insert?.type !== "insert" || update?.type !== "update" || remove?.type !== "delete") {
-      throw new Error("expected insert, update, delete");
-    }
+    const insert = narrow(first, "insert");
+    const update = narrow(second, "update");
+    const remove = narrow(third, "delete");
     expect(insert.columns).toStrictEqual(["a", "b"]);
     expect(insert.source.type).toBe("values");
     expect(insert.onConflict).not.toBeNull();
@@ -240,7 +241,7 @@ describe("parseStatements", () => {
       ["b", { raw: "DEFAULT" }],
     ]);
     expect(update.returning?.map((item) => shape(item.expr))).toStrictEqual(["*"]);
-    expect(remove.where === null ? null : shape(remove.where)).toStrictEqual({
+    expect(shapeOf(remove.where)).toStrictEqual({
       in: "a",
       not: false,
       list: [{ param: ":ids" }],

@@ -10,7 +10,7 @@ describe("elideTypeOnlyImports", () => {
       'export const accounts = pgTable("account", { type: varchar("type") });',
     ].join("\n");
     const elided = elideTypeOnlyImports(source);
-    expect(elided.length).toBe(source.length);
+    expect(elided).toHaveLength(source.length);
     expect(elided.split("\n")).toStrictEqual([
       'import { pgTable, varchar } from "drizzle-orm/pg-core";',
       " ".repeat(57),

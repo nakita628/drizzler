@@ -156,7 +156,7 @@ describe("parseTableInfo", () => {
       "  },",
       "}))",
     ]);
-    expect(result.length).toBe(1);
+    expect(result).toHaveLength(1);
     expect(result[0]?.name).toBe("user");
   });
 });
@@ -364,7 +364,7 @@ describe("extractRelationsFromSchema", () => {
     ];
     const relations = extractRelationsFromSchema(code);
     // Should be deduplicated to 1 relation
-    expect(relations.length).toBe(1);
+    expect(relations).toHaveLength(1);
     expect(relations[0]).toStrictEqual({
       fromModel: "user",
       toModel: "post",
@@ -608,6 +608,11 @@ describe("schemas split over files, as layered projects write them", () => {
   });
 });
 
+// The names of a table's columns.
+function fieldNames(table: ReturnType<typeof parseTableInfo>[number]) {
+  return table.fields.map((f) => f.name);
+}
+
 // The tables a function opened by `head` builds and returns.
 function tablesIn(head: string) {
   return parseTableInfo([
@@ -641,9 +646,7 @@ describe("tables built in a function", () => {
   ];
 
   it.concurrent("reads the tables, their columns and their descriptions", () => {
-    expect(
-      parseTableInfo(code).map((t) => [t.name, t.description, t.fields.map((f) => f.name)]),
-    ).toStrictEqual([
+    expect(parseTableInfo(code).map((t) => [t.name, t.description, fieldNames(t)])).toStrictEqual([
       ["usersTable", "Everyone who can sign in", ["id", "email"]],
       ["sessionsTable", null, ["sessionToken", "userId"]],
     ]);

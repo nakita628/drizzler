@@ -104,8 +104,8 @@ function indexesOf(table: Table) {
 
 function relationNote(relation: Relation, reverse: boolean) {
   const actions = [
-    ...(relation.onDelete ? [`on delete ${relation.onDelete}`] : []),
-    ...(relation.onUpdate ? [`on update ${relation.onUpdate}`] : []),
+    ...(relation.onDelete !== null ? [`on delete ${relation.onDelete}`] : []),
+    ...(relation.onUpdate !== null ? [`on update ${relation.onUpdate}`] : []),
   ];
   const origin = reverse ? "defineRelations" : "defineRelations, no foreign key";
   return [relation.kind, ...actions, ...(relation.origin === "relations" ? [origin] : [])].join(
@@ -214,7 +214,7 @@ function tableSection(
   ddl: ReadonlyMap<string, readonly string[]>,
 ) {
   const names = table.dbName === table.name ? [] : [`Table ${inline(table.dbName)}.`];
-  const intro = [...names, ...(table.description ? [table.description] : [])].join(" ");
+  const intro = [...names, ...(table.description !== null ? [table.description] : [])].join(" ");
   const related = table.references.length > 0 || table.referencedBy.length > 0;
   const diagram = [
     related
@@ -236,7 +236,7 @@ function tableSection(
 
 function enumSection(value: Docs["enums"][number], ddl: ReadonlyMap<string, readonly string[]>) {
   const names = value.dbName === value.name ? [] : [`Type ${inline(value.dbName)}.`];
-  const intro = [...names, ...(value.description ? [value.description] : [])].join(" ");
+  const intro = [...names, ...(value.description !== null ? [value.description] : [])].join(" ");
   return [
     heading(3, "enum", value.name),
     ...(intro === "" ? [] : [intro]),

@@ -83,7 +83,7 @@ function registerHooks(typescript: typeof ts) {
       const file = fileURLToPath(url);
       return {
         format: "module",
-        source: transpile(fs.readFileSync(file, "utf-8"), file),
+        source: transpile(fs.readFileSync(file, "utf8"), file),
         shortCircuit: true,
       };
     },
@@ -186,7 +186,7 @@ function execute(input: {
     }
     return yield* Effect.tryPromise({
       try() {
-        const timeout = new Promise<never>((_, reject) => {
+        const timeout = new Promise<never>((_resolve, reject) => {
           setTimeout(
             () =>
               reject(new Error(`The query did not finish in ${QUERY_TIMEOUT_MS / 1000} seconds.`)),

@@ -27,7 +27,9 @@ function firstChange(file: string, change: () => void) {
         return yield* Effect.promise(() =>
           Promise.race([
             seen.promise,
-            new Promise<"missed">((resolve) => setTimeout(() => resolve("missed"), 3000)),
+            new Promise<"missed">((resolve) => {
+              setTimeout(() => resolve("missed"), 3000);
+            }),
           ]),
         );
       }),

@@ -1,6 +1,6 @@
 {
-  // Finds unused files, exports and dependencies across the workspaces: `pnpm knip` (CI runs it in
-  // the Lint workflow). The vite-plus plugin reads each workspace's vite.config.ts, so the test
+  // Finds unused files, exports and dependencies across the workspaces: `pnpm lint:knip`, part of
+  // `pnpm lint` (CI runs it in the Lint workflow). The vite-plus plugin reads each workspace's vite.config.ts, so the test
   // files are entries without being listed here. https://knip.dev/reference/configuration
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   "workspaces": {
@@ -25,8 +25,9 @@
         "vite.studio.config.ts",
       ],
       "project": ["src/**/*.{ts,tsx,css}", "*.ts"],
-      // `hono-takibi` compiles main.tsp with the TypeSpec compiler and the libraries it imports.
-      "ignoreDependencies": ["@typespec/.+"],
+      // `hono-takibi` compiles main.tsp with the TypeSpec compiler and the libraries it imports;
+      // tspconfig.yaml loads typespeclint into the compiler as a linter.
+      "ignoreDependencies": ["@typespec/.+", "typespeclint"],
     },
     "examples/*": {
       // Schemas and seeds are read by the drizzler CLI, not imported.

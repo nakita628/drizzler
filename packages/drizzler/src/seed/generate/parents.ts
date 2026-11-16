@@ -80,6 +80,7 @@ function parentBound(context: Context, table: ModelTable, fk: ForeignKey) {
  * names its parent by the key columns or by a unique key; a required key it leaves out is linked
  * to a row that exists, like a faker row's.
  */
+// oxlint-disable-next-line complexity -- one branch per relation rule a parent pick honours
 export function pickParent(
   input: RowInput,
   fk: ForeignKey,

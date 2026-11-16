@@ -11,6 +11,11 @@ function runExit<A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) {
   return Effect.runPromiseExit(effect.pipe(Effect.provide(NodeServices.layer)));
 }
 
+// The value an Exit succeeded with, or undefined when it failed.
+function successOf<A, E>(exit: Exit.Exit<A, E>) {
+  return Exit.isSuccess(exit) ? exit.value : undefined;
+}
+
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
@@ -35,7 +40,7 @@ describe("file", () => {
     await runExit(writeFile(file, "first"));
     await runExit(writeFile(file, "こんにちは 💧"));
     const read = await runExit(readFile(file));
-    expect(Exit.isSuccess(read) && read.value).toBe("こんにちは 💧");
+    expect(successOf(read)).toBe("こんにちは 💧");
   });
 
   it("writes bytes as they are", async () => {
@@ -48,8 +53,8 @@ describe("file", () => {
     const dir = tmp();
     const there = await runExit(exists(dir));
     const missing = await runExit(exists(path.join(dir, "nope")));
-    expect(Exit.isSuccess(there) && there.value).toBe(true);
-    expect(Exit.isSuccess(missing) && missing.value).toBe(false);
+    expect(successOf(there)).toBe(true);
+    expect(successOf(missing)).toBe(false);
     expect(Exit.isFailure(await runExit(readFile(path.join(dir, "nope"))))).toBe(true);
   });
 });

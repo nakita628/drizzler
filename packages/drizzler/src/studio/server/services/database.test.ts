@@ -52,9 +52,11 @@ function sharedBehaviour(
       ]),
     );
     expect(
-      await run(driver.query({ sql: "SELECT id, name FROM users WHERE id = ?", params: [1] })),
-      // node:sqlite's rows have no prototype: compared by their fields.
-    ).toEqual({ columns: ["id", "name"], rows: [{ id: 1, name: "Ada" }], rowCount: 1 });
+      // node:sqlite's rows have no prototype; the clone is a plain object with their fields.
+      structuredClone(
+        await run(driver.query({ sql: "SELECT id, name FROM users WHERE id = ?", params: [1] })),
+      ),
+    ).toStrictEqual({ columns: ["id", "name"], rows: [{ id: 1, name: "Ada" }], rowCount: 1 });
     // Two columns of one name both survive as arrays.
     expect(
       await run(
@@ -209,14 +211,16 @@ describe("Cloudflare D1, when Cloudflare refuses", () => {
   it("does not connect, and says what Cloudflare refused", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn<(input: string, init: RequestInit) => Promise<Response>>(async () =>
-        Response.json(
-          {
-            success: false,
-            errors: [{ code: 10000, message: "Authentication error" }],
-            result: [],
-          },
-          { status: 403 },
+      vi.fn<(input: string, init: RequestInit) => Promise<Response>>(() =>
+        Promise.resolve(
+          Response.json(
+            {
+              success: false,
+              errors: [{ code: 10000, message: "Authentication error" }],
+              result: [],
+            },
+            { status: 403 },
+          ),
         ),
       ),
     );
@@ -229,8 +233,8 @@ describe("Cloudflare D1, when Cloudflare refuses", () => {
   it("says what came back when it is not JSON", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn<(input: string, init: RequestInit) => Promise<Response>>(
-        async () => new Response("<html>Bad gateway</html>", { status: 502 }),
+      vi.fn<(input: string, init: RequestInit) => Promise<Response>>(() =>
+        Promise.resolve(new Response("<html>Bad gateway</html>", { status: 502 })),
       ),
     );
     const error = await fail(

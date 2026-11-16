@@ -33,6 +33,7 @@ function problemDetail(error: unknown) {
 }
 
 /** The SQL page: the editor and what the analysis says on the left, the tables it runs against on the right. */
+// oxlint-disable-next-line complexity -- a page component; its branches are the states it renders
 export function SqlView({
   initialSql,
   initialParams,
@@ -250,7 +251,7 @@ export function SqlView({
       <header className="flex flex-wrap items-center gap-3.5 border-b border-line bg-surface px-6 py-3">
         <h1 className="page-title">SQL</h1>
         <span className="min-w-0 text-lead [overflow-wrap:anywhere] text-muted">
-          {database?.connected
+          {database?.connected === true
             ? `${database.dialect ?? ""} · ${database.url ?? ""}`
             : "No database connected"}
         </span>

@@ -462,6 +462,121 @@ export default defineConfig({
       // NG:   import * as parseService from "../services/parse.js"
       // OK:   import * as ParseService from "../services/parse.js"
       "custom/layer-suffix-pascal-case": "error",
+
+      // =========================================================================
+      // Rules turned on: shared with hekireki (its lint/oxlint.ts BASE_RULES)
+      // =========================================================================
+
+      // Why: code a reader should not have to trace. A block nested four deep, a function with more
+      //      than fifteen paths through it, a callback in a callback in a callback: each is a
+      //      function or a name waiting to be written. A parser, an analyzer or a page that is one
+      //      case per kind says so in an `oxlint-disable-next-line complexity -- why` above it.
+      // NG:   xs.map((x) => x.ys.filter((y) => y.zs.some((z) => z.ok)))
+      // OK:   xs.map((x) => x.ys.filter(hasOkZ))
+      complexity: ["error", { max: 15 }],
+      "max-depth": ["error", { max: 3 }],
+      "max-nested-callbacks": ["error", { max: 3 }],
+
+      // Why: a condition is a boolean: `x !== null`, `s !== ""`, `n > 0`, never a string, a number
+      //      or an object that JavaScript coerces. `""` and `0` are values, not absence.
+      // NG:   if (column.note) ...
+      // OK:   if (column.note !== null) ...
+      "typescript/strict-boolean-expressions": "error",
+
+      // Why: an `any` spreads silently through everything it touches; the type check stops where
+      //      it starts. A response body is parsed with its schema, a JSON value is `unknown`.
+      // NG:   const body = await res.json(); body.rows[0].name
+      // OK:   const body = RowsSchema.parse(await res.json())
+      "typescript/no-unsafe-argument": "error",
+      "typescript/no-unsafe-assignment": "error",
+      "typescript/no-unsafe-call": "error",
+      "typescript/no-unsafe-member-access": "error",
+      "typescript/no-unsafe-return": "error",
+
+      // Why: `as` tells the compiler to stop checking; the value is narrowed or typed instead.
+      //      The few casts that are needed say why in their disable comment.
+      // NG:   const config = loaded as SeedConfig
+      // OK:   const config: unknown = loaded; if (isSeedConfig(config)) ...
+      "typescript/consistent-type-assertions": ["error", { assertionStyle: "never" }],
+
+      // Why: async code reads top to bottom with await; a promise is returned as it is, and
+      //      `return await` belongs only inside try / catch. An async function awaits something.
+      // NG:   load().then((x) => use(x)).catch(report)  /  async () => 1
+      // OK:   try { use(await load()) } catch (e) { report(e) }  /  () => Promise.resolve(1)
+      "promise/prefer-await-to-then": "error",
+      "promise/catch-or-return": "error",
+      "promise/always-return": "error",
+      "promise/prefer-catch": "error",
+      "promise/no-nesting": "error",
+      "promise/no-return-wrap": "error",
+      "promise/no-return-in-finally": "error",
+      "promise/no-multiple-resolved": "error",
+      "promise/no-promise-in-callback": "error",
+      "promise/no-callback-in-promise": "error",
+      "promise/no-new-statics": "error",
+      "promise/param-names": "error",
+      "promise/spec-only": "error",
+      "promise/valid-params": "error",
+      "no-promise-executor-return": "error",
+      "typescript/require-await": "error",
+      "typescript/return-await": "error",
+      "typescript/use-unknown-in-catch-callback-variable": "error",
+
+      // Why: a callback whose value is thrown away returns nothing; `a && b()` as a statement is an
+      //      `if` written backwards.
+      // NG:   onSuccess: (r) => r.schema !== null && setSchema(r.schema)
+      // OK:   onSuccess(r) { if (r.schema !== null) setSchema(r.schema) }
+      "typescript/strict-void-return": "error",
+
+      // Why: `++` hides an assignment inside an expression.
+      // NG:   const seq = ++counter.current
+      // OK:   counter.current += 1; const seq = counter.current
+      "no-plusplus": "error",
+
+      // Why: a regular expression reads text as code points, so an emoji or a CJK character is one
+      //      character, not two halves of a surrogate pair.
+      // NG:   /^[A-Za-z0-9_$À-￿]*/
+      // OK:   /^[A-Za-z0-9_$À-￿]*/u
+      "require-unicode-regexp": "error",
+
+      // Why: Node's CommonJS leftovers and callback conventions, in an ES module codebase.
+      // NG:   require("x") inside a function  /  __dirname + "/x"
+      // OK:   import x from "x"  /  path.join(import.meta.dirname, "x")
+      "node/callback-return": "error",
+      "node/global-require": "error",
+      "node/handle-callback-err": "error",
+      "node/no-exports-assign": "error",
+      "node/no-mixed-requires": "error",
+      "node/no-new-require": "error",
+      "node/no-path-concat": "error",
+      "node/no-top-level-await": "error",
+      "import/no-amd": "error",
+
+      // Why: the modern spelling of what the older one does, so there is one way to write it.
+      // NG:   s.replace(/x/g, "y")  /  arr.forEach(f)  /  new Date().getTime()  /  "utf-8"
+      // OK:   s.replaceAll("x", "y")  /  for (const x of arr) f(x)  /  Date.now()  /  "utf8"
+      "unicorn/no-array-for-each": "error",
+      "unicorn/no-instanceof-array": "error",
+      "unicorn/no-lonely-if": "error",
+      "unicorn/prefer-array-some": "error",
+      "unicorn/prefer-date-now": "error",
+      "unicorn/prefer-import-meta-properties": "error",
+      "unicorn/prefer-native-coercion-functions": "error",
+      "unicorn/prefer-response-static-json": "error",
+      "unicorn/prefer-string-replace-all": "error",
+      "unicorn/prefer-string-slice": "error",
+      "unicorn/text-encoding-identifier-case": "error",
+      "unicorn/throw-new-error": "error",
+
+      // Why: old or risky APIs, and spellings that read as mistakes.
+      // NG:   alert("saved")  /  Symbol()  /  constructor() { return other }
+      // OK:   toast.success("saved")  /  Symbol("row")
+      "no-alert": "error",
+      "no-constructor-return": "error",
+      "symbol-description": "error",
+      "typescript/adjacent-overload-signatures": "error",
+      "typescript/ban-tslint-comment": "error",
+      "typescript/unified-signatures": "error",
     },
     options: {
       // Rules that use type information.
@@ -666,6 +781,10 @@ export default defineConfig({
           "custom/effect-run-at-edge": "error",
           "custom/promise-catch-must-log": "error",
           "custom/domain-only-from-usecases": "error",
+          // Why off: these read `Effect.catch(...)` as a promise's `.catch`; the server's async
+          //      work is Effects, and its few promises are wrapped in Effect.tryPromise.
+          "promise/prefer-await-to-then": "off",
+          "promise/catch-or-return": "off",
         },
       },
       {
@@ -742,7 +861,7 @@ export default defineConfig({
         },
       },
       {
-        // Tests build fixtures, so they may log, assert types and use `!`.
+        // Tests build fixtures, so they may log, assert types and use `!`; and the test rules.
         files: ["**/*.test.ts", "**/*.test.tsx"],
         rules: {
           "no-console": "off",
@@ -751,13 +870,57 @@ export default defineConfig({
           "typescript/no-floating-promises": "off",
           "custom/no-type-assertion": "off",
           "typescript/no-unsafe-type-assertion": "off",
+          "typescript/consistent-type-assertions": "off",
           "custom/require-as-const": "off",
+          // Why (shared with hekireki): a code generator's tests own a byte-for-byte contract.
+          //      Equality is strict, a primitive is compared with toBe, and nothing is a snapshot:
+          //      the expected value is in the test, where a reviewer reads it. A test runs, is
+          //      named once, and asserts unconditionally; a case that branches is two cases, and
+          //      what a test needs computed or narrowed is a function above the describe.
+          // NG:   expect(rows).toEqual([...])  /  if (!user) throw ...  /  it.skip(...)
+          // OK:   expect(rows).toStrictEqual([...])  /  const user = users[0]!
+          "vitest/valid-expect": ["error", { maxArgs: 2 }],
+          "vitest/no-identical-title": "error",
+          "vitest/no-disabled-tests": "error",
+          "vitest/no-focused-tests": "error",
+          "vitest/no-duplicate-hooks": "error",
+          "vitest/no-test-return-statement": "error",
+          "vitest/no-standalone-expect": [
+            "error",
+            { additionalTestBlockFunctions: ["beforeAll", "beforeEach", "afterAll", "afterEach"] },
+          ],
+          "vitest/no-alias-methods": "error",
+          "vitest/prefer-to-be": "error",
+          "vitest/prefer-strict-equal": "error",
+          "vitest/prefer-to-have-length": "error",
+          "vitest/prefer-equality-matcher": "error",
+          "vitest/prefer-comparison-matcher": "error",
+          "vitest/prefer-todo": "error",
+          "vitest/prefer-to-contain": "error",
+          "vitest/max-nested-describe": "error",
+          "vitest/no-conditional-in-test": "error",
+          "vitest/no-restricted-matchers": [
+            "error",
+            {
+              toMatchSnapshot: "Write the expected value out with toBe / toStrictEqual.",
+              toMatchInlineSnapshot: "Write the expected value out with toBe / toStrictEqual.",
+              toThrowErrorMatchingSnapshot: "Name the error the call throws.",
+              toThrowErrorMatchingInlineSnapshot: "Name the error the call throws.",
+              toEqual:
+                "Use toStrictEqual: toEqual passes on undefined properties and other classes.",
+            },
+          ],
         },
       },
       {
         // Example and fixture scripts write to the terminal.
         files: ["examples/**", "fixtures/**", "**/*.mjs"],
-        rules: { "no-console": "off", "custom/require-tsdoc": "off" },
+        rules: {
+          "no-console": "off",
+          "custom/require-tsdoc": "off",
+          // A script is a module run once from top to bottom; top-level await is how it waits.
+          "node/no-top-level-await": "off",
+        },
       },
     ],
   },

@@ -72,8 +72,10 @@ textlint
 timestampdiff
 titel
 tsgolint
+tspconfig
 turso
 typespec
+typespeclint
 udouble
 ufloat
 unaliased

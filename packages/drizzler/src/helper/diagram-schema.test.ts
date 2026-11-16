@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 import { diagramSchema } from "./diagram-schema.js";
 
+// The names of a model's fields that have the flag set.
+function fieldsWhere(
+  model: ReturnType<typeof diagramSchema>["models"][number],
+  flag: "isId" | "isUnique",
+) {
+  return model.fields.filter((f) => f[flag] === true).map((f) => f.name);
+}
+
 describe("diagramSchema", () => {
   it("reads columns, enums, constraints and referential actions", () => {
     const code = [
@@ -185,8 +193,8 @@ describe("diagramSchema of tables built in a function", () => {
         name: m.name,
         dbName: m.dbName,
         primaryKey: m.primaryKey,
-        ids: m.fields.filter((f) => f.isId).map((f) => f.name),
-        unique: m.fields.filter((f) => f.isUnique).map((f) => f.name),
+        ids: fieldsWhere(m, "isId"),
+        unique: fieldsWhere(m, "isUnique"),
       })),
     ).toStrictEqual([
       { name: "users", dbName: "user", primaryKey: null, ids: ["id"], unique: ["email"] },

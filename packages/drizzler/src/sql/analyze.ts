@@ -722,6 +722,7 @@ function hasAggregate(expr: Expr): boolean {
   return childExpressions(expr).some(hasAggregate);
 }
 
+// oxlint-disable-next-line complexity -- one case per expression type
 function childExpressions(expr: Expr): readonly Expr[] {
   switch (expr.type) {
     case "binary":
@@ -766,6 +767,7 @@ function childExpressions(expr: Expr): readonly Expr[] {
 }
 
 /** The subqueries nested directly in an expression (not those inside deeper subqueries). */
+// oxlint-disable-next-line complexity -- one case per expression type
 function subqueriesOf(expr: Expr): readonly Query[] {
   switch (expr.type) {
     case "exists":
@@ -806,6 +808,7 @@ type Typing = {
   readonly lookups: Map<Query, string>;
 };
 
+// oxlint-disable-next-line complexity -- one case per expression type
 function typeOf(t: Typing, expr: Expr): TypeInfo {
   const { ctx } = t;
   switch (expr.type) {
@@ -929,6 +932,7 @@ function typeOf(t: Typing, expr: Expr): TypeInfo {
   }
 }
 
+// oxlint-disable-next-line complexity -- one case per SQL function it types
 function typeOfCall(t: Typing, expr: Extract<Expr, { type: "call" }>): TypeInfo {
   const { ctx } = t;
   const name = expr.name.toLowerCase().split(".").at(-1) ?? "";
@@ -1033,6 +1037,7 @@ function typeOfCall(t: Typing, expr: Extract<Expr, { type: "call" }>): TypeInfo 
 // --- parameters -------------------------------------------------------------------------------------
 
 /** Records every placeholder with the type of what it stands beside. */
+// oxlint-disable-next-line complexity -- one case per expression type
 function collectParams(t: Typing, expr: Expr, expected: TypeInfo | null, context: string) {
   const { ctx } = t;
   // Typing the other side of a placeholder draws nothing and records nothing: a subquery there
@@ -1166,6 +1171,7 @@ function lookupTable(ctx: Context, name: TableName) {
   return ctx.tables.get(name.name.toLowerCase()) ?? null;
 }
 
+// oxlint-disable-next-line complexity -- one branch per kind of FROM source
 function tableRelation(
   ctx: Context,
   item: Extract<FromItem, { type: "table" }>,
@@ -1252,6 +1258,7 @@ function findCte(
   return scope.ctes.get(name.toLowerCase()) ?? findCte(scope.outer, name);
 }
 
+// oxlint-disable-next-line complexity -- one case per FROM item type
 function buildFromItem(ctx: Context, item: FromItem, scope: Scope, scopeName: string): FromResult {
   switch (item.type) {
     case "table":
@@ -1517,6 +1524,7 @@ function selectRange(items: readonly SelectItem[]): Range | null {
     : { start: first.range.start, end: last.range.end };
 }
 
+// oxlint-disable-next-line complexity -- one step per SELECT clause
 function buildSelect(
   ctx: Context,
   core: SelectCore,
@@ -2078,7 +2086,7 @@ function buildUpdate(
   const targetTable = target.relations[0];
   for (const item of statement.set) {
     const column = targetTable === undefined ? null : columnOf(targetTable, item.column);
-    if (targetTable?.known && column === null) {
+    if (targetTable?.known === true && column === null) {
       warn(ctx, `"${targetTable.display}" has no column "${item.column}"`, item.range);
     }
     targetTable?.used.add(item.column);

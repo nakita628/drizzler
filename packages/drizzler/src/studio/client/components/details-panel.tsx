@@ -33,7 +33,7 @@ function RelationLine({ relation }: { readonly relation: GridRelation }) {
         {" · "}
         {relation.kind}
       </span>
-      {relation.onDelete ? (
+      {relation.onDelete !== null ? (
         <span className="text-muted"> · onDelete: {relation.onDelete}</span>
       ) : null}
     </div>
@@ -66,7 +66,7 @@ export function DetailsPanel({ table }: { readonly table: GridTable }) {
                 {a}
               </div>
             ))}
-            {column.description ? (
+            {column.description !== null ? (
               <div className="pl-5 whitespace-pre-wrap text-muted">{column.description}</div>
             ) : null}
           </div>

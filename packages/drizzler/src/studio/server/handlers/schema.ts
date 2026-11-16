@@ -125,7 +125,12 @@ export const getSchemaEventsRouteHandler: RouteHandler<typeof getSchemaEventsRou
             },
           });
           yield* Effect.promise(() => stream.writeSSE({ event: "ready", data: "{}" }));
-          yield* Effect.promise(() => new Promise<void>((resolve) => stream.onAbort(resolve)));
+          yield* Effect.promise(
+            () =>
+              new Promise<void>((resolve) => {
+                stream.onAbort(resolve);
+              }),
+          );
         }),
       ),
     ),

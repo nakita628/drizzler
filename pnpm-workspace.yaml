@@ -6,6 +6,10 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+# typespeclint (the TypeSpec linter of `pnpm lint:typespec`) had its first release a day before it
+# was adopted here. The entry names that one version, so a later release waits out the age gate.
+minimumReleaseAgeExclude:
+  - typespeclint@0.0.1
 overrides:
   drizzler: link:packages/drizzler
   # @heroui/react reaches these types packages; their newer releases pull in Adobe's Spectrum

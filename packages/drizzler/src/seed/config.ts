@@ -290,6 +290,6 @@ export function defineConfig<const S extends Readonly<Record<string, unknown>>>(
   // The typed rules are a narrowing of the loose ones the seeder reads, but TypeScript reads each
   // optional key of the typed form as `| undefined`, which the loose records do not take; the
   // loader checks the shape again at runtime.
-  // oxlint-disable-next-line custom/no-type-assertion, typescript/no-unsafe-type-assertion -- typed config to the loose form the seeder reads
+  // oxlint-disable-next-line custom/no-type-assertion, typescript/no-unsafe-type-assertion, typescript/consistent-type-assertions -- typed config to the loose form the seeder reads
   return { ...(config as Omit<SeedConfig, "schema">), schema };
 }

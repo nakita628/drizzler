@@ -241,6 +241,7 @@ const MYSQL_OPERATIONS = new Set([
   "buffer_result",
 ]);
 
+// oxlint-disable-next-line complexity -- one branch per node type of MySQL's JSON plan
 function flattenMysql(
   value: unknown,
   parent: string | null,

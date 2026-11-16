@@ -61,6 +61,7 @@ export function runStudio(options: {
     app.notFound(async (c) => {
       const notFound = c.text("404 Not Found", 404);
       if (c.req.path.startsWith("/api/")) return notFound;
+      // oxlint-disable-next-line typescript/no-unsafe-argument -- Hono types the not-found context's path as `any`
       return (await file(c, async () => {})) ?? (await page(c, async () => {})) ?? notFound;
     });
     yield* listen(app.fetch, options.port);

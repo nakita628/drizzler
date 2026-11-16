@@ -5,6 +5,22 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import studio from "./index.js";
+import type { z } from "@hono/zod-openapi";
+import {
+  AffectedSchema,
+  AnalysisSchema,
+  CountsSchema,
+  DbStatusSchema,
+  DiagramSchema,
+  DocsSchema,
+  FormattedSchema,
+  PlanSchema,
+  RowsSchema,
+  ServiceUnavailableProblemSchema,
+  SnapshotSchema,
+  SqlResultSchema,
+  ValidationProblemSchema,
+} from "./routes/index.js";
 import { configureStudio, connectDatabase } from "./usecases/studio.js";
 
 const schema = `import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
@@ -25,6 +41,23 @@ export const post = sqliteTable('posts', {
 `;
 
 const BASE = "http://127.0.0.1";
+
+// The body of a response, checked against the schema the API declares for it.
+async function read<T>(schema: z.ZodType<T>, response: Response | Promise<Response>): Promise<T> {
+  return schema.parse(await (await response).json());
+}
+
+// What a server-sent event stream says up to the first event of a name, or to its end.
+async function readUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  event: string,
+  seen = "",
+): Promise<string> {
+  if (seen.includes(`event: ${event}`)) return seen;
+  const { value, done } = await reader.read();
+  if (done) return seen;
+  return readUntil(reader, event, seen + new TextDecoder().decode(value));
+}
 
 describe("drizzler studio API", () => {
   let dir: string;
@@ -62,25 +95,26 @@ describe("drizzler studio API", () => {
   });
 
   it("reads and writes the schema file", async () => {
-    const read = await (await request("GET", "/api/schema")).json();
-    expect(read).toStrictEqual({ path: file, file: "schema.ts", source: schema, parseError: null });
+    const snapshot = await read(SnapshotSchema, request("GET", "/api/schema"));
+    expect(snapshot).toStrictEqual({
+      path: file,
+      file: "schema.ts",
+      source: schema,
+      parseError: null,
+    });
 
     const broken = `${schema}\nexport const x = (`;
-    const written = await (await request("PUT", "/api/schema", { source: broken })).json();
-    expect(fs.readFileSync(file, "utf-8")).toBe(broken);
-    expect(written.parseError.line).toBe(17);
+    const written = await read(SnapshotSchema, request("PUT", "/api/schema", { source: broken }));
+    expect(fs.readFileSync(file, "utf8")).toBe(broken);
+    expect(written.parseError?.line).toBe(17);
   });
 
   it("streams a change event when the schema file changes on disk, until the client leaves", async () => {
     const abort = new AbortController();
     const response = await api.request(`${BASE}/api/schema/events`, { signal: abort.signal });
     const reader = response.body!.getReader();
-    const decoder = new TextDecoder();
-    async function until(event: string, seen = ""): Promise<string> {
-      if (seen.includes(`event: ${event}`)) return seen;
-      const { value, done } = await reader.read();
-      if (done) return seen;
-      return until(event, seen + decoder.decode(value));
+    function until(event: string) {
+      return readUntil(reader, event);
     }
     expect(await until("ready")).toContain("event: ready");
     // A later modification time than the file has, so the poll sees a change.
@@ -93,17 +127,19 @@ describe("drizzler studio API", () => {
   });
 
   it("draws the diagram, and reports a syntax error instead of failing", async () => {
-    const ok = await (
-      await request("POST", "/api/diagram/svg", { source: schema, theme: "dark" })
-    ).json();
-    expect(ok.svg.startsWith("<svg")).toBe(true);
+    const ok = await read(
+      DiagramSchema,
+      request("POST", "/api/diagram/svg", { source: schema, theme: "dark" }),
+    );
+    expect(ok.svg?.startsWith("<svg")).toBe(true);
     expect(ok.svg).toContain("#0f1117");
 
-    const bad = await (
-      await request("POST", "/api/diagram/svg", { source: "export const = 1" })
-    ).json();
+    const bad = await read(
+      DiagramSchema,
+      request("POST", "/api/diagram/svg", { source: "export const = 1" }),
+    );
     expect(bad.svg).toBeNull();
-    expect(bad.parseError.line).toBe(1);
+    expect(bad.parseError?.line).toBe(1);
 
     const png = await request("POST", "/api/diagram/png", { source: "export const = 1" });
     expect(png.status).toBe(422);
@@ -111,9 +147,10 @@ describe("drizzler studio API", () => {
   });
 
   it("formats with oxfmt's defaults when the project has no config", async () => {
-    const formatted = await (
-      await request("POST", "/api/format", { source: "export const a = {b:'x'}" })
-    ).json();
+    const formatted = await read(
+      FormattedSchema,
+      request("POST", "/api/format", { source: "export const a = {b:'x'}" }),
+    );
     expect(formatted.source).toBe('export const a = { b: "x" };\n');
   });
 
@@ -121,30 +158,32 @@ describe("drizzler studio API", () => {
     const config = path.join(dir, ".oxfmtrc.jsonc");
     const text = '{\n  // the project\'s own\n  "semi": false,\n  "singleQuote": true,\n}\n';
     fs.writeFileSync(config, text);
-    const formatted = await (
-      await request("POST", "/api/format", { source: 'export const a = {b:"x"}' })
-    ).json();
+    const formatted = await read(
+      FormattedSchema,
+      request("POST", "/api/format", { source: 'export const a = {b:"x"}' }),
+    );
     expect(formatted.source).toBe("export const a = { b: 'x' }\n");
-    expect(fs.readFileSync(config, "utf-8")).toBe(text);
+    expect(fs.readFileSync(config, "utf8")).toBe(text);
   });
 
   it("answers a syntax error with a 422 problem", async () => {
     const res = await request("POST", "/api/format", { source: "export const = (" });
     expect(res.status).toBe(422);
-    expect((await res.json()).errors[0].field).toBe("source");
+    expect(ValidationProblemSchema.parse(await res.json()).errors[0]?.field).toBe("source");
   });
 
   it("rejects a body that fails validation with a 422 problem", async () => {
     const res = await request("PUT", "/api/schema", { source: 42 });
     expect(res.status).toBe(422);
-    const body = await res.json();
+    const body = ValidationProblemSchema.parse(await res.json());
     expect(body.type).toBe("/problems/validation-failed");
-    expect(body.errors[0].field).toBe("source");
+    expect(body.errors[0]?.field).toBe("source");
   });
 
   it("documents tables, columns and relations both ways", async () => {
-    const docs = await (await request("GET", "/api/docs")).json();
-    const [user, post] = docs.tables;
+    const docs = await read(DocsSchema, request("GET", "/api/docs"));
+    const user = docs.tables[0]!;
+    const post = docs.tables[1]!;
     expect(user.dbName).toBe("users");
     expect(user.description).toBe("People who sign in");
     expect(user.columns[0]).toMatchObject({
@@ -163,20 +202,20 @@ describe("drizzler studio API", () => {
         onUpdate: null,
       },
     ]);
-    expect(post.columns[1].references).toStrictEqual({ table: "user", column: "id" });
+    expect(post.columns[1]?.references).toStrictEqual({ table: "user", column: "id" });
   });
 
   it("reads, inserts, updates and deletes rows by property name", async () => {
-    const status = await (await request("GET", "/api/db")).json();
+    const status = await read(DbStatusSchema, request("GET", "/api/db"));
     expect(status).toMatchObject({ connected: true, dialect: "sqlite", error: null });
     expect(status.tables[0]).toMatchObject({ name: "user", table: "users", key: ["id"] });
 
-    expect((await (await request("GET", "/api/db/counts")).json()).counts).toStrictEqual({
+    expect((await read(CountsSchema, request("GET", "/api/db/counts"))).counts).toStrictEqual({
       user: 2,
       post: 1,
     });
 
-    const page = await (await request("GET", "/api/db/rows/post?skip=0&take=10")).json();
+    const page = await read(RowsSchema, request("GET", "/api/db/rows/post?skip=0&take=10"));
     expect(page).toStrictEqual({
       rows: [{ id: 1, authorId: 1, title: "Hello" }],
       total: 1,
@@ -186,24 +225,25 @@ describe("drizzler studio API", () => {
     });
 
     // A search reads any column as text, whatever its case, and counts what it matched.
-    const found = await (
-      await request("GET", "/api/db/rows/user?skip=0&take=10&search=ADA")
-    ).json();
+    const found = await read(
+      RowsSchema,
+      request("GET", "/api/db/rows/user?skip=0&take=10&search=ADA"),
+    );
     expect(found).toMatchObject({ total: 1, search: "ADA" });
     expect(found.rows).toHaveLength(1);
     expect(
-      (await (await request("GET", "/api/db/rows/user?skip=0&take=10&search=%25")).json()).total,
+      (await read(RowsSchema, request("GET", "/api/db/rows/user?skip=0&take=10&search=%25"))).total,
     ).toBe(0);
 
     const inserted = await request("POST", "/api/db/rows/user", {
       values: { id: 3, name: "Grace", active: false },
     });
-    expect(await inserted.json()).toStrictEqual({ count: 1 });
+    expect(AffectedSchema.parse(await inserted.json())).toStrictEqual({ count: 1 });
 
     await request("PATCH", "/api/db/rows/user", { where: { id: 3 }, values: { name: "Grace H." } });
     await request("DELETE", "/api/db/rows/user", { where: { id: 2 } });
 
-    const users = await (await request("GET", "/api/db/rows/user?skip=0&take=10")).json();
+    const users = await read(RowsSchema, request("GET", "/api/db/rows/user?skip=0&take=10"));
     expect(users.rows).toStrictEqual([
       { id: 1, name: "Ada", active: 1 },
       { id: 3, name: "Grace H.", active: 0 },
@@ -216,58 +256,62 @@ describe("drizzler studio API", () => {
 
     const unknown = await request("POST", "/api/db/rows/user", { values: { nope: 1 } });
     expect(unknown.status).toBe(422);
-    expect((await unknown.json()).errors).toStrictEqual([
+    expect(ValidationProblemSchema.parse(await unknown.json()).errors).toStrictEqual([
       { field: "values", message: "Unknown column of user: nope" },
     ]);
   });
 
   it("runs SQL, and reports a rejected statement as 503 with its message", async () => {
-    const result = await (
-      await request("POST", "/api/db/sql", { sql: "SELECT name FROM users ORDER BY id" })
-    ).json();
+    const result = await read(
+      SqlResultSchema,
+      request("POST", "/api/db/sql", { sql: "SELECT name FROM users ORDER BY id" }),
+    );
     expect(result).toMatchObject({
       columns: ["name"],
       rows: [{ name: "Ada" }, { name: "Linus" }],
       rowCount: 2,
     });
 
-    const write = await (
-      await request("POST", "/api/db/sql", { sql: "UPDATE users SET active = 0" })
-    ).json();
+    const write = await read(
+      SqlResultSchema,
+      request("POST", "/api/db/sql", { sql: "UPDATE users SET active = 0" }),
+    );
     expect(write).toMatchObject({ columns: [], rowCount: 2 });
 
     const bad = await request("POST", "/api/db/sql", { sql: "SELECT * FROM nope" });
     expect(bad.status).toBe(503);
-    expect((await bad.json()).detail).toContain("no such table");
+    expect(ServiceUnavailableProblemSchema.parse(await bad.json()).detail).toContain(
+      "no such table",
+    );
   });
 
   it("runs several statements with values bound, explains one and analyzes them", async () => {
-    const last = await (
-      await request("POST", "/api/db/sql", {
+    const last = await read(
+      SqlResultSchema,
+      request("POST", "/api/db/sql", {
         sql: "SELECT 1 AS a; SELECT name FROM users WHERE id = ?",
         params: [1],
-      })
-    ).json();
+      }),
+    );
     expect(last).toMatchObject({ columns: ["name"], rows: [{ name: "Ada" }], rowCount: 1 });
 
     const empty = await request("POST", "/api/db/sql", { sql: ";;" });
     expect(empty.status).toBe(422);
 
-    const plan = await (
-      await request("POST", "/api/db/explain", {
-        sql: "SELECT * FROM users WHERE id = ?",
-        params: [1],
-      })
-    ).json();
+    const plan = await read(
+      PlanSchema,
+      request("POST", "/api/db/explain", { sql: "SELECT * FROM users WHERE id = ?", params: [1] }),
+    );
     expect(plan.dialect).toBe("sqlite");
     expect(plan.nodes.length).toBeGreaterThan(0);
 
-    const analysis = await (
-      await request("POST", "/api/db/analyze", {
+    const analysis = await read(
+      AnalysisSchema,
+      request("POST", "/api/db/analyze", {
         sql: "SELECT u.name, u.nmae FROM users u WHERE u.id = ?",
-      })
-    ).json();
-    const [statement] = analysis.statements;
+      }),
+    );
+    const statement = analysis.statements[0]!;
     expect(statement.kind).toBe("select");
     expect(statement.tables[0]).toMatchObject({ name: "users", known: true });
     expect(statement.parameters).toHaveLength(1);
@@ -281,7 +325,7 @@ describe("drizzler studio API", () => {
     configureStudio({ schemaPath: file, cwd: dir, database });
     const res = await request("GET", "/api/db/counts");
     expect(res.status).toBe(503);
-    expect((await (await request("GET", "/api/db")).json()).connected).toBe(false);
+    expect((await read(DbStatusSchema, request("GET", "/api/db"))).connected).toBe(false);
   });
 
   it("refuses a request for another host name", async () => {

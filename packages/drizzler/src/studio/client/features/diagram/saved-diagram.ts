@@ -15,7 +15,11 @@ export function useSavedDiagram() {
     if (source === null) return;
     draw.mutate(
       { json: { source } },
-      { onSuccess: (result) => result.schema !== null && setSchema(result.schema) },
+      {
+        onSuccess(result) {
+          if (result.schema !== null) setSchema(result.schema);
+        },
+      },
     );
   }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
   return { snapshot, schema };

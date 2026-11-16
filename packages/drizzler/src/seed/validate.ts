@@ -41,6 +41,7 @@ const DATE_TEXT = {
 } as const;
 
 /** What the column's stored scalar must look like, from its type, length, enum and bounds. */
+// oxlint-disable-next-line complexity -- one case per column kind
 function scalarSchema(column: SeedColumn) {
   switch (column.kind) {
     case "enum":

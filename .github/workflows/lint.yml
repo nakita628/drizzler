@@ -1,8 +1,9 @@
 name: Lint
 
-# The gates that need no build, as `pnpm lint` and `pnpm knip` run them locally: the prose of the
-# repository (markdownlint, textlint, cspell), the workflows themselves (actionlint for the syntax,
-# zizmor for the security posture), and the files, exports and dependencies nothing uses (knip).
+# The gates that need no build, as `pnpm lint` runs them locally: the prose of the repository
+# (markdownlint, textlint, cspell, and the links between its files), the workflows themselves
+# (actionlint for the syntax, zizmor for the security posture), the Studio API's TypeSpec
+# (typespeclint), and the files, exports and dependencies nothing uses (knip).
 # zizmor is installed first so that `pnpm lint` runs it here rather than skipping it as it does on
 # a machine without it.
 
@@ -36,7 +37,5 @@ jobs:
       - run: pipx install zizmor==1.30.0
 
       # setup-vp puts `vp` on PATH, not `pnpm`; `vp run` runs the root script with both available.
-      - run: vp run lint
-
       # knip resolves the sources, not dist, so it needs the install but no build.
-      - run: vp run knip
+      - run: vp run lint
