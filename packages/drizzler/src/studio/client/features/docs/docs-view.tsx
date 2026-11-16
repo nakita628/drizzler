@@ -141,12 +141,12 @@ function Relations({
               {relation.table}.{relation.otherColumn}
             </a>
             <span className="font-sans text-meta text-muted">{relation.kind}</span>
-            {relation.onDelete ? (
+            {relation.onDelete !== null ? (
               <Chip size="sm" variant="soft">
                 on delete {relation.onDelete}
               </Chip>
             ) : null}
-            {relation.onUpdate ? (
+            {relation.onUpdate !== null ? (
               <Chip size="sm" variant="soft">
                 on update {relation.onUpdate}
               </Chip>
@@ -224,7 +224,7 @@ function TableSection({
           Browse rows
         </Link>
       </header>
-      {table.description ? <p className="mb-3 text-ui">{table.description}</p> : null}
+      {table.description !== null ? <p className="mb-3 text-ui">{table.description}</p> : null}
       <Columns table={table} enums={enums} />
       <div className="mt-4 flex flex-col gap-3">
         {table.indexes.length > 0 ? (
@@ -268,7 +268,7 @@ function EnumSection({ value }: { readonly value: Enum }) {
           <span className="font-mono text-body text-muted">{value.dbName}</span>
         ) : null}
       </header>
-      {value.description ? <p className="mb-2 text-ui">{value.description}</p> : null}
+      {value.description !== null ? <p className="mb-2 text-ui">{value.description}</p> : null}
       <div className="flex flex-wrap gap-1.5">
         {value.values.map((v) => (
           <code

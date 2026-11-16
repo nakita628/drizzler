@@ -18,11 +18,11 @@ function dbmlOperator(leftMany: boolean, rightMany: boolean) {
 // A table, column or type name as DBML reads it: bare when it is one word, else double-quoted
 // (`"double precision"`, which DBML would otherwise read as the type `double` and a setting).
 function name(value: string) {
-  return /^[A-Za-z_][\w]*$/u.test(value) ? value : `"${value.replace(/"/gu, '\\"')}"`;
+  return /^[A-Za-z_][\w]*$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
 
 function note(text: string) {
-  return `'${text.replace(/'/gu, "\\'")}'`;
+  return `'${text.replaceAll("'", "\\'")}'`;
 }
 
 /**
@@ -41,7 +41,7 @@ export function dbml(code: string[]) {
         column.increment ? "increment" : null,
         column.notNull ? "not null" : null,
         column.unique ? "unique" : null,
-        column.note ? `note: ${note(column.note)}` : null,
+        column.note !== null ? `note: ${note(column.note)}` : null,
       ].filter((s): s is string => s !== null);
       const settingsStr = settings.length > 0 ? ` [${settings.join(", ")}]` : "";
       return `  ${name(column.name)} ${name(column.type)}${settingsStr}`;
@@ -79,8 +79,8 @@ export function dbml(code: string[]) {
     const refName = `${r.to.table}_${r.to.column}_${r.from.table}_${r.from.column}${suffix}`;
     // https://dbml.dbdiagram.io/docs/#relationship-settings
     const settings = [
-      r.onDelete ? `delete: ${r.onDelete}` : null,
-      r.onUpdate ? `update: ${r.onUpdate}` : null,
+      r.onDelete !== null ? `delete: ${r.onDelete}` : null,
+      r.onUpdate !== null ? `update: ${r.onUpdate}` : null,
     ].filter((s): s is string => s !== null);
     const settingsStr = settings.length > 0 ? ` [${settings.join(", ")}]` : "";
     return `Ref ${name(refName)}: ${left} ${op} ${right}${settingsStr}`;

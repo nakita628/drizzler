@@ -1,0 +1,5 @@
+# The TypeSpec linter for main.tsp (the Studio API): typespeclint's API design checklist.
+# `pnpm lint:typespec` at the root runs it; the TypeSpec editor extension shows it while typing.
+linter:
+  extends:
+    - typespeclint/recommended

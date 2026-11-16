@@ -193,6 +193,7 @@ function makeJson(faker: Faker) {
 }
 
 /** One scalar of the column's kind, honouring its name and the rule's bounds; null for a kind the seeder cannot make. */
+// oxlint-disable-next-line complexity -- one case per column kind
 function makeScalar(
   faker: Faker,
   column: SeedColumn,
@@ -288,6 +289,7 @@ export function generatedDefault(
  * The value of one column of one faker row. A rule function wins outright; a rule object narrows
  * what the column's kind and name would otherwise produce.
  */
+// oxlint-disable-next-line complexity -- one branch per field rule (fixed, list, range, null rate)
 export function makeFieldValue(input: {
   readonly faker: Faker;
   readonly column: SeedColumn;

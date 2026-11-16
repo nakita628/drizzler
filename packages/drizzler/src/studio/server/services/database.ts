@@ -403,9 +403,10 @@ function d1Request(target: D1Connection, body: unknown) {
     });
     const text = yield* Effect.tryPromise({ try: () => response.text(), catch: queryError });
     // A body that is not JSON is not dropped: readD1Response quotes it as the failure.
-    const json: unknown = yield* Effect.try(() => JSON.parse(text)).pipe(
-      Effect.match({ onSuccess: (value: unknown) => value, onFailure: () => undefined }),
-    );
+    const json: unknown = yield* Effect.try(() => {
+      const parsed: unknown = JSON.parse(text);
+      return parsed;
+    }).pipe(Effect.match({ onSuccess: (value: unknown) => value, onFailure: () => undefined }));
     const read = readD1Response({ status: response.status, text, body: json });
     return "error" in read ? yield* new DatabaseError({ cause: read.error }) : read.answers;
   });

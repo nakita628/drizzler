@@ -12,7 +12,10 @@ function cell(value: unknown): Cell {
 }
 
 function listOf(value: unknown): readonly unknown[] | null {
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) {
+    const items: readonly unknown[] = value;
+    return items;
+  }
   return isRecord(value) ? [value] : null;
 }
 

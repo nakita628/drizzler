@@ -65,7 +65,7 @@ const PUNCTUATION = new Set(["(", ")", ",", ";", ".", "[", "]"]);
 const WORD_START = /[A-Za-z_À-￿]/u;
 // Read per UTF-16 unit, as the characters of a word are: no `u` flag, so the two halves of an
 // astral character each fall in the range.
-const WORD_RUN = /^[A-Za-z0-9_$\u00C0-\uFFFF]*/;
+const WORD_RUN = /^[A-Za-z0-9_$\u00C0-\uFFFF]*/u;
 const NUMBER = /^(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/u;
 const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/u;
 
@@ -133,6 +133,7 @@ function token(kind: TokenKind, raw: string, text: string, start: number, end: n
   return { token: { kind, raw, text, start, end }, next: end };
 }
 
+// oxlint-disable-next-line complexity -- one case per token kind
 function step(text: string, at: number, previous: Token | null): Step {
   const char = text[at] ?? "";
   if (isSpace(char)) return { skip: at + 1 };

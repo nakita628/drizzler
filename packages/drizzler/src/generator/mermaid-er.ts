@@ -45,7 +45,7 @@ export function mermaidCardinalities(child: Cardinality) {
 }
 
 function quoted(value: string) {
-  return `"${value.replace(/"/gu, "'")}"`;
+  return `"${value.replaceAll('"', "'")}"`;
 }
 
 // An entity name as Mermaid reads it: bare when it is one word, else quoted. A hyphen is not part
@@ -61,7 +61,7 @@ function attribute(value: string) {
 
 // An attribute type as Mermaid reads it: one word, so `double precision` is `double_precision`.
 function attributeType(value: string) {
-  return value.replace(/\s+/gu, "_");
+  return value.replaceAll(/\s+/gu, "_");
 }
 
 /**
@@ -92,7 +92,7 @@ export function mermaidER(code: string[]) {
           column.foreignKey ? "FK" : null,
         ].filter((k): k is string => k !== null);
         const keyPart = keys.length > 0 ? ` ${keys.join(", ")}` : "";
-        const descPart = column.note ? ` "${column.note.replace(/"/gu, "'")}"` : "";
+        const descPart = column.note !== null ? ` "${column.note.replaceAll('"', "'")}"` : "";
         return `        ${attributeType(column.type)} ${attribute(column.name)}${keyPart}${descPart}`;
       }),
       "    }",

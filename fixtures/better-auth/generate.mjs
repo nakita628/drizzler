@@ -32,8 +32,8 @@ const CLI = path.join(path.dirname(require.resolve("drizzler/package.json")), "d
 function siweForSchema() {
   return siwe({
     domain: "example.com",
-    getNonce: async () => "nonce",
-    verifyMessage: async () => true,
+    getNonce: () => Promise.resolve("nonce"),
+    verifyMessage: () => Promise.resolve(true),
   });
 }
 
@@ -72,6 +72,7 @@ const PATTERNS = new Map([
 ]);
 
 // The Drizzle schema Better Auth generates for these plugins, on PostgreSQL.
+/** @param {import("better-auth").BetterAuthPlugin[]} plugins - the plugins to enable */
 async function schemaOf(plugins) {
   const adapter = drizzleAdapter({}, { provider: "pg" })({ plugins });
   const { code } = await adapter.createSchema({ file: "schema.ts" });

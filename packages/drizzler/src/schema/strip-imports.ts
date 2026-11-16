@@ -101,7 +101,7 @@ export function elideTypeOnlyImports(source: string, file = "schema.ts") {
   );
   return spans.reduceRight(
     (text, [start, end]) =>
-      text.slice(0, start) + text.slice(start, end).replace(/[^\n]/gu, " ") + text.slice(end),
+      text.slice(0, start) + text.slice(start, end).replaceAll(/[^\n]/gu, " ") + text.slice(end),
     source,
   );
 }

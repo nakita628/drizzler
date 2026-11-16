@@ -125,17 +125,17 @@ describe("makeConnection", () => {
   it("says why it cannot open a D1 URL without both ids or a token, or an unknown URL", () => {
     expect(makeConnection({ url: "d1://acc", env: none })).toMatchObject({
       kind: "unsupported",
-      reason: expect.stringContaining("d1://<account id>/<database id>"),
+      reason: expect.stringContaining("d1://<account id>/<database id>") as string,
     });
     expect(
       makeConnection({ url: "d1://acc/db", env: { ...none, CLOUDFLARE_D1_TOKEN: "" } }),
     ).toMatchObject({
       kind: "unsupported",
-      reason: expect.stringContaining("CLOUDFLARE_D1_TOKEN"),
+      reason: expect.stringContaining("CLOUDFLARE_D1_TOKEN") as string,
     });
     expect(makeConnection({ url: "redis://h", env: none })).toMatchObject({
       kind: "unsupported",
-      reason: expect.stringContaining("libsql://"),
+      reason: expect.stringContaining("libsql://") as string,
     });
   });
 });
@@ -202,12 +202,6 @@ describe("makeRedactedUrl", () => {
       "libsql://app.turso.io?authToken=****&tls=1",
     );
     expect(makeRedactedUrl({ url: "d1://acc/db?token=secret" })).toBe("d1://acc/db?token=****");
-  });
-});
-
-describe("makeCell", () => {
-  it("writes the ArrayBuffer libSQL hands a blob back as in hex", () => {
-    expect(makeCell({ value: new Uint8Array([0xde, 0xad]).buffer })).toBe("\\xdead");
   });
 });
 
@@ -285,6 +279,10 @@ describe("statements", () => {
 });
 
 describe("makeCell", () => {
+  it("writes the ArrayBuffer libSQL hands a blob back as in hex", () => {
+    expect(makeCell({ value: new Uint8Array([0xde, 0xad]).buffer })).toBe("\\xdead");
+  });
+
   it("turns driver values into what JSON can carry", () => {
     expect(makeCell({ value: new Date("2026-01-02T03:04:05Z") })).toBe("2026-01-02T03:04:05.000Z");
     expect(makeCell({ value: 42n })).toBe(42);

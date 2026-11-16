@@ -42,7 +42,7 @@ export function EnumView({ tables, value }: { readonly tables: Tables; readonly 
           Drizzle schema
         </Link>
       </header>
-      {value.description ? (
+      {value.description !== null ? (
         <p className="m-0 px-6 pt-3 whitespace-pre-wrap text-muted">{value.description}</p>
       ) : null}
       <Table variant="secondary" className="studio-table">

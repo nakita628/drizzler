@@ -136,11 +136,14 @@ function Canvas({
 
   useEffect(() => {
     if (focus === null || nodes.length === 0) return undefined;
-    const timer = setTimeout(() => {
-      fitView({ nodes: [{ id: focus }], duration: 500, maxZoom: 1.1, padding: 0.4 }).catch(() => {
+    async function focusCard(id: string) {
+      try {
+        await fitView({ nodes: [{ id }], duration: 500, maxZoom: 1.1, padding: 0.4 });
+      } catch {
         // The card can be gone between renders when the schema changes; nothing to focus.
-      });
-    }, 50);
+      }
+    }
+    const timer = setTimeout(() => void focusCard(focus), 50);
     return () => clearTimeout(timer);
   }, [focus, nodes.length, fitView]);
 
@@ -162,11 +165,14 @@ function Canvas({
     const next = nodes.map((n) => ({ ...n, position: positions[n.id] ?? n.position }));
     setNodes(next);
     persist(next);
-    setTimeout(() => {
-      fitView({ duration: 400, padding: 0.1 }).catch(() => {
+    async function fitAll() {
+      try {
+        await fitView({ duration: 400, padding: 0.1 });
+      } catch {
         // Nothing to fit yet.
-      });
-    }, 30);
+      }
+    }
+    setTimeout(() => void fitAll(), 30);
   }, [schema, nodes, setNodes, persist, fitView]);
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
@@ -185,11 +191,15 @@ function Canvas({
     [schema, nodes, theme],
   );
   const [exporting, setExporting] = useState(false);
-  const onExportPng = useCallback(() => {
+  const onExportPng = useCallback(async () => {
     setExporting(true);
-    exportPng("schema.png", diagram())
-      .catch(() => toast.danger("The diagram could not be exported."))
-      .finally(() => setExporting(false));
+    try {
+      await exportPng("schema.png", diagram());
+    } catch {
+      toast.danger("The diagram could not be exported.");
+    } finally {
+      setExporting(false);
+    }
   }, [diagram]);
   const onExportSvg = useCallback(() => {
     exportSvg("schema.svg", diagram());
@@ -242,7 +252,7 @@ function Canvas({
                 <Tooltip>
                   <Button
                     variant="outline"
-                    onPress={onExportPng}
+                    onPress={() => void onExportPng()}
                     isDisabled={exporting || nodes.length === 0}
                   >
                     <LuDownload size={15} />

@@ -107,7 +107,7 @@ function FlowNodeComponent({ data, selected }: NodeProps<FlowNodeType>) {
                   />
                 ) : null}
                 <span className="min-w-0 flex-1 truncate">{line}</span>
-                {column?.dataType ? (
+                {column !== undefined && column.dataType !== null ? (
                   <span className="shrink-0 text-caption text-faint">{column.dataType}</span>
                 ) : null}
               </div>

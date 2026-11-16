@@ -54,6 +54,11 @@ const post = model("Post", [
 ]);
 const positions = { User: { x: 0, y: 0 }, Post: { x: 500, y: 40 } };
 
+// Whether a coordinate lies strictly between two others.
+function strictlyBetween(value: number, low: number, high: number) {
+  return low < value && value < high;
+}
+
 describe("renderDiagramSvg", () => {
   it("draws one node per model with its scalar fields and one edge per relation", () => {
     const svg = renderDiagramSvg({
@@ -246,8 +251,7 @@ describe("edge captions", () => {
     });
     const boxes = captionBoxes(svg);
     expect(boxes).toHaveLength(1);
-    const [box] = boxes;
-    expect(box && box.x > 380 && box.x < 720).toBe(false);
+    expect(strictlyBetween(boxes[0]!.x, 380, 720)).toBe(false);
   });
 
   it("draws the captions after the models, so a label is never hidden behind one", () => {

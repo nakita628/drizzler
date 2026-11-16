@@ -54,11 +54,17 @@ export function sourceText(context) {
   return context.sourceCode?.text ?? context.getSourceCode?.().text ?? "";
 }
 
-/** The TSDoc block (`/** … *\/`) written directly above a node, or null. */
+// A `// oxlint-disable-next-line ...` comment on the line(s) right above a node.
+const DISABLE_DIRECTIVES = /(?:\n[ \t]*\/\/[ \t]*oxlint-disable-next-line\b[^\n]*)+$/u;
+
+/**
+ * The TSDoc block (`/** … *\/`) written directly above a node, or null. An `oxlint-disable-next-line`
+ * comment between the two has to sit right above the node, so it does not separate them.
+ */
 export function leadingTsdoc(context, node) {
   const text = sourceText(context);
   const [start] = rangeOf(node);
-  const before = text.slice(0, start).trimEnd();
+  const before = text.slice(0, start).trimEnd().replace(DISABLE_DIRECTIVES, "").trimEnd();
   if (!before.endsWith("*/")) return null;
   const open = before.lastIndexOf("/**");
   if (open === -1) return null;

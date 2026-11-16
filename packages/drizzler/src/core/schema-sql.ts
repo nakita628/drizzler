@@ -123,7 +123,8 @@ export function schemaSql(input: {
             examples: input.examples,
           }),
         );
-        return import(/* @vite-ignore */ pathToFileURL(file).href);
+        const probe: unknown = await import(/* @vite-ignore */ pathToFileURL(file).href);
+        return probe;
       },
       catch: (thrown) => new QuerySqlError({ message: errorMessage(thrown) }),
     }).pipe(Effect.ensuring(Effect.sync(() => fs.rmSync(file, { force: true }))));

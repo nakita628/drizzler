@@ -314,6 +314,7 @@ export function makeRuntimeModule(input: z.infer<typeof MakeRuntimeModuleInput>)
  * // => { at: "2026-01-02T03:04:05.000Z", n: 42 }
  * ```
  */
+// oxlint-disable-next-line complexity -- one case per JSON value type
 export function makeJsonValue(input: {
   readonly value: unknown;
   readonly seen?: WeakSet<object>;

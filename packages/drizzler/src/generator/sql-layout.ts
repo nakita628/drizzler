@@ -18,6 +18,7 @@ const CLAUSES = new Set([
 const JOIN_LEADS = new Set(["LEFT", "RIGHT", "INNER", "FULL", "CROSS", "OUTER"]);
 
 // Whether a line starts at this token: a clause at the statement's own level, not inside parentheses.
+// oxlint-disable-next-line complexity -- one case per clause keyword that opens a line
 function startsLine(tokens: readonly Token[], at: number, depth: number) {
   const token = tokens[at];
   if (token === undefined || token.kind !== "word" || depth !== 0 || at === 0) return false;

@@ -43,7 +43,7 @@ function ModelNodeComponent({ data, selected }: NodeProps<ModelNodeType>) {
         />
         <span className="mr-auto flex min-w-0 items-center gap-2">
           <span className="text-body font-bold">{model.name}</span>
-          {model.dbName ? (
+          {model.dbName !== null ? (
             <span className="truncate text-meta opacity-60">{model.dbName}</span>
           ) : null}
         </span>

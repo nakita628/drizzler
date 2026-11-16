@@ -2,19 +2,21 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { tokenize } from "./tokenize.js";
 
-function kinds(text: string) {
+// The tokens of text that tokenizes; text that does not fails the test.
+function tokensOf(text: string) {
   const result = tokenize(text);
   if (!result.ok) throw new Error(result.error.message);
-  return result.tokens.map((token) => `${token.kind}:${token.text}`);
+  return result.tokens;
+}
+
+function kinds(text: string) {
+  return tokensOf(text).map((token) => `${token.kind}:${token.text}`);
 }
 
 describe("tokenize", () => {
   it("splits words, punctuation, operators and literals, keeping offsets", () => {
-    const result = tokenize("SELECT a.b, 'x''y' FROM t WHERE c >= 1.5e3;");
-    if (!result.ok) throw new Error(result.error.message);
-    expect(
-      result.tokens.map((token) => [token.kind, token.text, token.start, token.end]),
-    ).toStrictEqual([
+    const tokens = tokensOf("SELECT a.b, 'x''y' FROM t WHERE c >= 1.5e3;");
+    expect(tokens.map((token) => [token.kind, token.text, token.start, token.end])).toStrictEqual([
       ["word", "SELECT", 0, 6],
       ["word", "A", 7, 8],
       ["punct", ".", 8, 9],
@@ -33,11 +35,8 @@ describe("tokenize", () => {
   });
 
   it("keeps the raw spelling of a word and unquotes identifiers", () => {
-    const result = tokenize('select "Mixed Case", `tick`, [bracket]');
-    if (!result.ok) throw new Error(result.error.message);
-    expect(
-      result.tokens.slice(0, 6).map((token) => [token.kind, token.raw, token.text]),
-    ).toStrictEqual([
+    const tokens = tokensOf('select "Mixed Case", `tick`, [bracket]');
+    expect(tokens.slice(0, 6).map((token) => [token.kind, token.raw, token.text])).toStrictEqual([
       ["word", "select", "SELECT"],
       ["quoted", '"Mixed Case"', "Mixed Case"],
       ["punct", ",", ","],

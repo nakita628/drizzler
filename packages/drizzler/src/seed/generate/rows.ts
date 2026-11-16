@@ -154,7 +154,8 @@ function makeRow(input: RowInput): Result<SeedRow, SeedGenerationError> {
 
 function violated(row: SeedRow, table: ModelTable, seen: ReadonlyMap<string, ReadonlySet<string>>) {
   return table.uniques.filter(
-    (fields) => holdsKey(row, fields) && seen.get(fields.join(" "))?.has(uniqueKey(row, fields)),
+    (fields) =>
+      holdsKey(row, fields) && seen.get(fields.join(" "))?.has(uniqueKey(row, fields)) === true,
   );
 }
 

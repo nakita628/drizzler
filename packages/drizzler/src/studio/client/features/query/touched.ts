@@ -18,7 +18,8 @@ export function useTouched(code: string, source: string | null) {
   const [tables, setTables] = useState<readonly TouchedTable[]>([]);
   const seq = useRef(0);
   useEffect(() => {
-    const current = ++seq.current;
+    seq.current += 1;
+    const current = seq.current;
     if (code.trim() === "") {
       setTables([]);
       return;
@@ -26,7 +27,11 @@ export function useTouched(code: string, source: string | null) {
     const timer = setTimeout(() => {
       analyze.mutate(
         { json: { code } },
-        { onSuccess: (result) => current === seq.current && setTables(result.tables) },
+        {
+          onSuccess(result) {
+            if (current === seq.current) setTables(result.tables);
+          },
+        },
       );
     }, TOUCHED_DEBOUNCE_MS);
     return () => clearTimeout(timer);

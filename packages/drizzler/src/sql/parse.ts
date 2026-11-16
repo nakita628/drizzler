@@ -298,6 +298,7 @@ function parseComparison(p: Parser): Expr {
 }
 
 /** The predicates that follow a value: comparison operators, IS, IN, BETWEEN, LIKE and friends. */
+// oxlint-disable-next-line complexity -- one case per predicate (IS, IN, BETWEEN, LIKE, ...)
 function parsePredicate(p: Parser, start: number, left: Expr): Expr {
   const token = peek(p);
   if (token.kind === "op" && COMPARISON.has(token.text)) {
@@ -557,6 +558,7 @@ function atQueryStartAt(p: Parser, ahead: number): boolean {
   return atPunct(p, "(", ahead) ? atQueryStartAt(p, ahead + 1) : false;
 }
 
+// oxlint-disable-next-line complexity -- one case per primary expression form
 function parsePrimary(p: Parser): Expr {
   const token = peek(p);
   const start = token.start;
@@ -879,6 +881,7 @@ function parseNameList(p: Parser) {
   return names;
 }
 
+// oxlint-disable-next-line complexity -- the LIMIT / OFFSET / FETCH spellings of each dialect
 function parseLimit(p: Parser): { readonly limit: Expr | null; readonly offset: Expr | null } {
   if (acceptWord(p, "LIMIT")) {
     const first = acceptWord(p, "ALL") ? null : parseOr(p);
@@ -1291,6 +1294,7 @@ function parseDelete(p: Parser, start: number, ctes: readonly Cte[]): Statement 
   };
 }
 
+// oxlint-disable-next-line complexity -- one case per statement keyword
 function parseStatement(p: Parser): Statement {
   const start = peek(p).start;
   const first = peek(p);

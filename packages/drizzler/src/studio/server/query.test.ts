@@ -4,6 +4,15 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import studio from "./index.js";
+import {
+  CompletionsSchema,
+  DiagnosticsSchema,
+  DiagramDataSchema,
+  DocsSchema,
+  QueryResultSchema,
+  QueryTouchedSchema,
+  ValidationProblemSchema,
+} from "./routes/index.js";
 import { configureStudio, connectDatabase } from "./usecases/studio.js";
 
 const BASE = "http://127.0.0.1";
@@ -44,11 +53,12 @@ describe("running Drizzle against the database", () => {
   let request: (url: string, body: unknown) => Promise<Response>;
 
   async function touched(code: string) {
-    return (await (await request("/api/drizzle/touched", { code })).json()).tables;
+    return QueryTouchedSchema.parse(await (await request("/api/drizzle/touched", { code })).json())
+      .tables;
   }
 
   async function run(code: string) {
-    return (await request("/api/drizzle", { code })).json();
+    return QueryResultSchema.parse(await (await request("/api/drizzle", { code })).json());
   }
 
   beforeAll(async () => {
@@ -89,7 +99,7 @@ describe("running Drizzle against the database", () => {
       { id: 2, name: "Linus" },
     ]);
     expect(out.statements).toHaveLength(1);
-    expect(out.statements[0].sql).toBe('select "id", "name" from "users"');
+    expect(out.statements[0]?.sql).toBe('select "id", "name" from "users"');
   });
 
   it("has the operators and the schema in scope, and maps booleans back", async () => {
@@ -100,7 +110,7 @@ describe("running Drizzle against the database", () => {
       { title: "Notes", published: true },
       { title: "Engines", published: true },
     ]);
-    expect(out.statements[0].params).toStrictEqual([1]);
+    expect(out.statements[0]?.params).toStrictEqual([1]);
   });
 
   it("runs relational queries", async () => {
@@ -145,7 +155,9 @@ throw new Error("stop here");`);
   it("answers code that does not parse with a 422 naming the line", async () => {
     const res = await request("/api/drizzle", { code: "const a = 1;\ndb.select(" });
     expect(res.status).toBe(422);
-    expect((await res.json()).errors[0].message).toMatch(/\(line 2, column \d+\)$/);
+    expect(ValidationProblemSchema.parse(await res.json()).errors[0]?.message).toMatch(
+      /\(line 2, column \d+\)$/u,
+    );
   });
 
   it("picks up a saved change to the schema", async () => {
@@ -175,35 +187,37 @@ throw new Error("stop here");`);
           offset: source.length,
           document: "query",
         });
-        return (await res.json()).items.map((item: { label: string }) => item.label);
+        return CompletionsSchema.parse(await res.json()).items.map((item) => item.label);
       }
-      expect(await complete("db.")).toEqual(
+      expect(await complete("db.")).toStrictEqual(
         expect.arrayContaining(["select", "insert", "query", "$count"]),
       );
-      expect(await complete("db.query.")).toEqual(expect.arrayContaining(["user", "post"]));
-      expect(await complete("db.select().from(post).where(eq(post.")).toEqual(
+      expect(await complete("db.query.")).toStrictEqual(expect.arrayContaining(["user", "post"]));
+      expect(await complete("db.select().from(post).where(eq(post.")).toStrictEqual(
         expect.arrayContaining(["authorId", "title", "published"]),
       );
 
       const typo = "db.select().from(post).where(eq(post.titel, 1))";
-      const { diagnostics } = await (
-        await request("/api/language/diagnostics", { source: typo, document: "query" })
-      ).json();
-      expect(diagnostics.map((d: { message: string }) => d.message).join("\n")).toContain("titel");
-      expect(typo.slice(diagnostics[0].range.start, diagnostics[0].range.end)).toBe("titel");
+      const { diagnostics } = DiagnosticsSchema.parse(
+        await (
+          await request("/api/language/diagnostics", { source: typo, document: "query" })
+        ).json(),
+      );
+      expect(diagnostics.map((d) => d.message).join("\n")).toContain("titel");
+      expect(typo.slice(diagnostics[0]?.range.start, diagnostics[0]?.range.end)).toBe("titel");
     },
   );
 
   it("draws the schema as canvas data, with the lines each table is declared on", async () => {
-    const { schema: canvas, parseError } = await (
-      await request("/api/diagram/schema", { source: schema })
-    ).json();
+    const { schema: canvas, parseError } = DiagramDataSchema.parse(
+      await (await request("/api/diagram/schema", { source: schema })).json(),
+    );
     expect(parseError).toBeNull();
     const lines = schema.split("\n");
-    const user = canvas.models.find((m: { name: string }) => m.name === "user");
+    const user = canvas!.models.find((m) => m.name === "user")!;
     expect(lines[user.lines.start - 1]).toBe('export const user = sqliteTable("users", {');
     expect(lines[user.lines.end - 1]).toBe("});");
-    expect(canvas.relations.map((r: { id: string }) => r.id)).toContain("user.id->post.authorId");
+    expect(canvas!.relations.map((r) => r.id)).toContain("user.id->post.authorId");
   });
 
   it("names the tables and columns a query touches, before it runs", async () => {
@@ -215,11 +229,9 @@ throw new Error("stop here");`);
 
   // Every example the docs offer has to run as written: they are what the Query page starts from.
   it("runs every query the docs offer", { timeout: 60_000 }, async () => {
-    const docs = await (await request("/api/docs", undefined)).json();
-    const queries = docs.tables.flatMap(
-      (table: { queries: { name: string; code: string }[] }) => table.queries,
-    );
-    expect(queries.map((q: { name: string }) => q.name)).toEqual(
+    const docs = DocsSchema.parse(await (await request("/api/docs", undefined)).json());
+    const queries = docs.tables.flatMap((table) => table.queries);
+    expect(queries.map((q) => q.name)).toStrictEqual(
       expect.arrayContaining(["Select", "Count", "Find many", "With relations"]),
     );
     for (const query of queries) {
@@ -293,14 +305,13 @@ export const userTag = sqliteTable(
     "offers every table, a composite-keyed one too, queries that run as written",
     { timeout: 60_000 },
     async () => {
-      const docs = await (await request("/api/docs")).json();
-      for (const table of docs.tables as {
-        name: string;
-        queries: { name: string; code: string }[];
-      }[]) {
+      const docs = DocsSchema.parse(await (await request("/api/docs")).json());
+      for (const table of docs.tables) {
         expect(table.queries.map((q) => q.name)).toStrictEqual(["Select", "Count", "Find many"]);
         for (const { name, code } of table.queries) {
-          const out = await (await request("/api/drizzle", { code })).json();
+          const out = QueryResultSchema.parse(
+            await (await request("/api/drizzle", { code })).json(),
+          );
           expect({ table: table.name, name, error: out.error }).toStrictEqual({
             table: table.name,
             name,

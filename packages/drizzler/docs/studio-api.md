@@ -173,9 +173,9 @@ A `change` event whenever the schema file changes on disk.
 
 <h3 id="readschemaevents-responses">Responses</h3>
 
-| Status | Meaning | Description                | Schema |
-| ------ | ------- | -------------------------- | ------ |
-| 200    | OK      | The request has succeeded. | Inline |
+| Status | Meaning | Description                                                                   | Schema |
+| ------ | ------- | ----------------------------------------------------------------------------- | ------ |
+| 200    | OK      | The event stream: `ready` once the watch is on, then `change` on each change. | Inline |
 
 <aside class="success">
 This operation does not require authentication
@@ -891,7 +891,7 @@ One page of a table's rows, ordered by its key.
 
 | Name      | In    | Type                          | Required | Description                                                                         |
 | --------- | ----- | ----------------------------- | -------- | ----------------------------------------------------------------------------------- |
-| tableName | path  | [tableName](#schematablename) | true     | none                                                                                |
+| tableName | path  | [tableName](#schematablename) | true     | The table, by the name the schema exports it under.                                 |
 | skip      | query | [skip](#schemaskip)           | true     | Rows to skip before the page                                                        |
 | take      | query | [take](#schematake)           | true     | Rows per page                                                                       |
 | search    | query | string                        | false    | Text to look for in any column, case-insensitively; empty or absent reads every row |
@@ -1019,15 +1019,15 @@ Insert one row.
 
 <h3 id="createrow-parameters">Parameters</h3>
 
-| Name                         | In   | Type                                        | Required | Description                                  |
-| ---------------------------- | ---- | ------------------------------------------- | -------- | -------------------------------------------- |
-| tableName                    | path | [tableName](#schematablename)               | true     | none                                         |
-| body                         | body | [InsertBody](#schemainsertbody)             | true     | none                                         |
-| » values                     | body | object                                      | true     | The values to insert, keyed by property name |
-| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                         |
-| » » » _anyOf_                | body | string                                      | false    | none                                         |
-| » » » _anyOf_                | body | number(double)                              | false    | none                                         |
-| » » » _anyOf_                | body | boolean                                     | false    | none                                         |
+| Name                         | In   | Type                                        | Required | Description                                         |
+| ---------------------------- | ---- | ------------------------------------------- | -------- | --------------------------------------------------- |
+| tableName                    | path | [tableName](#schematablename)               | true     | The table, by the name the schema exports it under. |
+| body                         | body | [InsertBody](#schemainsertbody)             | true     | none                                                |
+| » values                     | body | object                                      | true     | The values to insert, keyed by property name        |
+| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                                |
+| » » » _anyOf_                | body | string                                      | false    | none                                                |
+| » » » _anyOf_                | body | number(double)                              | false    | none                                                |
+| » » » _anyOf_                | body | boolean                                     | false    | none                                                |
 
 > Example responses
 
@@ -1143,15 +1143,15 @@ Delete the row identified by `where`.
 
 <h3 id="deleterow-parameters">Parameters</h3>
 
-| Name                         | In   | Type                                        | Required | Description                          |
-| ---------------------------- | ---- | ------------------------------------------- | -------- | ------------------------------------ |
-| tableName                    | path | [tableName](#schematablename)               | true     | none                                 |
-| body                         | body | [DeleteBody](#schemadeletebody)             | true     | none                                 |
-| » where                      | body | object                                      | true     | The key columns of the row to delete |
-| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                 |
-| » » » _anyOf_                | body | string                                      | false    | none                                 |
-| » » » _anyOf_                | body | number(double)                              | false    | none                                 |
-| » » » _anyOf_                | body | boolean                                     | false    | none                                 |
+| Name                         | In   | Type                                        | Required | Description                                         |
+| ---------------------------- | ---- | ------------------------------------------- | -------- | --------------------------------------------------- |
+| tableName                    | path | [tableName](#schematablename)               | true     | The table, by the name the schema exports it under. |
+| body                         | body | [DeleteBody](#schemadeletebody)             | true     | none                                                |
+| » where                      | body | object                                      | true     | The key columns of the row to delete                |
+| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                                |
+| » » » _anyOf_                | body | string                                      | false    | none                                                |
+| » » » _anyOf_                | body | number(double)                              | false    | none                                                |
+| » » » _anyOf_                | body | boolean                                     | false    | none                                                |
 
 > Example responses
 
@@ -1275,20 +1275,20 @@ Update the row identified by `where`.
 
 <h3 id="updaterow-parameters">Parameters</h3>
 
-| Name                         | In   | Type                                        | Required | Description                          |
-| ---------------------------- | ---- | ------------------------------------------- | -------- | ------------------------------------ |
-| tableName                    | path | [tableName](#schematablename)               | true     | none                                 |
-| body                         | body | [UpdateBody](#schemaupdatebody)             | true     | none                                 |
-| » where                      | body | object                                      | true     | The key columns of the row to change |
-| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                 |
-| » » » _anyOf_                | body | string                                      | false    | none                                 |
-| » » » _anyOf_                | body | number(double)                              | false    | none                                 |
-| » » » _anyOf_                | body | boolean                                     | false    | none                                 |
-| » values                     | body | object                                      | true     | The columns to set                   |
-| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                 |
-| » » » _anyOf_                | body | string                                      | false    | none                                 |
-| » » » _anyOf_                | body | number(double)                              | false    | none                                 |
-| » » » _anyOf_                | body | boolean                                     | false    | none                                 |
+| Name                         | In   | Type                                        | Required | Description                                         |
+| ---------------------------- | ---- | ------------------------------------------- | -------- | --------------------------------------------------- |
+| tableName                    | path | [tableName](#schematablename)               | true     | The table, by the name the schema exports it under. |
+| body                         | body | [UpdateBody](#schemaupdatebody)             | true     | none                                                |
+| » where                      | body | object                                      | true     | The key columns of the row to change                |
+| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                                |
+| » » » _anyOf_                | body | string                                      | false    | none                                                |
+| » » » _anyOf_                | body | number(double)                              | false    | none                                                |
+| » » » _anyOf_                | body | boolean                                     | false    | none                                                |
+| » values                     | body | object                                      | true     | The columns to set                                  |
+| » » **additionalProperties** | body | string \| number(double) \| boolean \| null | false    | none                                                |
+| » » » _anyOf_                | body | string                                      | false    | none                                                |
+| » » » _anyOf_                | body | number(double)                              | false    | none                                                |
+| » » » _anyOf_                | body | boolean                                     | false    | none                                                |
 
 > Example responses
 

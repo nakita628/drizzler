@@ -91,6 +91,16 @@ function generate(config: Omit<SeedConfig, "schema">) {
   return ok(Object.fromEntries(entries.value.map((entry) => [entry.table.name, entry.rows])));
 }
 
+// Whether a generated value is a number from min to max.
+function numberWithin(value: unknown, min: number, max: number) {
+  return typeof value === "number" && value >= min && value <= max;
+}
+
+// Whether a nullable key is null or one of the ids it may point at.
+function nullOrIn(value: unknown, ids: ReadonlySet<unknown>) {
+  return value === null || ids.has(value);
+}
+
 describe("generateSeedRows", () => {
   it("makes faker rows that point at rows that exist and keep their unique keys", () => {
     const rows = value(
@@ -103,19 +113,17 @@ describe("generateSeedRows", () => {
         },
       }),
     );
-    const users = rows.user ?? [];
+    const users = rows.user!;
     expect(users.map((u) => u.id)).toStrictEqual([1, 2, 3, 4, 5]);
     expect(new Set(users.map((u) => u.email)).size).toBe(5);
-    expect(users.every((u) => typeof u.age === "number" && u.age >= 20 && u.age <= 30)).toBe(true);
+    expect(users.every((u) => numberWithin(u.age, 20, 30))).toBe(true);
     const ids = new Set(users.map((u) => u.id));
-    expect((rows.post ?? []).every((p) => ids.has(p.authorId as number))).toBe(true);
-    expect(
-      (rows.post ?? []).every((p) => ["draft", "published"].includes(p.status as string)),
-    ).toBe(true);
+    expect(rows.post!.every((p) => ids.has(p.authorId as number))).toBe(true);
+    expect(rows.post!.every((p) => ["draft", "published"].includes(p.status as string))).toBe(true);
     // One profile per user: the unique key deals the parents out once each.
-    expect(new Set((rows.profile ?? []).map((p) => p.userId)).size).toBe(5);
+    expect(new Set(rows.profile!.map((p) => p.userId)).size).toBe(5);
     // The relation without a foreign key is filled all the same.
-    expect((rows.auditLog ?? []).every((l) => ids.has(l.actorId as number))).toBe(true);
+    expect(rows.auditLog!.every((l) => ids.has(l.actorId as number))).toBe(true);
   });
 
   it("links a nullable key whose rule only sets nullRate to a row that exists", () => {
@@ -127,11 +135,11 @@ describe("generateSeedRows", () => {
         },
       }),
     );
-    const ids = new Set((rows.user ?? []).map((u) => u.id));
-    const assignees = (rows.task ?? []).map((t) => t.assigneeId);
+    const ids = new Set(rows.user!.map((u) => u.id));
+    const assignees = rows.task!.map((t) => t.assigneeId);
     expect(assignees.some((a) => a === null)).toBe(true);
     expect(assignees.some((a) => a !== null)).toBe(true);
-    expect(assignees.every((a) => a === null || ids.has(a))).toBe(true);
+    expect(assignees.every((a) => nullOrIn(a, ids))).toBe(true);
     const never = value(
       generate({
         nullRate: 1,
@@ -142,7 +150,7 @@ describe("generateSeedRows", () => {
       }),
     );
     // The column's own rate wins over the config's.
-    expect((never.task ?? []).every((t) => ids.has(t.assigneeId as number))).toBe(true);
+    expect(never.task!.every((t) => ids.has(t.assigneeId as number))).toBe(true);
   });
 
   it("gives the same rows for the same seed", () => {
@@ -191,7 +199,7 @@ describe("generateSeedRows", () => {
         },
       }),
     );
-    const counts = Map.groupBy(rows.post ?? [], (p) => p.authorId);
+    const counts = Map.groupBy(rows.post!, (p) => p.authorId);
     expect([...counts.values()].map((list) => list.length)).toStrictEqual([2, 2, 2, 2]);
   });
 

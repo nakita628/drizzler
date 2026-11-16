@@ -10,6 +10,8 @@ using OpenAPI;
  * the formatter, the project's TypeScript for the editor, and the connected database. It listens on loopback only and has no
  * authentication, so nothing here is reachable from another origin.
  */
+#suppress "typespeclint/operation-secured" "Loopback only, by design: the CLI starts it for one local user and the page it serves"
+#suppress "typespeclint/breaking-change" "Not a published API: the server and the page that calls it ship in one package, built together"
 @service(#{ title: "Drizzler Studio API" })
 @info(#{ version: "1.0.0" })
 namespace DrizzlerStudio;
@@ -1331,9 +1333,11 @@ namespace SchemaRoutes {
     | InternalServerProblemResponse;
 
   /** A `change` event whenever the schema file changes on disk. */
+  #suppress "typespeclint/operation-responses" "An event stream has answered 200 before anything can fail; a failure ends the stream"
   @get
   @route("/events")
   @operationId("readSchemaEvents")
+  @returnsDoc("The event stream: `ready` once the watch is on, then `change` on each change.")
   op events(): {
     @statusCode statusCode: 200;
     @header contentType: "text/event-stream";
@@ -1407,7 +1411,10 @@ namespace DbRoutes {
   @operationId("readCounts")
   op counts(): Counts | ServiceUnavailableProblemResponse | InternalServerProblemResponse;
 
-  /** One page of a table's rows, ordered by its key. */
+  /**
+   * One page of a table's rows, ordered by its key.
+   * @param tableName The table, by the name the schema exports it under.
+   */
   @get
   @route("/rows/{tableName}")
   @operationId("readRows")
@@ -1418,7 +1425,10 @@ namespace DbRoutes {
     | ServiceUnavailableProblemResponse
     | InternalServerProblemResponse;
 
-  /** Insert one row. */
+  /**
+   * Insert one row.
+   * @param tableName The table, by the name the schema exports it under.
+   */
   @post
   @route("/rows/{tableName}")
   @operationId("createRow")
@@ -1429,7 +1439,10 @@ namespace DbRoutes {
     | ServiceUnavailableProblemResponse
     | InternalServerProblemResponse;
 
-  /** Update the row identified by `where`. */
+  /**
+   * Update the row identified by `where`.
+   * @param tableName The table, by the name the schema exports it under.
+   */
   @patch
   @route("/rows/{tableName}")
   @operationId("updateRow")
@@ -1440,7 +1453,11 @@ namespace DbRoutes {
     | ServiceUnavailableProblemResponse
     | InternalServerProblemResponse;
 
-  /** Delete the row identified by `where`. */
+  /**
+   * Delete the row identified by `where`.
+   * @param tableName The table, by the name the schema exports it under.
+   */
+  #suppress "typespeclint/parameter-location" "The row is matched by a `where` object of column values, which a query string cannot type"
   @delete
   @route("/rows/{tableName}")
   @operationId("deleteRow")

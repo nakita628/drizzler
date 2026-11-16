@@ -59,6 +59,7 @@ function elementText(value: unknown) {
  * on SQLite, a date to the text or number its mode stores, JSON to text), then what is left made
  * bindable for the dialect.
  */
+// oxlint-disable-next-line complexity -- one case per column kind and dialect
 function driverValue(dialect: Dialect, column: SeedColumn, value: SeedValue | undefined) {
   if (value === null || value === undefined) return null;
   const mapped: unknown = column.toDriver(value);

@@ -9,6 +9,7 @@ import { isSeedList } from "./context.js";
  * becomes a Date, a Date the text of a string-mode date, an integer a bigint, a number a decimal
  * string, base64 text bytes. Anything else is left as it is for validation to report.
  */
+// oxlint-disable-next-line complexity -- one case per column kind
 function normalizeScalar(column: SeedColumn, value: SeedValue) {
   switch (column.kind) {
     case "date": {

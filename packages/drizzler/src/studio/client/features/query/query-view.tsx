@@ -44,6 +44,7 @@ export function presetQuery(code: string) {
  * completion and type errors from the project's TypeScript, run through the project's own
  * drizzle-orm, its result beside the tables it touches and the SQL it sends.
  */
+// oxlint-disable-next-line complexity -- a page component; its branches are the states it renders
 export function QueryView() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -85,7 +86,8 @@ export function QueryView() {
   useEffect(() => {
     const model = editorRef.current?.getModel();
     if (!typesOn || text === null || !model) return;
-    const seq = ++checkSeq.current;
+    checkSeq.current += 1;
+    const seq = checkSeq.current;
     const timer = setTimeout(() => {
       check.mutate(
         { json: { source: text, document: "query" } },
@@ -240,7 +242,9 @@ export function QueryView() {
           Run
         </Button>
       </header>
-      {unavailable ? <pre className="error-box m-4 whitespace-pre-wrap">{unavailable}</pre> : null}
+      {unavailable !== null ? (
+        <pre className="error-box m-4 whitespace-pre-wrap">{unavailable}</pre>
+      ) : null}
       <SplitPane
         direction="column"
         storageKey={EDITOR_KEY}

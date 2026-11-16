@@ -46,19 +46,25 @@ function builderCall(expr: CallExpression): CallExpression {
 
 // Whether the builder's config says `withTimezone: true`, as in
 // `timestamp({ withTimezone: true })` or `timestamp('created_at', { withTimezone: true })`.
-function hasTimezone(expr: CallExpression) {
-  return builderCall(expr).arguments.some(
-    (arg) =>
-      isObject(arg) &&
-      arg.properties.some(
-        (p) =>
-          isPropertyAssignment(p) &&
-          p.key.type === "Identifier" &&
-          p.key.name === "withTimezone" &&
-          p.value.type === "Literal" &&
-          p.value.value === true,
-      ),
+/**
+ * Whether one argument of a column builder is an options object that sets `withTimezone: true`.
+ */
+export function asksForTimezone(arg: Node) {
+  return (
+    isObject(arg) &&
+    arg.properties.some(
+      (p) =>
+        isPropertyAssignment(p) &&
+        p.key.type === "Identifier" &&
+        p.key.name === "withTimezone" &&
+        p.value.type === "Literal" &&
+        p.value.value === true,
+    )
   );
+}
+
+function hasTimezone(expr: CallExpression) {
+  return builderCall(expr).arguments.some(asksForTimezone);
 }
 
 function extractKeyType(initText: string) {
@@ -164,6 +170,13 @@ export function constraintEntries(arg: CallExpression["arguments"][number] | und
 }
 
 // The name of an arrow function's first parameter: `table` in `(table) => ...`.
+// The value of one key of a relation's options object, `{ from: ..., to: ... }`.
+function optionOf(config: Node | undefined, key: string) {
+  return isObject(config)
+    ? config.properties.filter(isPropertyAssignment).find((p) => identifierKey(p) === key)?.value
+    : undefined;
+}
+
 function arrowParameter(arrow: ArrowFunctionExpression) {
   const [first] = arrow.params;
   return first?.type === "Identifier" ? first.name : null;
@@ -180,8 +193,8 @@ function extractRelationsFromForeignKeyConstraints(
     const constraintText = textOf(text, entry);
     if (!constraintText.includes("foreignKey(")) return [];
 
-    const columnsMatch = constraintText.match(/columns:\s*\[\s*(\w+)\.(\w+)\s*\]/);
-    const foreignColumnsMatch = constraintText.match(/foreignColumns:\s*\[\s*(\w+)\.(\w+)\s*\]/);
+    const columnsMatch = constraintText.match(/columns:\s*\[\s*(\w+)\.(\w+)\s*\]/u);
+    const foreignColumnsMatch = constraintText.match(/foreignColumns:\s*\[\s*(\w+)\.(\w+)\s*\]/u);
     const [, , column] = columnsMatch ?? [];
     const [, foreignTable, foreignColumn] = foreignColumnsMatch ?? [];
     if (column === undefined || foreignTable === undefined || foreignColumn === undefined) {
@@ -237,7 +250,7 @@ function keyedColumns(program: Program, text: string) {
       });
       const constraints = constraintEntries(args[2]).flatMap((entry) => {
         // String literals (an index name) are left out, so only `t.col` reads as a column.
-        const entryText = textOf(text, entry).replace(/(['"`])(?:(?!\1).)*\1/gu, "");
+        const entryText = textOf(text, entry).replaceAll(/(['"`])(?:(?!\1).)*\1/gu, "");
         if (!/^\s*(primaryKey|unique|uniqueIndex)\s*\(/u.test(entryText)) return [];
         return [[...entryText.matchAll(/\b[\w$]+\.([\w$]+)\b/gu)].map((m) => m[1])];
       });
@@ -342,15 +355,9 @@ function relationDefinitions(program: Program, text: string) {
         const builder = textOf(text, call.callee).match(/^(?:[\w$]+\.)?(one|many)\.([\w$]+)$/u);
         if (builder === null) return [];
         const [config] = call.arguments;
-        function option(key: string) {
-          return isObject(config)
-            ? config.properties.filter(isPropertyAssignment).find((p) => identifierKey(p) === key)
-                ?.value
-            : undefined;
-        }
-        const from = option("from");
-        const to = option("to");
-        const optional = option("optional");
+        const from = optionOf(config, "from");
+        const to = optionOf(config, "to");
+        const optional = optionOf(config, "optional");
         return [
           {
             table: table(source),
@@ -459,7 +466,7 @@ function extractRelationsFromDefinitions(
  * `pgSchema("auth").table`, `authSchema.table`); never `defineRelations`, whatever it is named.
  */
 function isTableBuilder(callee: string) {
-  return /(?:Table|\.table)(?:\.withRLS)?$/u.test(callee.replace(/\s+/gu, ""));
+  return /(?:Table|\.table)(?:\.withRLS)?$/u.test(callee.replaceAll(/\s+/gu, ""));
 }
 
 /**
@@ -474,7 +481,7 @@ function builderAliases(program: Program, text: string) {
     const init = declarator.init ? unwrapParens(declarator.init) : null;
     if (name === null || init === null || aliases.has(name)) continue;
     if (init.type === "Identifier" || (init.type === "MemberExpression" && !init.computed)) {
-      aliases.set(name, resolveBuilder(textOf(text, init).replace(/\s+/gu, ""), aliases));
+      aliases.set(name, resolveBuilder(textOf(text, init).replaceAll(/\s+/gu, ""), aliases));
     } else if (
       isCall(init) &&
       init.callee.type === "Identifier" &&
@@ -508,7 +515,7 @@ export function tableCalls(program: Program, text: string) {
 
     const init = declarator.init ? fallbackValue(declarator.init) : null;
     if (!isCall(init)) return [];
-    const builder = resolveBuilder(textOf(text, init.callee).replace(/\s+/gu, ""), aliases);
+    const builder = resolveBuilder(textOf(text, init.callee).replaceAll(/\s+/gu, ""), aliases);
     if (!isTableBuilder(builder)) return [];
 
     return [{ varName, callee: init.callee, builder, args: init.arguments, start, end }];

@@ -149,6 +149,16 @@ export function resolveImport(
   return resolveSpecifier({ specifier, from, aliases, isFile });
 }
 
+// The schema modules a file imports, resolved to their paths.
+function schemaImportsOf(file: string, aliases: AliasCache) {
+  return importedSpecifiers(parseModule(file, fs.readFileSync(file, "utf8"))).flatMap(
+    (specifier) => {
+      const resolved = resolveImport(specifier, file, aliases);
+      return resolved !== null && isSchemaModule(resolved) ? [resolved] : [];
+    },
+  );
+}
+
 /**
  * Every file the schema is made of: the inputs (files, directories or globs) and, followed from
  * them, each project module they import or re-export — a helper with shared columns, a
@@ -160,14 +170,7 @@ export function collectSchemaFiles(inputs: readonly string[], cwd: string) {
     const named = yield* Effect.forEach(inputs, (input) => expandInput(input, cwd));
     const aliases: AliasCache = new Map();
     return yield* attempt(() =>
-      collectModules(named.flat(), (file) =>
-        importedSpecifiers(parseModule(file, fs.readFileSync(file, "utf8"))).flatMap(
-          (specifier) => {
-            const resolved = resolveImport(specifier, file, aliases);
-            return resolved !== null && isSchemaModule(resolved) ? [resolved] : [];
-          },
-        ),
-      ),
+      collectModules(named.flat(), (file) => schemaImportsOf(file, aliases)),
     );
   });
 }

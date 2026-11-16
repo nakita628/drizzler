@@ -72,7 +72,7 @@ function databaseLabel(
 ) {
   if (db === null) return "Database: checking…";
   if (db.connected) return `${db.dialect ?? "database"} · ${db.url ?? ""}`;
-  return db.error ? "Database not connected" : "No database connected";
+  return db.error !== null ? "Database not connected" : "No database connected";
 }
 
 function StatusDot({ on, warn = false }: { readonly on: boolean; readonly warn?: boolean }) {
@@ -83,6 +83,7 @@ function StatusDot({ on, warn = false }: { readonly on: boolean; readonly warn?:
  * The studio's navigation: the pages, the tables of the schema with their row counts, its enums,
  * and whether the file and the database are being followed.
  */
+// oxlint-disable-next-line complexity -- a page component; its branches are the states it renders
 export function Sidebar() {
   const file = useSchema().data?.file ?? null;
   const docs = useDocs().data ?? null;
@@ -210,7 +211,7 @@ export function Sidebar() {
           <StatusDot on={connection === "live"} warn={connection === "offline"} />
           <span className="truncate">
             {status}
-            {file ? ` · ${file}` : ""}
+            {file !== null ? ` · ${file}` : ""}
           </span>
         </div>
         <div className="flex items-center gap-2">

@@ -71,7 +71,7 @@ describe("stripImports", () => {
   it("strips two import lines and blank line from EC schema", () => {
     const result = stripImports(ecSchemaContent);
     expect(result[0]).toBe("export const user = mysqlTable('user', {");
-    expect(result.length).toBe(20);
+    expect(result).toHaveLength(20);
   });
 
   it("strips single import line from single-table schema", () => {
@@ -89,7 +89,7 @@ describe("stripImports", () => {
     const code = "export const user = mysqlTable('user', {\n  id: varchar('id').primaryKey(),\n})";
     const result = stripImports(code);
     expect(result[0]).toBe("export const user = mysqlTable('user', {");
-    expect(result.length).toBe(3);
+    expect(result).toHaveLength(3);
   });
 
   it("handles empty content", () => {
@@ -261,7 +261,7 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
   beforeEach(() => {
     tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "drizzler-e2e-"));
     schemaPath = path.join(tmpdir, "schema.ts");
-    fs.writeFileSync(schemaPath, ecSchemaContent, "utf-8");
+    fs.writeFileSync(schemaPath, ecSchemaContent, "utf8");
   });
 
   afterEach(() => {
@@ -272,7 +272,7 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
     const output = path.join(tmpdir, "first.dbml");
     const { exit } = await cli(["-o", output, schemaPath]);
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(fs.readFileSync(output, "utf-8")).toContain("Table user {");
+    expect(fs.readFileSync(output, "utf8")).toContain("Table user {");
   });
 
   it("describes tables and columns from their JSDoc and // comments", async () => {
@@ -286,11 +286,11 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
         "  id: uuid('id').primaryKey(),",
         "})",
       ].join("\n"),
-      "utf-8",
+      "utf8",
     );
     const output = path.join(tmpdir, "described.dbml");
     await cli([described, "-o", output]);
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
     expect(content).toContain("id uuid [pk, not null, note: 'The key']");
     expect(content).toContain("Everyone who can sign in");
   });
@@ -299,7 +299,7 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
     const output = path.join(tmpdir, "schema.dbml");
     const { out } = await cli([schemaPath, "-o", output]);
     expect(out).toBe(`💧 Generated DBML at: ${output}`);
-    const content = fs.readFileSync(output, "utf-8");
+    const content = fs.readFileSync(output, "utf8");
     expect(content).toContain("Table user {");
     expect(content).toContain("Table order {");
     expect(content).toContain("Table order_item {");
@@ -309,7 +309,7 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
     const output = path.join(tmpdir, "ER.md");
     const { out } = await cli([schemaPath, "-o", output]);
     expect(out).toBe(`💧 Generated Mermaid ER at: ${output}`);
-    expect(fs.readFileSync(output, "utf-8")).toContain("erDiagram");
+    expect(fs.readFileSync(output, "utf8")).toContain("erDiagram");
   });
 
   it("generates the PNG and the dark SVG ER diagram", async () => {
@@ -319,7 +319,7 @@ describe("drizzler writes DBML, Mermaid and the ER diagram", () => {
     expect([buffer[0], buffer[1]]).toStrictEqual([0x89, 0x50]);
     const svg = path.join(tmpdir, "er.svg");
     await cli([schemaPath, "-o", svg, "--theme", "dark"]);
-    expect(fs.readFileSync(svg, "utf-8")).toContain("<svg");
+    expect(fs.readFileSync(svg, "utf8")).toContain("<svg");
   });
 });
 
@@ -342,7 +342,7 @@ describe("drizzler reads a schema split over files", () => {
   it("reads a directory, with the spread columns and the relations of every file", async () => {
     const output = path.join(out, "schema.dbml");
     await cli([schemaDir, "-o", output]);
-    const dbml = fs.readFileSync(output, "utf-8");
+    const dbml = fs.readFileSync(output, "utf8");
     // Named as the database names them: `snakeCase.table` writes the columns in snake_case.
     expect(dbml).toContain("Table cart_item {");
     expect(dbml).toContain("created_at timestamptz [not null, note: 'When the row was inserted']");
@@ -354,7 +354,7 @@ describe("drizzler reads a schema split over files", () => {
     const output = path.join(out, "ER.md");
     const { out: printed } = await cli(["-o", output]);
     expect(printed).toBe(`💧 Generated Mermaid ER at: ${output}`);
-    const mermaid = fs.readFileSync(output, "utf-8");
+    const mermaid = fs.readFileSync(output, "utf8");
     // A foreign key is solid, a relation only defineRelations declares is dashed.
     expect(mermaid).toContain('cart ||--o{ cart_item : "(customer_id) - (customer_id)"');
     expect(mermaid).toContain('product ||..o{ order_item : "(product_id) - (product_id)"');
@@ -369,7 +369,7 @@ describe("drizzler reads a schema split over files", () => {
       "-o",
       output,
     ]);
-    const mermaid = fs.readFileSync(output, "utf-8");
+    const mermaid = fs.readFileSync(output, "utf8");
     expect(mermaid).toContain("cart_item {");
     expect(mermaid).not.toContain("    order {");
   });

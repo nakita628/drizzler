@@ -100,10 +100,10 @@ describe("readQueryNames", () => {
         "const rows = await db.select({ t: post.title }).from(post).where(eq(post.id, 1));\n" +
         "db.query.user.findMany({ with: { posts: { with: { comments: true } } } })",
     });
-    expect(names?.names).toEqual(expect.arrayContaining(["rows", "db", "post", "eq"]));
+    expect(names?.names).toStrictEqual(expect.arrayContaining(["rows", "db", "post", "eq"]));
     expect(names?.names).not.toContain("title");
     expect(names?.names).not.toContain("t");
-    expect(names?.members).toEqual(
+    expect(names?.members).toStrictEqual(
       expect.arrayContaining([
         { object: "post", property: "title" },
         { object: "post", property: "id" },

@@ -32,6 +32,11 @@ function first(text: string, against: AnalysisSchema = schema): StatementAnalysi
   return statement;
 }
 
+// A result column as `name: type`, with `| null` when it can be null.
+function columnSignature(column: StatementAnalysis["columns"][number]) {
+  return `${column.name}: ${column.tsType}${column.nullable === true ? " | null" : ""}`;
+}
+
 function chain(statement: StatementAnalysis) {
   return statement.nodes.map((node) => `${node.kind}:${node.label}`);
 }
@@ -309,11 +314,7 @@ describe("analyze", () => {
     const statement = first(
       "SELECT count(*) AS n, coalesce(email, 'none') AS mail, lower(name) AS lname, id * 2 AS twice, published = 1 AS flag, CASE WHEN id > 1 THEN 'x' END AS tag FROM users JOIN posts ON posts.user_id = users.id",
     );
-    expect(
-      statement.columns.map(
-        (column) => `${column.name}: ${column.tsType}${column.nullable === true ? " | null" : ""}`,
-      ),
-    ).toStrictEqual([
+    expect(statement.columns.map(columnSignature)).toStrictEqual([
       "n: number",
       "mail: string",
       "lname: string",

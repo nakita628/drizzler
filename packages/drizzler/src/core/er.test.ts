@@ -53,7 +53,7 @@ describe("E2E: ER diagram generation", () => {
     const buffer = fs.readFileSync(output);
     // PNG magic bytes: 89 50 4E 47 (‰PNG)
     expect([...buffer.subarray(0, 4)]).toStrictEqual([0x89, 0x50, 0x4e, 0x47]);
-    expect(buffer.length > 1000).toBe(true);
+    expect(buffer.length).toBeGreaterThan(1e3);
   });
 
   it("generates valid PNG for single-table schema", async () => {
@@ -67,9 +67,9 @@ describe("E2E: ER diagram generation", () => {
     const output = path.join(tmpdir, "output", "er.svg");
     await runEffect(drizzlerER(stripImports(ecSchemaContent), output));
 
-    const svg = fs.readFileSync(output, "utf-8");
+    const svg = fs.readFileSync(output, "utf8");
     expect(svg.startsWith("<svg")).toBe(true);
-    expect(svg.match(/class="model-node"/g)?.length).toBe(2);
+    expect(svg.match(/class="model-node"/gu)?.length).toBe(2);
     expect(svg).toContain("on delete cascade");
     expect(svg).toContain("注文したユーザー");
     expect(svg).toContain(".defaultNow()");
@@ -79,6 +79,6 @@ describe("E2E: ER diagram generation", () => {
     const output = path.join(tmpdir, "er.svg");
     await runEffect(drizzlerER(stripImports(singleTableSchema), output, "dark"));
 
-    expect(fs.readFileSync(output, "utf-8")).toContain("#0f1117");
+    expect(fs.readFileSync(output, "utf8")).toContain("#0f1117");
   });
 });

@@ -195,7 +195,7 @@ const MakeDbTablesInput = z
 export function makeDbTables(input: z.infer<typeof MakeDbTablesInput>) {
   return input.models.map((model) => {
     const ids = model.primaryKey ?? model.fields.filter((f) => f.isId).map((f) => f.name);
-    const unique = model.fields.filter((f) => f.isUnique).map((f) => f.name);
+    const unique = model.fields.filter((f) => f.isUnique === true).map((f) => f.name);
     const fallback = unique.length > 0 ? unique : model.fields.map((f) => f.name);
     const key = ids.length > 0 ? ids : fallback;
     return {

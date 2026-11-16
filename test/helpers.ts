@@ -124,7 +124,10 @@ export function startStudio(args: readonly string[], cwd: string) {
   });
   function stop() {
     return new Promise<void>((resolve) => {
-      if (child.exitCode !== null) return resolve();
+      if (child.exitCode !== null) {
+        resolve();
+        return;
+      }
       child.once("exit", () => resolve());
       child.kill("SIGINT");
     });
@@ -139,13 +142,11 @@ export function startStudio(args: readonly string[], cwd: string) {
  * @param host - the Host header to send
  * @returns the status code and the body
  */
-export function requestWithHost(url: string, host: string) {
-  return new Promise<{ readonly status: number; readonly body: string }>((resolve, reject) => {
-    const request = http.get(url, { headers: { host } }, (response) => {
-      response.setEncoding("utf8");
-      const body = response.toArray().then((chunks) => chunks.join(""));
-      void body.then((text) => resolve({ status: response.statusCode ?? 0, body: text }));
-    });
-    request.once("error", reject);
+export async function requestWithHost(url: string, host: string) {
+  const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+    http.get(url, { headers: { host } }, resolve).once("error", reject);
   });
+  response.setEncoding("utf8");
+  const chunks: unknown[] = await response.toArray();
+  return { status: response.statusCode ?? 0, body: chunks.join("") };
 }
