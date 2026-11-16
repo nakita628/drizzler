@@ -42,8 +42,6 @@ Put everything back with `pnpm -F @examples/studio reset` (the schemas from git,
 made-up rows instead, give a table a `count` in `drizzler.config.ts` in place of its `data`, e.g.
 `comment: { count: 50 }`.
 
-See [the studio guide](../../packages/drizzler/docs/studio.md) for everything it does.
-
 ## Generate the files
 
 ```sh

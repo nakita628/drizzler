@@ -872,11 +872,11 @@ export default defineConfig({
           "typescript/no-unsafe-type-assertion": "off",
           "typescript/consistent-type-assertions": "off",
           "custom/require-as-const": "off",
-          // Why (shared with hekireki): codegen tests own a byte-for-byte contract. Equality is
-          //      strict, a primitive is compared with toBe, and nothing is a snapshot: the expected
-          //      value is in the test, where a reviewer reads it. A test runs, is named once, and
-          //      asserts unconditionally; a case that branches is two cases, and what a test needs
-          //      computed or narrowed is a function above the describe.
+          // Why (shared with hekireki): a code generator's tests own a byte-for-byte contract.
+          //      Equality is strict, a primitive is compared with toBe, and nothing is a snapshot:
+          //      the expected value is in the test, where a reviewer reads it. A test runs, is
+          //      named once, and asserts unconditionally; a case that branches is two cases, and
+          //      what a test needs computed or narrowed is a function above the describe.
           // NG:   expect(rows).toEqual([...])  /  if (!user) throw ...  /  it.skip(...)
           // OK:   expect(rows).toStrictEqual([...])  /  const user = users[0]!
           "vitest/valid-expect": ["error", { maxArgs: 2 }],
