@@ -502,7 +502,7 @@ export default defineConfig({
       // Why: async code reads top to bottom with await; a promise is returned as it is, and
       //      `return await` belongs only inside try / catch. An async function awaits something.
       // NG:   load().then((x) => use(x)).catch(report)  /  async () => 1
-      // OK:   try { use(await load()) } catch (error) { report(error) }  /  () => Promise.resolve(1)
+      // OK:   try { use(await load()) } catch (e) { report(e) }  /  () => Promise.resolve(1)
       "promise/prefer-await-to-then": "error",
       "promise/catch-or-return": "error",
       "promise/always-return": "error",
@@ -781,8 +781,8 @@ export default defineConfig({
           "custom/effect-run-at-edge": "error",
           "custom/promise-catch-must-log": "error",
           "custom/domain-only-from-usecases": "error",
-          // Why off: these read `Effect.catch(...)` as a promise's `.catch`; the server's async work
-          //      is Effects, and its few promises are wrapped in Effect.tryPromise.
+          // Why off: these read `Effect.catch(...)` as a promise's `.catch`; the server's async
+          //      work is Effects, and its few promises are wrapped in Effect.tryPromise.
           "promise/prefer-await-to-then": "off",
           "promise/catch-or-return": "off",
         },
