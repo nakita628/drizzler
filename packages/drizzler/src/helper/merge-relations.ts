@@ -16,6 +16,11 @@ function childCardinality(relation: { readonly isUnique: boolean; readonly isReq
   return relation.isRequired ? "many" : "zero-many";
 }
 
+// Every column of a composite key, which a one-column end leaves out.
+function composite(fields: readonly string[] | undefined) {
+  return fields !== undefined && fields.length > 1 ? { fields } : {};
+}
+
 /** The schema's relations with their cardinalities, as every ER output draws them: from foreign keys and `defineRelations`. */
 export function mergeRelations(code: readonly string[]) {
   // Parent side is exactly one; child side is one-or-more when the FK column is
@@ -24,11 +29,17 @@ export function mergeRelations(code: readonly string[]) {
   return extractRelationsFromSchema(code).map(
     (r) =>
       ({
-        from: { model: r.fromModel, field: r.fromField, cardinality: "one" },
+        from: {
+          model: r.fromModel,
+          field: r.fromField,
+          cardinality: "one",
+          ...composite(r.fromFields),
+        },
         to: {
           model: r.toModel,
           field: r.toField,
           cardinality: childCardinality(r),
+          ...composite(r.toFields),
         },
         identifying: r.enforced,
         origin: r.enforced ? "inferred" : "relations",

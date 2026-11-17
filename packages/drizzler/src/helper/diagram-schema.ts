@@ -10,6 +10,7 @@ import {
   descriptionBefore,
   declaratorName,
   columnProperties,
+  helperColumn,
   isArrow,
   topLevelDeclarations,
   isCall,
@@ -19,6 +20,7 @@ import {
   textOf,
   unwrapParens,
 } from "./ast.js";
+import { customTypeName } from "./custom-type.js";
 import { asksForTimezone, constraintEntries, tableCalls } from "./extract-tables.js";
 import { mergeRelations } from "./merge-relations.js";
 
@@ -48,6 +50,33 @@ function readChain(expr: Expression): {
   return {
     ...inner,
     methods: [...inner.methods, { name: callee.property.name, args: expr.arguments }],
+  };
+}
+
+type Chain = NonNullable<ReturnType<typeof readChain>>;
+
+/**
+ * The chain a column is built with, a helper function's included: for
+ * `createdAt: createdAtField("at").unique()`, the chain the helper returns
+ * (`integer(name).notNull()`) with each parameter read as what the call gives it (or its default),
+ * then the methods the column adds (`.unique()`). A helper that calls another is followed too.
+ */
+function columnChain(expr: Expression, program: Program, depth = 0): Chain | null {
+  const chain = readChain(expr);
+  if (chain === null) return null;
+  const helper = depth < 8 ? helperColumn(expr, program) : null;
+  const inner = helper === null ? null : columnChain(helper.chain, program, depth + 1);
+  if (helper === null || inner === null) return chain;
+  function bind(arg: CallExpression["arguments"][number]) {
+    return arg.type === "Identifier" ? (helper?.bindings.get(arg.name) ?? arg) : arg;
+  }
+  return {
+    builder: inner.builder,
+    args: inner.args.map(bind),
+    methods: [
+      ...inner.methods.map((m) => ({ name: m.name, args: m.args.map(bind) })),
+      ...chain.methods,
+    ],
   };
 }
 
@@ -233,7 +262,9 @@ export function diagramSchema(code: readonly string[]) {
   const enums = readEnums(program, source);
   const enumNames = new Set(enums.map((e) => e.name));
   const merged = mergeRelations(code);
-  const foreignKeys = new Set(merged.map((r) => `${r.to.model}.${r.to.field}`));
+  const foreignKeys = new Set(
+    merged.flatMap((r) => (r.to.fields ?? [r.to.field]).map((field) => `${r.to.model}.${field}`)),
+  );
   const actions = new Map<string, { onDelete: string | null; onUpdate: string | null }>();
 
   const creators = tableCreators(program);
@@ -254,7 +285,7 @@ export function diagramSchema(code: readonly string[]) {
     const fields = columnProperties(columns, program).flatMap((prop): SchemaField[] => {
       if (prop.computed || prop.key.type !== "Identifier") return [];
       const name = prop.key.name;
-      const chain = readChain(prop.value);
+      const chain = columnChain(prop.value, program);
       if (chain === null) return [];
       const { methods } = chain;
       function has(method: string) {
@@ -270,7 +301,8 @@ export function diagramSchema(code: readonly string[]) {
           name,
           dbName: dbName !== name ? dbName : null,
           kind: enumNames.has(chain.builder) ? "enum" : "scalar",
-          type: chain.builder,
+          // A `customType()` column is the type its `dataType` makes, not the custom type's name.
+          type: customTypeName(chain.builder, chain.args, program) ?? chain.builder,
           isList: has("array"),
           isRequired: isId || has("notNull"),
           isId,

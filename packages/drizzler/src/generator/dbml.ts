@@ -21,6 +21,23 @@ function name(value: string) {
   return /^[A-Za-z_][\w]*$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
 
+// One end of a Ref: `table.column`, or `table.(a, b)` for a composite key.
+// https://dbml.dbdiagram.io/docs/#composite-foreign-keys
+function endpoint(end: { readonly table: string; readonly columns: readonly string[] }) {
+  const [only] = end.columns;
+  const columns =
+    end.columns.length === 1 && only !== undefined
+      ? name(only)
+      : `(${end.columns.map(name).join(", ")})`;
+  return `${name(end.table)}.${columns}`;
+}
+
+// A column type as DBML reads it: a word with its size or precision (`numeric(10,2)`) as it is,
+// anything else as a name.
+function typeName(value: string) {
+  return /^[A-Za-z_]\w*\(\d+(?:,\d+)?\)$/u.test(value) ? value : name(value);
+}
+
 function note(text: string) {
   return `'${text.replaceAll("'", "\\'")}'`;
 }
@@ -44,7 +61,7 @@ export function dbml(code: string[]) {
         column.note !== null ? `note: ${note(column.note)}` : null,
       ].filter((s): s is string => s !== null);
       const settingsStr = settings.length > 0 ? ` [${settings.join(", ")}]` : "";
-      return `  ${name(column.name)} ${name(column.type)}${settingsStr}`;
+      return `  ${name(column.name)} ${typeName(column.type)}${settingsStr}`;
     });
     // https://dbml.dbdiagram.io/docs/#index-definition
     const indexes =
@@ -70,20 +87,25 @@ export function dbml(code: string[]) {
 
   const refSections = relations.map((r) => {
     // DBML puts the child (FK) table on the left: left = `to`, right = `from`.
-    const left = `${name(r.to.table)}.${name(r.to.column)}`;
-    const right = `${name(r.from.table)}.${name(r.from.column)}`;
+    const left = endpoint(r.to);
+    const right = endpoint(r.from);
     const op = dbmlOperator(isMany(r.to.cardinality), isMany(r.from.cardinality));
     // Physical FKs keep the `_fk` suffix; logical (`defineRelations`-only) ones drop it,
     // since they are not DB-enforced constraints.
     const suffix = r.origin === "inferred" ? "_fk" : "";
-    const refName = `${r.to.table}_${r.to.column}_${r.from.table}_${r.from.column}${suffix}`;
+    const refName = `${r.to.table}_${r.to.columns.join("_")}_${r.from.table}_${r.from.columns.join("_")}${suffix}`;
     // https://dbml.dbdiagram.io/docs/#relationship-settings
     const settings = [
       r.onDelete !== null ? `delete: ${r.onDelete}` : null,
       r.onUpdate !== null ? `update: ${r.onUpdate}` : null,
     ].filter((s): s is string => s !== null);
     const settingsStr = settings.length > 0 ? ` [${settings.join(", ")}]` : "";
-    return `Ref ${name(refName)}: ${left} ${op} ${right}${settingsStr}`;
+    const ref = `Ref ${name(refName)}: ${left} ${op} ${right}${settingsStr}`;
+    // A key from a column to itself does nothing, but the database keeps it; DBML rejects it
+    // ("Two endpoints are the same"), so it is kept as a comment and the file still parses.
+    return left === right
+      ? `// ${ref} (a key from a column to itself, which DBML cannot express)`
+      : ref;
   });
 
   return [...tableSections, ...refSections].join("\n\n");

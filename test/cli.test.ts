@@ -180,6 +180,42 @@ describe("the docs' SQL, as drizzle-orm builds it", () => {
     expect(readme).toContain("#### Definition\n\n```sql\nCREATE TABLE `posts` (");
   });
 
+  it("is written when the schema declares an enum, a const enum among them (#34)", async () => {
+    const schema = [
+      SQLITE_SCHEMA,
+      'export enum ActivityType { SIGN_UP = "SIGN_UP", SIGN_IN = "SIGN_IN" }',
+      "export const enum AssetTypes { IMAGE, PDF }",
+    ].join("\n");
+    const project = makeProject({ "schema.ts": schema });
+    const { code, output } = await drizzler(["schema.ts", "-o", "docs"], project);
+    const readme = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    removeProject(project);
+    expect(code).toBe(0);
+    expect(output).not.toContain("without their SQL");
+    expect(readme).toContain("#### Definition\n\n```sql\nCREATE TABLE `posts` (");
+  });
+
+  it("is written when a type is imported without the type keyword (#39)", async () => {
+    const schema = [
+      'import { AnySQLiteColumn, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";',
+      "",
+      'export const lists = sqliteTable("lists", {',
+      '  id: text("id").primaryKey(),',
+      '  parentId: text("parentId").references((): AnySQLiteColumn => lists.id),',
+      '  position: integer("position").notNull(),',
+      "});",
+      "",
+    ].join("\n");
+    const project = makeProject({ "schema.ts": schema });
+    const { code, output } = await drizzler(["schema.ts", "-o", "docs"], project);
+    const readme = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    removeProject(project);
+    expect(code).toBe(0);
+    expect(output).not.toContain("without their SQL");
+    expect(readme).toContain("CREATE TABLE `lists` (");
+    expect(readme).toContain("FOREIGN KEY (`parentId`) REFERENCES `lists`(`id`)");
+  });
+
   it("is left out, with the reason, when the schema cannot be loaded", async () => {
     const project = makeProject({
       "schema.ts": `${SQLITE_SCHEMA}\nthrow new Error("the schema refuses to load");\n`,

@@ -226,3 +226,42 @@ describe("docsDiagrams and staleDiagrams", () => {
     ).toStrictEqual(["gone.svg"]);
   });
 });
+
+describe("docsMarkdown of columns built another way than a builder call", () => {
+  it("shows a helper-built column with the helper's type, NOT NULL and default (#40)", () => {
+    const markdown = docsMarkdown([
+      'function createdAtField(colName = "createdAt") {',
+      '  return integer(colName, { mode: "timestamp" })',
+      "    .notNull()",
+      "    .$defaultFn(() => new Date());",
+      "}",
+      'export const bookmarks = sqliteTable("bookmarks", {',
+      '  id: text("id").primaryKey(),',
+      "  dbCreatedAt: createdAtField(),",
+      '  createdAt: createdAtField("lastSavedAt"),',
+      "});",
+    ]);
+    expect(markdown).toMatch(
+      /\| `dbCreatedAt` \(`createdAt`\) +\| `integer` \| NOT NULL +\| `\.\$defaultFn\(\)` \|/u,
+    );
+    expect(markdown).toMatch(
+      /\| `createdAt` \(`lastSavedAt`\) +\| `integer` \| NOT NULL +\| `\.\$defaultFn\(\)` \|/u,
+    );
+    expect(markdown).not.toContain("createdAtField`");
+  });
+
+  it("shows a customType() column with the type its dataType makes (#36)", () => {
+    const markdown = docsMarkdown([
+      "export const numericCasted = customType<{ config: { precision?: number; scale?: number } }>({",
+      "  dataType: (config) =>",
+      '    config?.precision && config?.scale ? `numeric(${config.precision}, ${config.scale})` : "numeric",',
+      "});",
+      'export const invoices = pgTable("invoices", {',
+      '  id: uuid("id").primaryKey(),',
+      '  amount: numericCasted("amount", { precision: 10, scale: 2 }),',
+      "});",
+    ]);
+    expect(markdown).toContain("`numeric(10,2)`");
+    expect(markdown).not.toContain("`numericCasted`");
+  });
+});

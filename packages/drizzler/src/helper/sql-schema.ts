@@ -1,4 +1,4 @@
-import type { Cardinality, RelationOrigin, SchemaField } from "../types/index.js";
+import type { Cardinality, RelationOrigin, SchemaField, SchemaRelation } from "../types/index.js";
 import { diagramSchema } from "./diagram-schema.js";
 
 // The SQL type each Drizzle column builder makes; a builder not listed is its own type.
@@ -46,10 +46,13 @@ function sqlType(field: SchemaField, enums: ReadonlyMap<string, string>) {
   return isListed(builder) ? SQL_TYPES[builder] : builder;
 }
 
-/** One end of a relation, by the names the database knows the table and column by. */
+/** One end of a relation, by the names the database knows the table and columns by. */
 type SqlRelationEnd = {
   readonly table: string;
+  /** The column, or the first of a composite key's. */
   readonly column: string;
+  /** Every column of the key: one, or several for a composite key. */
+  readonly columns: readonly string[];
   readonly cardinality: Cardinality;
 };
 
@@ -102,20 +105,21 @@ export function sqlSchema(code: readonly string[]) {
     };
   });
 
+  function sqlEnd(end: SchemaRelation["from"]): SqlRelationEnd {
+    return {
+      table: tableNames.get(end.model) ?? end.model,
+      column: columnOf(end.model, end.field),
+      columns: (end.fields ?? [end.field]).map((field) => columnOf(end.model, field)),
+      cardinality: end.cardinality,
+    };
+  }
+
   const sqlRelations = relations.map((r) => ({
     origin: r.origin satisfies RelationOrigin,
     onDelete: r.onDelete,
     onUpdate: r.onUpdate ?? null,
-    from: {
-      table: tableNames.get(r.from.model) ?? r.from.model,
-      column: columnOf(r.from.model, r.from.field),
-      cardinality: r.from.cardinality,
-    } satisfies SqlRelationEnd,
-    to: {
-      table: tableNames.get(r.to.model) ?? r.to.model,
-      column: columnOf(r.to.model, r.to.field),
-      cardinality: r.to.cardinality,
-    } satisfies SqlRelationEnd,
+    from: sqlEnd(r.from),
+    to: sqlEnd(r.to),
   }));
 
   return { tables, relations: sqlRelations };
