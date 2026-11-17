@@ -18,9 +18,10 @@ import {
   isPropertyAssignment,
   parseSource,
   textOf,
+  topLevelValue,
   unwrapParens,
 } from "./ast.js";
-import { customTypeName } from "./custom-type.js";
+import { customTypeCallName, customTypeName, isCustomType } from "./custom-type.js";
 import { asksForTimezone, constraintEntries, tableCalls } from "./extract-tables.js";
 import { mergeRelations } from "./merge-relations.js";
 
@@ -35,11 +36,17 @@ function readChain(expr: Expression): {
   readonly builder: string;
   readonly args: CallExpression["arguments"];
   readonly methods: readonly ChainMethod[];
+  /** The `customType({ ... })` call a column calls where it is built, if it does. */
+  readonly custom?: CallExpression;
 } | null {
   if (!isCall(expr)) return null;
   const { callee } = expr;
   if (callee.type === "Identifier")
     return { builder: callee.name, args: expr.arguments, methods: [] };
+  // `customType({ ... })("token")`: a custom type called where it is built.
+  if (isCustomType(callee)) {
+    return { builder: "customType", args: expr.arguments, methods: [], custom: callee };
+  }
   if (callee.type !== "MemberExpression" || callee.computed) return null;
   if (callee.property.type !== "Identifier") return null;
   if (!isCall(callee.object)) {
@@ -71,13 +78,23 @@ function columnChain(expr: Expression, program: Program, depth = 0): Chain | nul
     return arg.type === "Identifier" ? (helper?.bindings.get(arg.name) ?? arg) : arg;
   }
   return {
-    builder: inner.builder,
+    ...inner,
     args: inner.args.map(bind),
     methods: [
       ...inner.methods.map((m) => ({ name: m.name, args: m.args.map(bind) })),
       ...chain.methods,
     ],
   };
+}
+
+// A column's type: what the `customType()` it is built with makes (its `dataType`), not the custom
+// type's name; else the builder it is built with.
+function columnType(chain: Chain, program: Program) {
+  const custom =
+    chain.custom === undefined
+      ? customTypeName(chain.builder, chain.args, program)
+      : customTypeCallName(chain.custom, chain.args);
+  return custom ?? chain.builder;
 }
 
 function stringLiteral(node: Node | undefined) {
@@ -192,25 +209,76 @@ function readConstraints(arg: CallExpression["arguments"][number] | undefined) {
   });
 }
 
-// `export const role = pgEnum('role', ['admin', 'member'])`.
+// The string values of each TypeScript `enum` the schema declares, by name:
+// `enum ProjectRole { OWNER = "owner" }` has `owner`.
+function tsEnums(program: Program) {
+  return new Map(
+    program.body.flatMap((stmt) => {
+      const decl = stmt.type === "ExportNamedDeclaration" ? stmt.declaration : stmt;
+      if (decl?.type !== "TSEnumDeclaration") return [];
+      const values = decl.body.members.flatMap(
+        (m) => stringLiteral(m.initializer ?? undefined) ?? [],
+      );
+      return [[decl.id.name, values] as const];
+    }),
+  );
+}
+
+// The values `pgEnum` is given: an array of strings, or an object of them (a TypeScript enum, or
+// an object literal), whose values drizzle-orm takes; written in the schema or named by a
+// top-level `const` or `enum`. Empty for a name the schema does not declare (an enum imported
+// from a package), and null for anything else.
+function enumValues(
+  node: Node | undefined,
+  program: Program,
+  enums: ReadonlyMap<string, readonly string[]>,
+  seen: ReadonlySet<string> = new Set(),
+): readonly string[] | null {
+  const value = node === undefined ? undefined : unwrapExpression(node);
+  if (value?.type === "ArrayExpression") {
+    return value.elements.flatMap((e) => stringLiteral(e ?? undefined) ?? []);
+  }
+  if (isObject(value)) {
+    return value.properties.flatMap((p) =>
+      isPropertyAssignment(p) ? (stringLiteral(p.value) ?? []) : [],
+    );
+  }
+  if (value?.type !== "Identifier" || seen.has(value.name)) return null;
+  const declared = enums.get(value.name);
+  if (declared !== undefined) return declared;
+  const bound = topLevelValue(value.name, program);
+  return bound === undefined
+    ? []
+    : enumValues(bound, program, enums, new Set([...seen, value.name]));
+}
+
+// `x as const` and `(x)` are `x`.
+function unwrapExpression(node: Node): Node {
+  if (node.type === "TSAsExpression" || node.type === "TSSatisfiesExpression") {
+    return unwrapExpression(node.expression);
+  }
+  return node.type === "ParenthesizedExpression" ? unwrapExpression(node.expression) : node;
+}
+
+// `export const role = pgEnum('role', ['admin', 'member'])`, or `pgEnum('role', Role)` for a
+// TypeScript enum `Role`.
 function readEnums(program: Program, source: Parameters<typeof descriptionBefore>[0]) {
+  const declared = tsEnums(program);
   return topLevelDeclarations(program).flatMap(({ declarator, start }): SchemaEnum[] => {
     const name = declaratorName(declarator);
     const init = declarator.init;
     if (name === null || !isCall(init) || init.callee.type !== "Identifier") return [];
     if (!init.callee.name.endsWith("Enum")) return [];
-    const [dbName, values] = init.arguments;
-    if (values?.type !== "ArrayExpression") return [];
+    const [dbName, given] = init.arguments;
+    const values = enumValues(given, program, declared);
+    if (values === null) return [];
     const literal = stringLiteral(dbName);
     return [
       {
         name,
         dbName: literal !== null && literal !== name ? literal : null,
         documentation: descriptionBefore(source, start),
-        values: values.elements
-          .map((e) => stringLiteral(e ?? undefined))
-          .filter((v): v is string => v !== null)
-          .map((v) => ({ name: v, dbName: null })),
+        values: values.map((v) => ({ name: v, dbName: null })),
       },
     ];
   });
@@ -248,6 +316,24 @@ function tableCreators(program: Program) {
       return [[name, (table: string) => parts.join(table)] as const];
     }),
   );
+}
+
+// The database schema a table is built in: `auth` for `pgSchema("auth").table(...)`, and for
+// `authSchema.table(...)` with `const authSchema = pgSchema("auth")` (or `mysqlSchema`). Nothing
+// for any other builder, `snakeCase.table` among them.
+function tableSchema(builder: string, program: Program): { readonly schema?: string } {
+  const schema = schemaName(builder, program);
+  return schema === null ? {} : { schema };
+}
+
+function schemaName(builder: string, program: Program) {
+  const owner = /^(.+)\.table(?:\.withRLS)?$/su.exec(builder)?.[1];
+  if (owner === undefined) return null;
+  const inline = /^[\w$]*Schema\((['"`])([^'"`]+)\1\)$/u.exec(owner);
+  if (inline !== null) return inline[2] ?? null;
+  const value = /^[\w$]+$/u.test(owner) ? topLevelValue(owner, program) : undefined;
+  if (!isCall(value) || value.callee.type !== "Identifier") return null;
+  return value.callee.name.endsWith("Schema") ? stringLiteral(value.arguments[0]) : null;
 }
 
 /**
@@ -301,8 +387,7 @@ export function diagramSchema(code: readonly string[]) {
           name,
           dbName: dbName !== name ? dbName : null,
           kind: enumNames.has(chain.builder) ? "enum" : "scalar",
-          // A `customType()` column is the type its `dataType` makes, not the custom type's name.
-          type: customTypeName(chain.builder, chain.args, program) ?? chain.builder,
+          type: columnType(chain, program),
           isList: has("array"),
           isRequired: isId || has("notNull"),
           isId,
@@ -323,6 +408,7 @@ export function diagramSchema(code: readonly string[]) {
       {
         name: varName,
         dbName: tableName !== null && tableName !== varName ? tableName : null,
+        ...tableSchema(builder, program),
         documentation: descriptionBefore(source, start),
         primaryKey: compositeKey,
         fields,

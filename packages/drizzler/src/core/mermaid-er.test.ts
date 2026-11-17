@@ -587,3 +587,38 @@ describe("tables and columns the builders alone do not show", () => {
     expect(out).toContain("        vector(1536) embedding\n");
   });
 });
+
+describe("tables in a schema of their own and enums from TypeScript (#45, #46)", () => {
+  it("draws a pgSchema table apart from a public table of its name, with a line between (#45)", () => {
+    const out = mermaidER([
+      'export const authSchema = pgSchema("auth");',
+      'export const authUsers = authSchema.table("users", {',
+      '  id: uuid("id").primaryKey(),',
+      '  email: text("email").notNull(),',
+      "});",
+      'export const users = pgTable("users", {',
+      '  id: uuid("id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }),',
+      '  displayName: text("display_name"),',
+      "});",
+    ]);
+    expect(out).toContain('    "auth.users" ||--o| users : "(id) - (id)"');
+    expect(out).toContain('    "auth.users" {\n        uuid id PK\n        text email\n    }');
+    expect(out).toContain("    users {\n        uuid id PK, FK\n        text display_name\n    }");
+  });
+
+  it("types a column of a pgEnum built from a TypeScript enum by the enum's SQL name (#46)", () => {
+    const out = mermaidER([
+      "export enum ProjectRole {",
+      '  OWNER = "owner",',
+      '  ADMIN = "admin",',
+      "}",
+      'export const projectRole = pgEnum("project_role", ProjectRole);',
+      'export const userProjects = pgTable("user_projects", {',
+      '  id: uuid("id").primaryKey(),',
+      '  role: projectRole("role").notNull(),',
+      "});",
+    ]);
+    expect(out).toContain("        project_role role\n");
+    expect(out).not.toContain("projectRole");
+  });
+});

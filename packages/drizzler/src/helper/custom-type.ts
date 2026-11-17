@@ -1,4 +1,4 @@
-import type { Node, Program, Statement } from "oxc-parser";
+import type { CallExpression, Node, Program, Statement } from "oxc-parser";
 import { isCall, isObject, topLevelValue } from "./ast.js";
 
 /** What the reader cannot work out without running the schema. */
@@ -211,10 +211,24 @@ export function customTypeName(
   program: Program,
 ): string | null {
   const value = topLevelValue(builder, program);
-  if (!isCall(value) || value.callee.type !== "Identifier" || value.callee.name !== "customType") {
-    return null;
-  }
-  const fn = dataTypeFunction(value.arguments[0]);
+  return isCustomType(value) ? customTypeCallName(value, args) : null;
+}
+
+/** Whether a node is a `customType({ ... })` call: the builder a custom column is made with. */
+export function isCustomType(node: Node | null | undefined): node is CallExpression {
+  return isCall(node) && node.callee.type === "Identifier" && node.callee.name === "customType";
+}
+
+/**
+ * The SQL type of a column a `customType({ ... })` call builds, given the arguments the column
+ * passes it: what `dataType` returns for the column's config, else the word its strings start
+ * with. Null when `dataType` is not a function the reader can find.
+ *
+ * @param custom - the `customType({ ... })` call
+ * @param args - the arguments the column passes the custom type: a name, a config, or both
+ */
+export function customTypeCallName(custom: CallExpression, args: readonly Node[]): string | null {
+  const fn = dataTypeFunction(custom.arguments[0]);
   if (fn === null) return null;
   const config = args.find((arg) => isObject(arg));
   const configValue = config === undefined ? undefined : evaluate(config, new Map());

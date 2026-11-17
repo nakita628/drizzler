@@ -621,3 +621,170 @@ export const bookmarks = sqliteTable("bookmarks", {
     );
   });
 });
+
+describe("columns, tables and enums the reader follows further (#42, #44, #45, #46)", () => {
+  it("reads a customType() called where it is built, in the table and from a helper (#42)", () => {
+    const code = stripImports(`import { customType, pgTable, text } from "drizzle-orm/pg-core";
+
+function sealedText(table: string, column: string) {
+  return customType<{ data: string; config: { context: string } }>({
+    dataType() {
+      return "text";
+    },
+  })(column, { context: \`\${table}.\${column}\` });
+}
+
+export const account = pgTable("account", {
+  id: text("id").primaryKey(),
+  accessToken: sealedText("account", "access_token"),
+  refreshToken: sealedText("account", "refresh_token"),
+  inline: customType<{ data: string }>({ dataType: () => "text" })("inline_token"),
+});`);
+    const out = dbml(code);
+    expect(out).toBe(
+      [
+        "Table account {",
+        "  id text [pk, not null]",
+        "  access_token text",
+        "  refresh_token text",
+        "  inline_token text",
+        "}",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("reads the columns spread from a helper function's result, helpers within helpers (#44)", () => {
+    const code = stripImports(`import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export function createPrimaryKeyField({ prefix }: { prefix?: string } = {}) {
+  return {
+    id: text("id").primaryKey().$default(() => \`\${prefix ?? "id"}_1\`),
+  };
+}
+
+export function createCreatedAtField() {
+  return {
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$default(() => new Date()),
+  };
+}
+
+export const createUpdatedAtField = () => ({
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$default(() => new Date())
+    .$onUpdate(() => new Date()),
+});
+
+export function createTimestampColumns() {
+  return {
+    ...createCreatedAtField(),
+    ...createUpdatedAtField(),
+  };
+}
+
+export const tagsTable = sqliteTable("tags", {
+  ...createPrimaryKeyField({ prefix: "tag" }),
+  ...createTimestampColumns(),
+  name: text("name").notNull(),
+});
+
+export const documentsToTagsTable = sqliteTable("documents_tags", {
+  tagId: text("tag_id").notNull().references(() => tagsTable.id),
+  documentId: text("document_id").notNull(),
+});`);
+    const out = dbml(code);
+    expect(out).toBe(
+      [
+        "Table tags {",
+        "  id text [pk, not null]",
+        "  created_at integer [not null]",
+        "  updated_at integer [not null]",
+        "  name text [not null]",
+        "}",
+        "",
+        "Table documents_tags {",
+        "  tag_id text [not null]",
+        "  document_id text [not null]",
+        "}",
+        "",
+        "Ref documents_tags_tag_id_tags_id_fk: documents_tags.tag_id > tags.id",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("keeps a pgSchema table under its schema, apart from a public table of its name (#45)", () => {
+    const code = stripImports(`import { pgSchema, pgTable, text, uuid } from "drizzle-orm/pg-core";
+
+export const authSchema = pgSchema("auth");
+
+export const authUsers = authSchema.table("users", {
+  id: uuid("id").primaryKey(),
+  email: text("email").notNull(),
+});
+
+export const users = pgTable("users", {
+  id: uuid("id")
+    .primaryKey()
+    .references(() => authUsers.id, { onDelete: "cascade" }),
+  displayName: text("display_name"),
+});`);
+    const out = dbml(code);
+    expect(out).toBe(
+      [
+        "Table auth.users {",
+        "  id uuid [pk, not null]",
+        "  email text [not null]",
+        "}",
+        "",
+        "Table users {",
+        "  id uuid [pk, not null]",
+        "  display_name text",
+        "}",
+        "",
+        "Ref users_id_users_id_fk: users.id - auth.users.id [delete: cascade]",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("reads the schema of a table built on pgSchema() in place", () => {
+    const code = stripImports(`import { pgSchema, uuid } from "drizzle-orm/pg-core";
+
+export const sessions = pgSchema("auth").table("sessions", {
+  id: uuid("id").primaryKey(),
+});`);
+    expect(dbml(code)).toBe(["Table auth.sessions {", "  id uuid [pk, not null]", "}"].join("\n"));
+  });
+
+  it("reads a pgEnum built from a TypeScript enum, or from one it cannot see (#46)", () => {
+    const code = stripImports(`import { pgEnum, pgTable, uuid } from "drizzle-orm/pg-core";
+import { PlanType } from "@acme/billing";
+
+export enum ProjectRole {
+  OWNER = "owner",
+  ADMIN = "admin",
+}
+
+export const projectRole = pgEnum("project_role", ProjectRole);
+export const planType = pgEnum("plan_type", PlanType);
+
+export const userProjects = pgTable("user_projects", {
+  id: uuid("id").primaryKey(),
+  role: projectRole("role").notNull(),
+  plan: planType("plan"),
+});`);
+    expect(dbml(code)).toBe(
+      [
+        "Table user_projects {",
+        "  id uuid [pk, not null]",
+        "  role project_role [not null]",
+        "  plan plan_type",
+        "}",
+      ].join("\n"),
+    );
+  });
+});

@@ -21,15 +21,25 @@ function name(value: string) {
   return /^[A-Za-z_][\w]*$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
 
+// A table as DBML names it: `users`, or `auth.users` for a table in a schema of its own.
+// https://dbml.dbdiagram.io/docs/#table-definition
+function tableName(table: { readonly schema: string | null; readonly bare: string }) {
+  return table.schema === null ? name(table.bare) : `${name(table.schema)}.${name(table.bare)}`;
+}
+
 // One end of a Ref: `table.column`, or `table.(a, b)` for a composite key.
 // https://dbml.dbdiagram.io/docs/#composite-foreign-keys
-function endpoint(end: { readonly table: string; readonly columns: readonly string[] }) {
+function endpoint(end: {
+  readonly schema: string | null;
+  readonly bareTable: string;
+  readonly columns: readonly string[];
+}) {
   const [only] = end.columns;
   const columns =
     end.columns.length === 1 && only !== undefined
       ? name(only)
       : `(${end.columns.map(name).join(", ")})`;
-  return `${name(end.table)}.${columns}`;
+  return `${tableName({ schema: end.schema, bare: end.bareTable })}.${columns}`;
 }
 
 // A column type as DBML reads it: a word with its size or precision (`numeric(10,2)`) as it is,
@@ -82,7 +92,8 @@ export function dbml(code: string[]) {
           ];
     // The comment above the table, as DBML's table note.
     const tableNote = table.note === null ? [] : [`  Note: ${note(table.note)}`];
-    return [`Table ${name(table.name)} {`, ...columns, ...indexes, ...tableNote, "}"].join("\n");
+    const declared = tableName({ schema: table.schema, bare: table.bareName });
+    return [`Table ${declared} {`, ...columns, ...indexes, ...tableNote, "}"].join("\n");
   });
 
   const refSections = relations.map((r) => {
@@ -93,7 +104,8 @@ export function dbml(code: string[]) {
     // Physical FKs keep the `_fk` suffix; logical (`defineRelations`-only) ones drop it,
     // since they are not DB-enforced constraints.
     const suffix = r.origin === "inferred" ? "_fk" : "";
-    const refName = `${r.to.table}_${r.to.columns.join("_")}_${r.from.table}_${r.from.columns.join("_")}${suffix}`;
+    // Named as drizzle-kit names the constraint: by the tables' names without their schemas.
+    const refName = `${r.to.bareTable}_${r.to.columns.join("_")}_${r.from.bareTable}_${r.from.columns.join("_")}${suffix}`;
     // https://dbml.dbdiagram.io/docs/#relationship-settings
     const settings = [
       r.onDelete !== null ? `delete: ${r.onDelete}` : null,

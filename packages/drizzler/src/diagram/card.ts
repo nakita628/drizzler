@@ -324,7 +324,15 @@ export function renderNode(node: PlacedNode, index: number, palette: Palette) {
     renderCard(
       node,
       `node-clip-${index}`,
-      { name: model.name, dbName: model.dbName, pill: null },
+      {
+        name: model.name,
+        // A table in a schema of its own is named with it: `auth.users`.
+        dbName:
+          model.schema === undefined || model.schema === null
+            ? model.dbName
+            : `${model.schema}.${model.dbName ?? model.name}`,
+        pill: null,
+      },
       palette,
     ),
     ...rows.svg,

@@ -553,12 +553,12 @@ describe("labels that do not fit", () => {
 describe("withRasterFonts", () => {
   // resvg stops at the first family the machine has and never looks further for a glyph that one
   // lacks, so a Latin face in front of the stack drops Japanese text from the PNG altogether.
-  it("puts families that cover CJK in front of the ones the SVG carries", () => {
+  it("puts families that cover CJK in front of the stacks of a text with Japanese in it", () => {
     // A documented field, so the drawing carries the sans stack of the detail line as well.
     const svg = renderDiagramSvg({
-      models: [model("A", [field("id", { isId: true, documentation: "The key" })])],
+      models: [model("ユーザー", [field("名前", { isId: true, documentation: "氏名" })])],
       relations: [],
-      positions: { A: { x: 0, y: 0 } },
+      positions: { ユーザー: { x: 0, y: 0 } },
     });
     const raster = withRasterFonts(svg);
     expect(svg).toContain('font-family="ui-monospace, SF Mono');
@@ -569,5 +569,27 @@ describe("withRasterFonts", () => {
     expect(raster.replaceAll(/font-family="[^"]*"/gu, "")).toBe(
       svg.replaceAll(/font-family="[^"]*"/gu, ""),
     );
+  });
+
+  // Shaping a text with an installed CJK face costs resvg a hundred times a Latin one (#43).
+  it("keeps the stacks the SVG carries on a text that is all Latin", () => {
+    const svg = renderDiagramSvg({
+      models: [model("users", [field("id", { isId: true, documentation: "The key…" })])],
+      relations: [],
+      positions: { users: { x: 0, y: 0 } },
+    });
+    expect(withRasterFonts(svg)).toBe(svg);
+  });
+
+  it("changes only the texts with a character outside Latin", () => {
+    const svg = renderDiagramSvg({
+      models: [model("users", [field("name", { documentation: "表示名" }), field("id")])],
+      relations: [],
+      positions: { users: { x: 0, y: 0 } },
+    });
+    const texts = [...withRasterFonts(svg).matchAll(/<text\b[^>]*>[^<]*<\/text>/gu)];
+    const cjk = texts.map(([text]) => text).filter((t) => t.includes("Noto Sans"));
+    expect(cjk).toHaveLength(1);
+    expect(cjk[0]).toContain(">表示名</text>");
   });
 });

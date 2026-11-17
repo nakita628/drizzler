@@ -32,6 +32,8 @@ function baseBuilderName(expr: Expression, text: string): string {
   if (expr.type !== "CallExpression") return "";
   const { callee } = expr;
   if (callee.type === "Identifier") return callee.name;
+  // `customType({ ... })("token")` is built with `customType`.
+  if (isCall(callee)) return baseBuilderName(callee, text);
   if (callee.type !== "MemberExpression" || callee.computed) return "";
   if (isCall(callee.object)) return baseBuilderName(callee.object, text);
   return callee.property.type === "Identifier" ? callee.property.name : "";
