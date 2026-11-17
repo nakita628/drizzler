@@ -265,3 +265,36 @@ describe("docsMarkdown of columns built another way than a builder call", () => 
     expect(markdown).not.toContain("`numericCasted`");
   });
 });
+
+describe("docsMarkdown of tables and enums the builders alone do not name", () => {
+  it("lists a table in a pgSchema by its schema and name in the database (#45)", () => {
+    const markdown = docsMarkdown([
+      'export const authSchema = pgSchema("auth");',
+      'export const authUsers = authSchema.table("users", {',
+      '  id: uuid("id").primaryKey(),',
+      "});",
+      'export const users = pgTable("users", {',
+      '  id: uuid("id").primaryKey().references(() => authUsers.id),',
+      "});",
+    ]);
+    expect(markdown).toContain("| [authUsers](#table-authUsers) | `auth.users` |");
+    expect(markdown).toContain("| [users](#table-users) | `users` |");
+  });
+
+  it("lists a pgEnum built from a TypeScript enum, with its values (#46)", () => {
+    const markdown = docsMarkdown([
+      "export enum ProjectRole {",
+      '  OWNER = "owner",',
+      '  ADMIN = "admin",',
+      "}",
+      'export const projectRole = pgEnum("project_role", ProjectRole);',
+      'export const userProjects = pgTable("user_projects", {',
+      '  id: uuid("id").primaryKey(),',
+      '  role: projectRole("role").notNull(),',
+      "});",
+    ]);
+    expect(markdown).toContain("| [projectRole](#enum-projectRole) | `project_role` |");
+    expect(markdown).toContain("Type `project_role`.\n\n- `owner`\n- `admin`");
+    expect(markdown).toContain("[`projectRole`](#enum-projectRole)");
+  });
+});

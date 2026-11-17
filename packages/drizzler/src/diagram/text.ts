@@ -64,12 +64,23 @@ export const FONT_SANS =
 const FONT_MONO_RASTER = `Noto Sans Mono CJK JP, Source Han Mono, BIZ UDGothic, MS Gothic, IPAGothic, ${FONT_MONO}`;
 const FONT_SANS_RASTER = `Noto Sans CJK JP, Hiragino Sans, Yu Gothic UI, Meiryo, IPAPGothic, ${FONT_SANS}`;
 
+// A character the Latin stacks may not have: anything past Latin Extended-B (U+024F), save the
+// general punctuation (U+2000-U+206F) the drawing uses itself, such as the `…` of a cut label.
+const NON_LATIN = /[^\s\u0020-\u024F\u2000-\u206F]/u;
+
 /**
  * The drawing with the raster font stacks in place of the ones a browser reads, for a rasteriser
- * without per-glyph fallback. A machine with none of those families draws what it drew before.
+ * without per-glyph fallback, on each `<text>` that has a character outside Latin. Shaping a text
+ * with an installed CJK face costs resvg a hundred times what a Latin one does, and nearly every
+ * label is ASCII, so those keep the stacks the SVG carries. A machine with none of the CJK
+ * families draws what it drew before.
  */
 export function withRasterFonts(svg: string) {
-  return svg.replaceAll(FONT_MONO, FONT_MONO_RASTER).replaceAll(FONT_SANS, FONT_SANS_RASTER);
+  return svg.replaceAll(/<text\b[^>]*>[\s\S]*?<\/text>/gu, (element) =>
+    NON_LATIN.test(element.replace(/^<text\b[^>]*>/u, "").replaceAll(/<[^>]*>/gu, ""))
+      ? element.replaceAll(FONT_MONO, FONT_MONO_RASTER).replaceAll(FONT_SANS, FONT_SANS_RASTER)
+      : element,
+  );
 }
 
 // Glyph advance as a fraction of the font size, for the faces besides the plain monospace one.

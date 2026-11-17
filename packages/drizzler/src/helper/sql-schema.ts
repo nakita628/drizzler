@@ -48,7 +48,12 @@ function sqlType(field: SchemaField, enums: ReadonlyMap<string, string>) {
 
 /** One end of a relation, by the names the database knows the table and columns by. */
 type SqlRelationEnd = {
+  /** The table, with its schema when it has one of its own: `auth.users`. */
   readonly table: string;
+  /** The table's schema, or null for the default one. */
+  readonly schema: string | null;
+  /** The table without its schema: `users`. */
+  readonly bareTable: string;
   /** The column, or the first of a composite key's. */
   readonly column: string;
   /** Every column of the key: one, or several for a composite key. */
@@ -65,7 +70,16 @@ type SqlRelationEnd = {
 export function sqlSchema(code: readonly string[]) {
   const { models, relations, enums } = diagramSchema(code);
   const enumTypes = new Map(enums.map((e) => [e.name, e.dbName ?? e.name]));
-  const tableNames = new Map(models.map((m) => [m.name, m.dbName ?? m.name]));
+  // A table in a schema of its own (`pgSchema("auth").table("users")`) is `auth.users`, so it is
+  // not taken for a `users` table of the default schema.
+  const bareNames = new Map(models.map((m) => [m.name, m.dbName ?? m.name]));
+  const schemas = new Map(models.map((m) => [m.name, m.schema ?? null]));
+  const tableNames = new Map(
+    models.map((m) => {
+      const bare = m.dbName ?? m.name;
+      return [m.name, m.schema === undefined || m.schema === null ? bare : `${m.schema}.${bare}`];
+    }),
+  );
   const columnNames = new Map(
     models.flatMap((m) => m.fields.map((f) => [`${m.name}.${f.name}`, f.dbName ?? f.name])),
   );
@@ -89,6 +103,8 @@ export function sqlSchema(code: readonly string[]) {
     ].map((index) => ({ ...index, columns: index.columns.map((c) => columnOf(model.name, c)) }));
     return {
       name: tableNames.get(model.name) ?? model.name,
+      schema: model.schema ?? null,
+      bareName: bareNames.get(model.name) ?? model.name,
       note: model.documentation ?? null,
       columns: model.fields.map((field) => ({
         name: field.dbName ?? field.name,
@@ -108,6 +124,8 @@ export function sqlSchema(code: readonly string[]) {
   function sqlEnd(end: SchemaRelation["from"]): SqlRelationEnd {
     return {
       table: tableNames.get(end.model) ?? end.model,
+      schema: schemas.get(end.model) ?? null,
+      bareTable: bareNames.get(end.model) ?? end.model,
       column: columnOf(end.model, end.field),
       columns: (end.fields ?? [end.field]).map((field) => columnOf(end.model, field)),
       cardinality: end.cardinality,

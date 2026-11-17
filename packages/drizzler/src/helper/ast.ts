@@ -222,8 +222,9 @@ export function topLevelValue(name: string, program: Program) {
 /**
  * The `key: value` columns of a table's second argument, in the order they are written: an
  * object literal, or the `(t) => ({ ... })` form, with each spread of a top-level object
- * (`...timestamps`, kept in a helper module) read in place. A spread of something else, and a
- * column that is not a `key: value`, is left out.
+ * (`...timestamps`, kept in a helper module) or of what a top-level function returns
+ * (`...createTimestampColumns()`, which may spread other helpers in turn) read in place. A
+ * spread of something else, and a column that is not a `key: value`, is left out.
  */
 export function columnProperties(
   node: Node | null | undefined,
@@ -236,11 +237,24 @@ export function columnProperties(
   return object.properties.flatMap((prop) => {
     if (prop.type === "SpreadElement") {
       const arg = unwrapTypes(prop.argument);
+      if (isCall(arg)) return spreadCallColumns(arg, program, seen);
       if (arg.type !== "Identifier" || seen.has(arg.name)) return [];
       return columnProperties(arg, program, new Set([...seen, arg.name]));
     }
     return isPropertyAssignment(prop) ? [prop] : [];
   });
+}
+
+// The columns of `...createTimestampColumns()`: those of the object the top-level function
+// returns. Its parameters are not bound to the call's arguments, so a column's name or type must
+// not come from them.
+function spreadCallColumns(call: CallExpression, program: Program, seen: ReadonlySet<string>) {
+  if (call.callee.type !== "Identifier") return [];
+  const key = `${call.callee.name}()`;
+  if (seen.has(key)) return [];
+  const fn = topLevelFunctions(program).get(call.callee.name);
+  const returned = fn === undefined ? null : returnedValue(fn);
+  return isObject(returned) ? columnProperties(returned, program, new Set([...seen, key])) : [];
 }
 
 // The object literal a table's columns are written in: itself, the one `(t) => ({ ... })` returns,

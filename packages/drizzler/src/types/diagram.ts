@@ -99,6 +99,8 @@ export type SchemaField = {
 export type SchemaModel = {
   readonly name: string;
   readonly dbName: string | null;
+  /** The database schema a `pgSchema("auth").table(...)` puts the table in; absent for the default one. */
+  readonly schema?: string | null;
   readonly documentation?: string | null;
   readonly primaryKey: readonly string[] | null;
   readonly fields: readonly SchemaField[];

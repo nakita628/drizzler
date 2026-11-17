@@ -129,7 +129,11 @@ export function makeDocs(input: z.infer<typeof MakeDocsInput>) {
     const referenceTo = Map.groupBy(targeting, (r) => r.to.field);
     return {
       name: model.name,
-      dbName: model.dbName ?? model.name,
+      // A table in a schema of its own is named with it: `auth.users`.
+      dbName:
+        model.schema === undefined || model.schema === null
+          ? (model.dbName ?? model.name)
+          : `${model.schema}.${model.dbName ?? model.name}`,
       description: model.documentation ?? null,
       columns: model.fields.map((field) => {
         const reference = referenceTo.get(field.name)?.[0];
