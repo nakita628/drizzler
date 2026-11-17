@@ -33,6 +33,18 @@ export function unaliasTableBuilders(content: string) {
   return unaliased(content, parse(content).program);
 }
 
+type Call = Extract<Program["body"][number], { type: "ExpressionStatement" }>["expression"] & {
+  type: "CallExpression";
+};
+
+// The call at the root of a chain: `table("user", {...})` in `table("user", {...}).enableRLS()`.
+function innermostCall(call: Call): Call {
+  const { callee } = call;
+  return callee.type === "MemberExpression" && callee.object.type === "CallExpression"
+    ? innermostCall(callee.object)
+    : call;
+}
+
 function unaliased(content: string, program: Program) {
   const aliases = builderAliases(program);
   if (aliases.size === 0) return content;
@@ -41,7 +53,7 @@ function unaliased(content: string, program: Program) {
     if (decl?.type !== "VariableDeclaration") return [];
     return decl.declarations.flatMap((d) => {
       if (d.init?.type !== "CallExpression") return [];
-      const { callee } = d.init;
+      const { callee } = innermostCall(d.init);
       // `table(...)`, or `table.withRLS(...)`.
       const name = callee.type === "MemberExpression" && !callee.computed ? callee.object : callee;
       if (name.type !== "Identifier") return [];
@@ -82,24 +94,113 @@ export function stripImports(source: string) {
   return codeStart === -1 ? [] : lines.slice(codeStart);
 }
 
+// The keys under which a node holds only types: `x: T`, `(): T =>`, `f<T>()`, `implements T`.
+const TYPE_KEYS = new Set([
+  "typeAnnotation",
+  "returnType",
+  "typeParameters",
+  "typeArguments",
+  "superTypeArguments",
+  "implements",
+]);
+
+// The declarations that are types only, which no value can read through.
+const TYPE_DECLARATIONS = new Set([
+  "TSInterfaceDeclaration",
+  "TSTypeAliasDeclaration",
+  "TSDeclareFunction",
+]);
+
+type AnyNode = { readonly type: string; readonly [key: string]: unknown };
+
+function isAnyNode(value: unknown): value is AnyNode {
+  return typeof value === "object" && value !== null && "type" in value;
+}
+
+// The keys of a node that name something rather than read it: `x.key`, `{ key: ... }`,
+// `class { key = ... }`, a label.
+function namingKey(node: AnyNode, key: string) {
+  if (node.computed === true) return false;
+  if (node.type === "MemberExpression") return key === "property";
+  if (node.type === "Property") return key === "key" && node.shorthand !== true;
+  if (node.type === "MethodDefinition" || node.type === "PropertyDefinition") return key === "key";
+  return key === "label";
+}
+
 /**
- * The source with each import that brings in only types blanked out: `import { type X } from
- * "pkg"` names no value, and TypeScript drops it, but Node's type stripping keeps it as
- * `import {} from "pkg"`, which still loads `pkg` (a types-only subpath fails to resolve). The
- * import is replaced by spaces, so every position after it stays where it was.
+ * The names a module reads as values, wherever it reads them: every identifier outside a type
+ * annotation, a type declaration, an import and a declare-only statement. A name only a type
+ * reads (`(): AnyPgColumn => t.id`) is not one.
+ */
+function valueNames(node: unknown, names: Set<string> = new Set()): Set<string> {
+  if (Array.isArray(node)) {
+    for (const item of node) valueNames(item, names);
+    return names;
+  }
+  if (!isAnyNode(node)) return names;
+  if (node.type === "ImportDeclaration" || TYPE_DECLARATIONS.has(node.type)) return names;
+  if (node.declare === true) return names;
+  if (
+    (node.type === "Identifier" || node.type === "JSXIdentifier") &&
+    typeof node.name === "string"
+  ) {
+    names.add(node.name);
+  }
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent" || TYPE_KEYS.has(key) || namingKey(node, key)) continue;
+    valueNames(value, names);
+  }
+  return names;
+}
+
+type Import = Extract<
+  ReturnType<typeof parse>["program"]["body"][number],
+  { type: "ImportDeclaration" }
+>;
+
+// The spans of one import to blank: the whole statement when it brings in no value the module
+// reads, else each named specifier that is only a type, with the comma that sets it apart.
+function unusedSpans(stmt: Import, used: ReadonlySet<string>): (readonly [number, number])[] {
+  const { specifiers } = stmt;
+  // `import "./side-effect"` and `import {} from "pkg"` load the module for its own sake.
+  if (stmt.importKind === "type" || specifiers.length === 0) return [];
+  const unused = specifiers.map(
+    (s) => (s.type === "ImportSpecifier" && s.importKind === "type") || !used.has(s.local.name),
+  );
+  if (unused.every(Boolean)) return [[stmt.start, stmt.end]];
+  return specifiers.flatMap((spec, i): (readonly [number, number])[] => {
+    // A default or namespace import that is unused beside a used one is left: rare, and harmless
+    // unless the module lacks it. An inline `type X` is Node's own to strip.
+    if (unused[i] !== true || spec.type !== "ImportSpecifier" || spec.importKind === "type") {
+      return [];
+    }
+    const next = specifiers[i + 1];
+    const previous = specifiers[i - 1];
+    if (next !== undefined) return [[spec.start, next.start]];
+    return previous?.type === "ImportSpecifier"
+      ? [[previous.end, spec.end]]
+      : [[spec.start, spec.end]];
+  });
+}
+
+/**
+ * The source with each import TypeScript would drop blanked out: an import that brings in only
+ * types (`import { type X } from "pkg"`), and each imported name the module reads only as a type
+ * (`import { AnyPgColumn, pgTable }` used as `(): AnyPgColumn => t.id`). Node's type stripping
+ * keeps both, so the first still loads `pkg` (a types-only subpath fails to resolve) and the
+ * second asks `pkg` for an export it does not have. A bundler (drizzle-kit's esbuild) drops
+ * them, as TypeScript does. Each span is replaced by spaces, so every position after it stays
+ * where it was.
  */
 export function elideTypeOnlyImports(source: string, file = "schema.ts") {
   const lang = /\.(c|m)?tsx$/u.test(file) ? "tsx" : "ts";
   const { program } = parseSync(file, source, { lang, sourceType: "module" });
+  const used = valueNames(program.body);
   const spans = program.body.flatMap((stmt) =>
-    stmt.type === "ImportDeclaration" &&
-    stmt.importKind !== "type" &&
-    stmt.specifiers.length > 0 &&
-    stmt.specifiers.every((s) => s.type === "ImportSpecifier" && s.importKind === "type")
-      ? [[stmt.start, stmt.end] as const]
-      : [],
+    stmt.type === "ImportDeclaration" ? unusedSpans(stmt, used) : [],
   );
-  return spans.reduceRight(
+  // Spans of one import may overlap; blanking a character twice leaves it blank.
+  return spans.reduce(
     (text, [start, end]) =>
       text.slice(0, start) + text.slice(start, end).replaceAll(/[^\n]/gu, " ") + text.slice(end),
     source,

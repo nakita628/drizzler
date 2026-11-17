@@ -441,3 +441,183 @@ describe("DBML output always parses (issue regression guard)", () => {
     expect(() => run(dbml(code), "svg")).not.toThrow();
   });
 });
+
+describe("keys the column builders alone do not show", () => {
+  it("writes a composite foreignKey() as one composite Ref (#33)", () => {
+    const code =
+      stripImports(`import { foreignKey, pgTable, primaryKey, timestamp, uuid } from "drizzle-orm/pg-core";
+
+export const document = pgTable(
+  "document",
+  {
+    id: uuid("id").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id, t.createdAt] })],
+);
+
+export const suggestion = pgTable(
+  "suggestion",
+  {
+    id: uuid("id").primaryKey(),
+    documentId: uuid("document_id").notNull(),
+    documentCreatedAt: timestamp("document_created_at").notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentId, t.documentCreatedAt],
+      foreignColumns: [document.id, document.createdAt],
+    }).onDelete("cascade"),
+  ],
+);`);
+    const out = dbml(code);
+    expect(out).toContain(
+      "Ref suggestion_document_id_document_created_at_document_id_created_at_fk: suggestion.(document_id, document_created_at) > document.(id, created_at) [delete: cascade]",
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("keeps a key from a column to itself as a comment, so the file parses (#37)", () => {
+    const code =
+      stripImports(`import { foreignKey, pgTable, text, uuid } from "drizzle-orm/pg-core";
+
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey(),
+    fullName: text("full_name"),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.id],
+      foreignColumns: [table.id],
+      name: "users_id_fkey",
+    }).onDelete("cascade"),
+  ],
+);`);
+    const out = dbml(code);
+    expect(out).toContain(
+      "// Ref users_id_users_id_fk: users.id - users.id [delete: cascade] (a key from a column to itself, which DBML cannot express)",
+    );
+    expect(out.split("\n").filter((line) => line.startsWith("Ref "))).toStrictEqual([]);
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("declares a table built with .enableRLS(), and points its refs at its SQL name (#38)", () => {
+    const code = stripImports(`import { bigint, pgTable, uuid, varchar } from "drizzle-orm/pg-core";
+
+export const users = pgTable("user", {
+  id: uuid("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+}).enableRLS();
+
+export const boards = pgTable("board", {
+  id: bigint("id", { mode: "number" }).primaryKey(),
+  createdBy: uuid("createdBy").references(() => users.id),
+});`);
+    expect(dbml(code)).toBe(
+      [
+        "Table user {",
+        "  id uuid [pk, not null]",
+        "  email varchar [not null, unique]",
+        "}",
+        "",
+        "Table board {",
+        "  id bigint [pk, not null]",
+        "  createdBy uuid",
+        "}",
+        "",
+        "Ref board_createdBy_user_id_fk: board.createdBy > user.id",
+      ].join("\n"),
+    );
+  });
+});
+
+describe("columns built another way than a builder call", () => {
+  it("types a customType() column by what its dataType makes (#36)", () => {
+    const code = stripImports(`import { customType, pgTable, uuid } from "drizzle-orm/pg-core";
+
+export const numericCasted = customType<{
+  data: number;
+  driverData: string;
+  config: { precision?: number; scale?: number };
+}>({
+  dataType: (config) =>
+    config?.precision && config?.scale ? \`numeric(\${config.precision}, \${config.scale})\` : "numeric",
+  fromDriver: (value: string) => Number.parseFloat(value),
+  toDriver: (value: number) => value.toString(),
+});
+
+export const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+export const opaque = customType<{ data: string }>({
+  dataType: () => pick("bytea"),
+});
+
+export const invoices = pgTable("invoices", {
+  id: uuid("id").primaryKey(),
+  amount: numericCasted("amount", { precision: 10, scale: 2 }),
+  total: numericCasted("total"),
+  search: tsvector("search"),
+  blob: opaque("blob"),
+});`);
+    const out = dbml(code);
+    expect(out).toBe(
+      [
+        "Table invoices {",
+        "  id uuid [pk, not null]",
+        "  amount numeric(10,2)",
+        "  total numeric",
+        "  search tsvector",
+        "  blob bytea",
+        "}",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("reads a column a helper function builds: its type, NOT NULL and SQL name (#40)", () => {
+    const code = stripImports(`import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+function createdAtField(colName = "createdAt") {
+  return integer(colName, { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date());
+}
+
+const ownerField = (name: string) => text(name).references(() => users.id);
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+});
+
+export const bookmarks = sqliteTable("bookmarks", {
+  id: text("id").primaryKey(),
+  dbCreatedAt: createdAtField(),
+  createdAt: createdAtField("lastSavedAt"),
+  slug: createdAtField("slug").unique(),
+  ownerId: ownerField("owner_id").notNull(),
+});`);
+    expect(dbml(code)).toBe(
+      [
+        "Table users {",
+        "  id text [pk, not null]",
+        "}",
+        "",
+        "Table bookmarks {",
+        "  id text [pk, not null]",
+        "  createdAt integer [not null]",
+        "  lastSavedAt integer [not null]",
+        "  slug integer [not null, unique]",
+        "  owner_id text [not null]",
+        "}",
+        "",
+        "Ref bookmarks_owner_id_users_id_fk: bookmarks.owner_id > users.id",
+      ].join("\n"),
+    );
+  });
+});

@@ -214,6 +214,11 @@ function topLevelValues(program: Program) {
   return values;
 }
 
+/** The value a top-level `const name = value` is given, `as` and `satisfies` aside. */
+export function topLevelValue(name: string, program: Program) {
+  return topLevelValues(program).get(name);
+}
+
 /**
  * The `key: value` columns of a table's second argument, in the order they are written: an
  * object literal, or the `(t) => ({ ... })` form, with each spread of a top-level object
@@ -330,4 +335,103 @@ export function schemaExports(input: { readonly source: string }) {
       : [],
   );
   return [...new Set([...declared, ...listed])];
+}
+
+// The call at the root of a chain: `createdAtField("at")` in `createdAtField("at").unique()`.
+function rootCall(call: CallExpression): CallExpression {
+  const { callee } = call;
+  return callee.type === "MemberExpression" && isCall(callee.object)
+    ? rootCall(callee.object)
+    : call;
+}
+
+// The expression a function gives back: an arrow's body, or the one `return` of its block.
+function returnedValue(fn: Node): Expression | null {
+  if (fn.type === "ArrowFunctionExpression" && fn.body.type !== "BlockStatement") {
+    return unwrapTypes(fn.body);
+  }
+  const isFunction =
+    fn.type === "ArrowFunctionExpression" ||
+    fn.type === "FunctionExpression" ||
+    fn.type === "FunctionDeclaration";
+  const statements = isFunction && fn.body?.type === "BlockStatement" ? fn.body.body : [];
+  const returns = statements.filter((stmt) => stmt.type === "ReturnStatement");
+  const [only] = returns;
+  return returns.length === 1 && only?.argument ? unwrapTypes(only.argument) : null;
+}
+
+const functionsOf = new WeakMap<Program, ReadonlyMap<string, Node>>();
+
+// Every function the schema declares at the top level, by name: `function f() {}`, exported or
+// not, and `const f = () => ...` or `const f = function () {}`.
+function topLevelFunctions(program: Program) {
+  const known = functionsOf.get(program);
+  if (known) return known;
+  const functions = new Map<string, Node>();
+  for (const stmt of program.body) {
+    const decl = stmt.type === "ExportNamedDeclaration" ? stmt.declaration : stmt;
+    if (decl?.type === "FunctionDeclaration" && decl.id && !functions.has(decl.id.name)) {
+      functions.set(decl.id.name, decl);
+    }
+  }
+  for (const [name, value] of topLevelValues(program)) {
+    const isFunction =
+      value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression";
+    if (isFunction && !functions.has(name)) functions.set(name, value);
+  }
+  functionsOf.set(program, functions);
+  return functions;
+}
+
+/**
+ * A column a helper function of the schema builds: for `createdAt: createdAtField("at").unique()`
+ * with `function createdAtField(name = "createdAt") { return integer(name).notNull(); }`, the
+ * chain the helper returns (`integer(name).notNull()`), the call that runs it, and what each of
+ * its parameters stands for there (`name` is `"at"`, or the default when the call leaves it out).
+ * Null when the column is not a call of a top-level function that returns a call.
+ */
+export function helperColumn(expr: Expression, program: Program) {
+  const value = unwrapTypes(expr);
+  if (!isCall(value)) return null;
+  const root = rootCall(value);
+  if (root.callee.type !== "Identifier") return null;
+  const fn = topLevelFunctions(program).get(root.callee.name);
+  if (fn === undefined) return null;
+  const returned = returnedValue(fn);
+  if (!isCall(returned)) return null;
+  const params: readonly Node[] = "params" in fn ? fn.params : [];
+  const bindings = new Map(
+    params.flatMap((param, index): (readonly [string, Expression])[] => {
+      const arg = root.arguments[index];
+      const given = arg !== undefined && arg.type !== "SpreadElement" ? arg : undefined;
+      if (param.type === "Identifier") return given === undefined ? [] : [[param.name, given]];
+      return param.type === "AssignmentPattern" && param.left.type === "Identifier"
+        ? [[param.left.name, given ?? param.right]]
+        : [];
+    }),
+  );
+  return { chain: returned, call: root, bindings, name: root.callee.name };
+}
+
+/**
+ * The text of a column as the reader takes it: its own, or for a column a helper builds, the
+ * chain the helper returns followed by the methods the column calls on it
+ * (`integer(name).notNull()` + `.unique()`), so a `.notNull()` or `.references()` written in the
+ * helper counts.
+ */
+export function columnText(expr: Expression, program: Program, text: string, depth = 0): string {
+  // A helper that calls itself would never end; eight helpers deep is more than any schema needs.
+  const helper = depth < 8 ? helperColumn(expr, program) : null;
+  if (helper === null) return textOf(text, expr);
+  const inner = columnText(helper.chain, program, text, depth + 1);
+  return `${inner}${text.slice(helper.call.end, expr.end)}`;
+}
+
+/**
+ * The expressions a column is written in: itself, and for a column a helper builds, the chain the
+ * helper returns too (and so on, for a helper that calls another).
+ */
+export function columnExpressions(expr: Expression, program: Program, depth = 0): Expression[] {
+  const helper = depth < 8 ? helperColumn(expr, program) : null;
+  return helper === null ? [expr] : [expr, ...columnExpressions(helper.chain, program, depth + 1)];
 }

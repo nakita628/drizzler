@@ -60,8 +60,10 @@ function attribute(value: string) {
 }
 
 // An attribute type as Mermaid reads it: one word, so `double precision` is `double_precision`.
+// A type may hold parentheses but no comma, so `numeric(10,2)` is drawn as `numeric`.
 function attributeType(value: string) {
-  return value.replaceAll(/\s+/gu, "_");
+  const word = value.includes(",") ? value.replace(/\(.*\)/u, "") : value;
+  return word.replaceAll(/\s+/gu, "_");
 }
 
 /**
@@ -79,7 +81,8 @@ export function mermaidER(code: string[]) {
       to: { cardinality: ends.to },
       identifying: r.origin === "inferred",
     });
-    return `    ${entity(r.from.table)} ${symbol} ${entity(r.to.table)} : "(${r.from.column}) - (${r.to.column})"`;
+    const label = `(${r.from.columns.join(", ")}) - (${r.to.columns.join(", ")})`;
+    return `    ${entity(r.from.table)} ${symbol} ${entity(r.to.table)} : "${label}"`;
   });
 
   const tableDefinitions = tables.flatMap((table) => {

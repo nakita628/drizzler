@@ -518,3 +518,72 @@ erDiagram
     expect(mermaidER(code)).toContain('employees |o--o{ employees : "(id) - (recipient_id)"');
   });
 });
+
+describe("a composite foreignKey() (#33)", () => {
+  it("is drawn as one line naming every column, each marked FK", () => {
+    const code =
+      stripImports(`import { foreignKey, pgTable, primaryKey, timestamp, uuid } from "drizzle-orm/pg-core";
+
+export const document = pgTable(
+  "document",
+  {
+    id: uuid("id").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id, t.createdAt] })],
+);
+
+export const suggestion = pgTable(
+  "suggestion",
+  {
+    id: uuid("id").primaryKey(),
+    documentId: uuid("document_id").notNull(),
+    documentCreatedAt: timestamp("document_created_at").notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentId, t.documentCreatedAt],
+      foreignColumns: [document.id, document.createdAt],
+    }),
+  ],
+);`);
+    const out = mermaidER(code);
+    expect(out).toContain(
+      '    document ||--o{ suggestion : "(id, created_at) - (document_id, document_created_at)"',
+    );
+    expect(out).toContain("        uuid document_id FK");
+    expect(out).toContain("        timestamp document_created_at FK");
+  });
+});
+
+describe("tables and columns the builders alone do not show", () => {
+  it("draws a table built with .enableRLS() under its SQL name (#38)", () => {
+    const out = mermaidER([
+      'export const users = pgTable("user", {',
+      '  id: uuid("id").primaryKey(),',
+      "}).enableRLS();",
+      'export const boards = pgTable("board", {',
+      '  id: bigint("id", { mode: "number" }).primaryKey(),',
+      '  createdBy: uuid("createdBy").references(() => users.id),',
+      "});",
+    ]);
+    expect(out).toContain('    user |o--o{ board : "(id) - (createdBy)"');
+    expect(out).toContain("    user {\n        uuid id PK\n    }");
+    expect(out).not.toContain("users");
+  });
+
+  it("draws a customType() column by its type, without a comma Mermaid cannot read (#36)", () => {
+    const out = mermaidER([
+      "export const numericCasted = customType({",
+      "  dataType: (config) => `numeric(${config.precision}, ${config.scale})`,",
+      "});",
+      "export const vector = customType({ dataType: () => 'vector(1536)' });",
+      'export const invoices = pgTable("invoices", {',
+      '  amount: numericCasted("amount", { precision: 10, scale: 2 }),',
+      '  embedding: vector("embedding"),',
+      "});",
+    ]);
+    expect(out).toContain("        numeric amount\n");
+    expect(out).toContain("        vector(1536) embedding\n");
+  });
+});

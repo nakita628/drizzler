@@ -119,16 +119,18 @@ export type SchemaRelation = {
   readonly onDelete: string | null;
   readonly onUpdate?: string | null;
   readonly name?: string | null;
-  readonly from: {
-    readonly model: string;
-    readonly field: string;
-    readonly cardinality: Cardinality;
-  };
-  readonly to: {
-    readonly model: string;
-    readonly field: string;
-    readonly cardinality: Cardinality;
-  };
+  readonly from: RelationEnd;
+  readonly to: RelationEnd;
+};
+
+/** One end of a relation: the field an edge is drawn from or to. */
+type RelationEnd = {
+  readonly model: string;
+  /** The column, or the first of a composite key's. */
+  readonly field: string;
+  /** Every column of a composite key, in order; left out for a key of one column. */
+  readonly fields?: readonly string[];
+  readonly cardinality: Cardinality;
 };
 
 /** Everything a drawing is made from: the schema, where each block sits, and the theme. */

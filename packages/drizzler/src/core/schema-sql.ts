@@ -9,6 +9,7 @@ import { schemaDialect } from "../generator/query-examples.js";
 import { makeProbeModule, readProbeResult } from "../generator/query-probe.js";
 import { isProjectFile, isProjectTypeScript } from "../schema/module-url.js";
 import { resolveImport } from "../schema/sources.js";
+import { lowerEnums } from "../schema/lower-enums.js";
 import { elideTypeOnlyImports } from "../schema/strip-imports.js";
 import { errorMessage } from "../helper/error-message.js";
 import { nearestCacheDir } from "../helper/find-up.js";
@@ -59,7 +60,8 @@ function registerHooks() {
     load(url, context, nextLoad) {
       if (!isProjectTypeScript(url)) return nextLoad(url, context);
       const file = fileURLToPath(url);
-      const source = elideTypeOnlyImports(fs.readFileSync(file, "utf8"), file);
+      // Strip mode rejects an `enum`, so each is written as the object it stands for first.
+      const source = lowerEnums(elideTypeOnlyImports(fs.readFileSync(file, "utf8"), file), file);
       return { format: "module", source: stripTypes(source), shortCircuit: true };
     },
   });

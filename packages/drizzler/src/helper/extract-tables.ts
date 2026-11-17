@@ -8,7 +8,9 @@ import type {
 } from "oxc-parser";
 import {
   arrowObject,
+  columnExpressions,
   columnProperties,
+  columnText,
   descriptionBefore,
   callsIn,
   fallbackValue,
@@ -82,14 +84,16 @@ function identifierKey(prop: ObjectProperty) {
 // the second argument (a `{ onDelete, onUpdate }` config object) never affects
 // extraction — a text-based match on `.references(... )` would lose the relation
 // whenever a referential-action config is present.
-function extractReferenceInfo(initExpr: CallExpression) {
-  const referencesCall = callsIn(initExpr).find(
-    (call) =>
-      call.callee.type === "MemberExpression" &&
-      !call.callee.computed &&
-      call.callee.property.type === "Identifier" &&
-      call.callee.property.name === "references",
-  );
+function extractReferenceInfo(initExprs: readonly Expression[]) {
+  const referencesCall = initExprs
+    .flatMap(callsIn)
+    .find(
+      (call) =>
+        call.callee.type === "MemberExpression" &&
+        !call.callee.computed &&
+        call.callee.property.type === "Identifier" &&
+        call.callee.property.name === "references",
+    );
   if (!referencesCall) return null;
   const [target] = referencesCall.arguments;
   if (!isArrow(target)) return null;
@@ -107,7 +111,11 @@ function isFieldRequired(initText: string) {
   return initText.includes(".notNull()") || initText.includes(".primaryKey()");
 }
 
-function extractFieldInfo(prop: ObjectProperty, source: Parameters<typeof descriptionBefore>[0]) {
+function extractFieldInfo(
+  prop: ObjectProperty,
+  source: Parameters<typeof descriptionBefore>[0],
+  program: Program,
+) {
   const { text } = source;
   const fieldName = identifierKey(prop);
   if (fieldName === null) return null;
@@ -115,8 +123,11 @@ function extractFieldInfo(prop: ObjectProperty, source: Parameters<typeof descri
   const initExpr = prop.value;
   if (!isCall(initExpr)) return null;
 
-  const fieldType = baseBuilderName(initExpr, text);
-  const initText = textOf(text, initExpr);
+  // A column a helper function builds is the builder the helper calls.
+  const last = columnExpressions(initExpr, program).at(-1);
+  const builderExpr = isCall(last) ? last : initExpr;
+  const fieldType = baseBuilderName(builderExpr, text);
+  const initText = columnText(initExpr, program, text);
   const description = descriptionBefore(source, prop.start);
   const keyType = extractKeyType(initText);
 
@@ -126,21 +137,27 @@ function extractFieldInfo(prop: ObjectProperty, source: Parameters<typeof descri
     keyType,
     description,
     // Only set when written, so a column without a time zone reads as before.
-    ...(hasTimezone(initExpr) ? { withTimezone: true as const } : {}),
+    ...(hasTimezone(builderExpr) ? { withTimezone: true as const } : {}),
   };
 }
 
-function extractRelationFromField(prop: ObjectProperty, tableName: string, text: string) {
+function extractRelationFromField(
+  prop: ObjectProperty,
+  tableName: string,
+  text: string,
+  program: Program,
+) {
   const fieldName = identifierKey(prop);
   if (fieldName === null) return null;
 
   const initExpr = prop.value;
   if (!isCall(initExpr)) return null;
 
-  const initText = textOf(text, initExpr);
+  // A helper function's `.references()` and `.notNull()` count as the column's own.
+  const initText = columnText(initExpr, program, text);
   if (!initText.includes(".references(")) return null;
 
-  const refInfo = extractReferenceInfo(initExpr);
+  const refInfo = extractReferenceInfo(columnExpressions(initExpr, program));
   if (!refInfo) return null;
 
   const isRequired = isFieldRequired(initText);
@@ -150,6 +167,8 @@ function extractRelationFromField(prop: ObjectProperty, tableName: string, text:
     toModel: tableName,
     fromField: refInfo.referencedField,
     toField: fieldName,
+    fromFields: [refInfo.referencedField],
+    toFields: [fieldName],
     isRequired,
     enforced: true,
   };
@@ -182,36 +201,63 @@ function arrowParameter(arrow: ArrowFunctionExpression) {
   return first?.type === "Identifier" ? first.name : null;
 }
 
-// Pattern: foreignKey({ columns: [Table.field], foreignColumns: [OtherTable.field] })
+// The `table.column` pairs of an array: `[t.documentId, t.documentCreatedAt]`. Null when an
+// element is anything else, so a key the reader cannot follow is left out whole.
+function memberColumns(node: Node | undefined) {
+  if (node?.type !== "ArrayExpression" || node.elements.length === 0) return null;
+  const pairs = node.elements.map((element) =>
+    element?.type === "MemberExpression" &&
+    !element.computed &&
+    element.object.type === "Identifier" &&
+    element.property.type === "Identifier"
+      ? { table: element.object.name, column: element.property.name }
+      : null,
+  );
+  return pairs.every((p) => p !== null) ? pairs.filter((p) => p !== null) : null;
+}
+
+// The `foreignKey({ ... })` call at the root of a constraint, under its `.onDelete()` and the like.
+function foreignKeyCall(entry: Expression): CallExpression | null {
+  const expr = unwrapParens(entry);
+  if (!isCall(expr)) return null;
+  const { callee } = expr;
+  if (callee.type === "Identifier") return callee.name === "foreignKey" ? expr : null;
+  return callee.type === "MemberExpression" && isCall(callee.object)
+    ? foreignKeyCall(callee.object)
+    : null;
+}
+
+// Pattern: foreignKey({ columns: [t.a, t.b], foreignColumns: [other.x, other.y] }), one column or
+// several (a composite key, drawn by its first pair and written whole where the output can).
 function extractRelationsFromForeignKeyConstraints(
   tableName: string,
   constraintArg: CallExpression["arguments"][number],
-  text: string,
   required: ReadonlyMap<string, boolean>,
 ) {
+  // The callback's own parameter (`(table) => ...`) stands for the table being declared, so a
+  // `foreignColumns: [table.id]` is a key to the table itself.
+  const own = isArrow(constraintArg) ? arrowParameter(constraintArg) : null;
   return constraintEntries(constraintArg).flatMap((entry) => {
-    const constraintText = textOf(text, entry);
-    if (!constraintText.includes("foreignKey(")) return [];
-
-    const columnsMatch = constraintText.match(/columns:\s*\[\s*(\w+)\.(\w+)\s*\]/u);
-    const foreignColumnsMatch = constraintText.match(/foreignColumns:\s*\[\s*(\w+)\.(\w+)\s*\]/u);
-    const [, , column] = columnsMatch ?? [];
-    const [, foreignTable, foreignColumn] = foreignColumnsMatch ?? [];
-    if (column === undefined || foreignTable === undefined || foreignColumn === undefined) {
-      return [];
-    }
-
-    // The callback's own parameter (`(table) => ...`) stands for the table being declared, so a
-    // `foreignColumns: [table.id]` is a key to the table itself.
-    const own = isArrow(constraintArg) ? arrowParameter(constraintArg) : null;
-    const target = foreignTable === own ? tableName : foreignTable;
+    const call = foreignKeyCall(entry);
+    if (call === null) return [];
+    const [config] = call.arguments;
+    const columns = memberColumns(optionOf(config, "columns"));
+    const foreign = memberColumns(optionOf(config, "foreignColumns"));
+    const [column] = columns ?? [];
+    const [foreignColumn] = foreign ?? [];
+    if (column === undefined || foreignColumn === undefined) return [];
+    if (columns?.length !== foreign?.length) return [];
+    const target = foreignColumn.table === own ? tableName : foreignColumn.table;
+    const toFields = (columns ?? []).map((c) => c.column);
     return [
       {
         fromModel: target,
         toModel: tableName,
-        fromField: foreignColumn,
-        toField: column,
-        isRequired: required.get(`${tableName}.${column}`) ?? false,
+        fromField: foreignColumn.column,
+        toField: column.column,
+        fromFields: (foreign ?? []).map((c) => c.column),
+        toFields,
+        isRequired: toFields.every((field) => required.get(`${tableName}.${field}`) ?? false),
         enforced: true,
       },
     ];
@@ -232,7 +278,12 @@ function requiredColumns(program: Program, text: string) {
         const fieldName = identifierKey(prop);
         return fieldName === null
           ? []
-          : [[`${varName}.${fieldName}`, isFieldRequired(textOf(text, prop.value))] as const];
+          : [
+              [
+                `${varName}.${fieldName}`,
+                isFieldRequired(columnText(prop.value, program, text)),
+              ] as const,
+            ];
       });
     }),
   );
@@ -245,7 +296,7 @@ function keyedColumns(program: Program, text: string) {
     tableCalls(program, text).map(({ varName, args }) => {
       const single = columnProperties(args[1], program).flatMap((prop) => {
         const fieldName = identifierKey(prop);
-        const initText = textOf(text, prop.value);
+        const initText = columnText(prop.value, program, text);
         return fieldName !== null && /\.(primaryKey|unique)\(/u.test(initText) ? [[fieldName]] : [];
       });
       const constraints = constraintEntries(args[2]).flatMap((entry) => {
@@ -437,6 +488,8 @@ function extractRelationsFromDefinitions(
         toModel: c.table,
         fromField: p.column,
         toField: c.column,
+        fromFields: [p.column],
+        toFields: [c.column],
         isRequired: mustExist || (required.get(`${c.table}.${c.column}`) ?? true),
         enforced: false,
       },
@@ -514,12 +567,26 @@ export function tableCalls(program: Program, text: string) {
     if (varName === null) return [];
 
     const init = declarator.init ? fallbackValue(declarator.init) : null;
-    if (!isCall(init)) return [];
-    const builder = resolveBuilder(textOf(text, init.callee).replaceAll(/\s+/gu, ""), aliases);
-    if (!isTableBuilder(builder)) return [];
+    const call = isCall(init) ? tableCall(init, text, aliases) : null;
+    if (call === null) return [];
 
-    return [{ varName, callee: init.callee, builder, args: init.arguments, start, end }];
+    return [{ varName, callee: call.callee, builder: call.builder, args: call.args, start, end }];
   });
+}
+
+// The table builder call in a declaration's value, under any method chained on the table it
+// returns: `pgTable("user", {...})` in `pgTable("user", {...}).enableRLS()`.
+function tableCall(
+  init: CallExpression,
+  text: string,
+  aliases: ReadonlyMap<string, string>,
+): { callee: CallExpression["callee"]; builder: string; args: CallExpression["arguments"] } | null {
+  const builder = resolveBuilder(textOf(text, init.callee).replaceAll(/\s+/gu, ""), aliases);
+  if (isTableBuilder(builder)) return { callee: init.callee, builder, args: init.arguments };
+  const { callee } = init;
+  return callee.type === "MemberExpression" && isCall(callee.object)
+    ? tableCall(callee.object, text, aliases)
+    : null;
 }
 
 /** Each table of the schema with its columns: their types, keys and descriptions. */
@@ -531,7 +598,7 @@ export function parseTableInfo(code: readonly string[]) {
     if (!isObject(args[1]) && !isArrow(args[1]) && args[1]?.type !== "Identifier") return [];
 
     const fields = columnProperties(args[1], program)
-      .map((prop) => extractFieldInfo(prop, source))
+      .map((prop) => extractFieldInfo(prop, source, program))
       .filter((f): f is NonNullable<typeof f> => f !== null);
 
     return [{ name: varName, description: descriptionBefore(source, start), fields }];
@@ -552,12 +619,12 @@ export function extractRelationsFromSchema(code: readonly string[]) {
 
     // Second argument: the columns, spreads of helper objects included
     const fieldRelations = columnProperties(args[1], program)
-      .map((prop) => extractRelationFromField(prop, varName, text))
+      .map((prop) => extractRelationFromField(prop, varName, text, program))
       .filter((r): r is NonNullable<typeof r> => r !== null);
 
     // Third argument: constraints (foreignKey, indexes, etc.)
     const fkRelations = constraintArg
-      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, text, required)
+      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, required)
       : [];
 
     return [...fieldRelations, ...fkRelations];
@@ -572,16 +639,22 @@ export function extractRelationsFromSchema(code: readonly string[]) {
   const seen = new Set<string>();
   return allRelations
     .filter((r) => {
-      const key = `${r.fromModel}.${r.fromField}->${r.toModel}.${r.toField}`;
+      const key = `${r.fromModel}.${r.fromFields.join(",")}->${r.toModel}.${r.toFields.join(",")}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .map((r) => ({
+    .map(({ fromFields, toFields, ...r }) => ({
       ...r,
+      // Every column of a composite key; a key of one column has them as its fields already.
+      ...(toFields.length > 1 ? { fromFields, toFields } : {}),
       // A child column that is a key of its own (`.primaryKey()`, `.unique()`, a one-column
-      // `unique()` constraint) holds at most one row per parent: a one-to-one.
-      isUnique: (keys.get(r.toModel) ?? []).some((k) => k.length === 1 && k[0] === r.toField),
+      // `unique()` constraint) holds at most one row per parent: a one-to-one. So do the
+      // columns of a composite key that are, together, a key of their table.
+      isUnique: (keys.get(r.toModel) ?? []).some((k) => {
+        const key = new Set(k);
+        return key.size === toFields.length && toFields.every((f) => key.has(f));
+      }),
     }));
 }
 
