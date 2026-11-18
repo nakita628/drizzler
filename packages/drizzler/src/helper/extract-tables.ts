@@ -15,6 +15,7 @@ import {
   callsIn,
   fallbackValue,
   declaratorName,
+  helperCall,
   topLevelDeclarations,
   isArrow,
   isCall,
@@ -178,16 +179,40 @@ function extractRelationFromField(
 
 /**
  * The entries of a table's third argument: `(t) => [index(...)]` or the older
- * `(t) => ({ name: index(...) })`.
+ * `(t) => ({ name: index(...) })`. An array a top-level function returns,
+ * `(t) => genericIndexes(t, "books_genre")`, is read with its parameters bound to the call's
+ * arguments, and so is one spread into the array.
  */
-export function constraintEntries(arg: CallExpression["arguments"][number] | undefined) {
+export function constraintEntries(
+  arg: CallExpression["arguments"][number] | undefined,
+  program?: Program,
+) {
   if (!isArrow(arg)) return [];
   const body = arg.body.type === "BlockStatement" ? null : unwrapParens(arg.body);
-  if (body?.type === "ArrayExpression") {
-    return body.elements.filter((e): e is Expression => e !== null && e.type !== "SpreadElement");
-  }
+  const listed = body === null ? null : arrayEntries(body, program);
+  if (listed !== null) return listed;
   const obj = arrowObject(arg);
   return obj ? obj.properties.filter(isPropertyAssignment).map((p) => p.value) : [];
+}
+
+// The elements of an array of constraints, or of the array a helper call returns. Null for
+// anything else.
+function arrayEntries(
+  node: Expression,
+  program: Program | undefined,
+  depth = 0,
+): Expression[] | null {
+  const expr = unwrapParens(node);
+  if (expr.type === "ArrayExpression") {
+    return expr.elements.flatMap((e) => {
+      if (e === null) return [];
+      if (e.type !== "SpreadElement") return [e];
+      return arrayEntries(e.argument, program, depth + 1) ?? [];
+    });
+  }
+  if (!isCall(expr) || program === undefined || depth > 8) return null;
+  const helper = helperCall(expr, program);
+  return helper === null ? null : arrayEntries(helper.returned, program, depth + 1);
 }
 
 // The name of an arrow function's first parameter: `table` in `(table) => ...`.
@@ -218,12 +243,21 @@ function memberColumns(node: Node | undefined) {
   return pairs.every((p) => p !== null) ? pairs.filter((p) => p !== null) : null;
 }
 
-// The `foreignKey({ ... })` call at the root of a constraint, under its `.onDelete()` and the like.
+// The `foreignKey({ ... })` call at the root of a constraint, under its `.onDelete()` and the like;
+// `d.foreignKey({ ... })` of a namespace import too.
 function foreignKeyCall(entry: Expression): CallExpression | null {
   const expr = unwrapParens(entry);
   if (!isCall(expr)) return null;
   const { callee } = expr;
   if (callee.type === "Identifier") return callee.name === "foreignKey" ? expr : null;
+  if (
+    callee.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.object.type === "Identifier" &&
+    callee.property.type === "Identifier"
+  ) {
+    return callee.property.name === "foreignKey" ? expr : null;
+  }
   return callee.type === "MemberExpression" && isCall(callee.object)
     ? foreignKeyCall(callee.object)
     : null;
@@ -235,11 +269,12 @@ function extractRelationsFromForeignKeyConstraints(
   tableName: string,
   constraintArg: CallExpression["arguments"][number],
   required: ReadonlyMap<string, boolean>,
+  program: Program,
 ) {
   // The callback's own parameter (`(table) => ...`) stands for the table being declared, so a
   // `foreignColumns: [table.id]` is a key to the table itself.
   const own = isArrow(constraintArg) ? arrowParameter(constraintArg) : null;
-  return constraintEntries(constraintArg).flatMap((entry) => {
+  return constraintEntries(constraintArg, program).flatMap((entry) => {
     const call = foreignKeyCall(entry);
     if (call === null) return [];
     const [config] = call.arguments;
@@ -301,7 +336,7 @@ function keyedColumns(program: Program, text: string) {
         const initText = columnText(prop.value, program, text);
         return fieldName !== null && /\.(primaryKey|unique)\(/u.test(initText) ? [[fieldName]] : [];
       });
-      const constraints = constraintEntries(args[2]).flatMap((entry) => {
+      const constraints = constraintEntries(args[2], program).flatMap((entry) => {
         // String literals (an index name) are left out, so only `t.col` reads as a column.
         const entryText = textOf(text, entry).replaceAll(/(['"`])(?:(?!\1).)*\1/gu, "");
         if (!/^\s*(primaryKey|unique|uniqueIndex)\s*\(/u.test(entryText)) return [];
@@ -515,6 +550,81 @@ function extractRelationsFromDefinitions(
   );
 }
 
+// The relation kind each name an arrow's `({ one, many })` parameter binds stands for, and the
+// name of a plain parameter (`(r) => ({ user: r.one(...) })`).
+function relationHelpers(arrow: ArrowFunctionExpression) {
+  const [param] = arrow.params;
+  if (param?.type === "Identifier") return { object: param.name, names: new Map<string, string>() };
+  if (param?.type !== "ObjectPattern") return { object: null, names: new Map<string, string>() };
+  return {
+    object: null,
+    names: new Map(
+      param.properties.flatMap((p) =>
+        p.type === "Property" &&
+        !p.computed &&
+        p.key.type === "Identifier" &&
+        p.value.type === "Identifier"
+          ? [[p.value.name, p.key.name] as const]
+          : [],
+      ),
+    ),
+  };
+}
+
+// Which helper a relation calls: `one` for `one(users, ...)` or `r.one(users, ...)`.
+function relationKind(
+  callee: CallExpression["callee"],
+  helpers: ReturnType<typeof relationHelpers>,
+) {
+  if (callee.type === "Identifier") return helpers.names.get(callee.name);
+  if (callee.type !== "MemberExpression" || callee.computed) return undefined;
+  const ownObject = callee.object.type === "Identifier" && callee.object.name === helpers.object;
+  return ownObject && callee.property.type === "Identifier" ? callee.property.name : undefined;
+}
+
+// Pattern: relations(sessions, ({ one }) => ({ user: one(users, { fields: [sessions.userId],
+// references: [users.id] }) })), the relational API before `defineRelations`. As with
+// `defineRelations`, a relation found here is not a database constraint (`enforced: false`). A
+// `many` names no columns; the `one` on the other table does.
+function extractV1Relations(program: Program, required: ReadonlyMap<string, boolean>) {
+  return topLevelDeclarations(program).flatMap(({ declarator }) => {
+    const init = declarator.init;
+    if (!isCall(init) || init.callee.type !== "Identifier" || init.callee.name !== "relations") {
+      return [];
+    }
+    const [, define] = init.arguments;
+    const body = isArrow(define) ? arrowObject(define) : null;
+    if (!isArrow(define) || body === null) return [];
+    const helpers = relationHelpers(define);
+    return body.properties.filter(isPropertyAssignment).flatMap((prop) => {
+      const call = unwrapParens(prop.value);
+      if (!isCall(call)) return [];
+      if (relationKind(call.callee, helpers) !== "one") return [];
+      const config = call.arguments[1];
+      const fields = memberColumns(optionOf(config, "fields"));
+      const references = memberColumns(optionOf(config, "references"));
+      const [child] = fields ?? [];
+      const [parent] = references ?? [];
+      if (child === undefined || parent === undefined || fields?.length !== references?.length) {
+        return [];
+      }
+      const toFields = (fields ?? []).map((c) => c.column);
+      return [
+        {
+          fromModel: parent.table,
+          toModel: child.table,
+          fromField: parent.column,
+          toField: child.column,
+          fromFields: (references ?? []).map((c) => c.column),
+          toFields,
+          isRequired: toFields.every((f) => required.get(`${child.table}.${f}`) ?? false),
+          enforced: false,
+        },
+      ];
+    });
+  });
+}
+
 /**
  * Whether a callee builds a table: `pgTable`, `sqliteTable`, `mysqlTable`, ..., `pgTable.withRLS`,
  * and the `.table` of a casing or a schema (`snakeCase.table`, `camelCase.table`,
@@ -609,7 +719,7 @@ export function parseTableInfo(code: readonly string[]) {
 
 /**
  * Sources scanned: .references() calls, foreignKey() constraints, defineRelations() and
- * defineRelationsPart() exports. A pair found more than once keeps its first entry, so a foreign
+ * defineRelationsPart() exports, and the older relations() exports. A pair found more than once keeps its first entry, so a foreign
  * key wins over a relation only `defineRelations` declares.
  */
 export function extractRelationsFromSchema(code: readonly string[]) {
@@ -626,7 +736,7 @@ export function extractRelationsFromSchema(code: readonly string[]) {
 
     // Third argument: constraints (foreignKey, indexes, etc.)
     const fkRelations = constraintArg
-      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, required)
+      ? extractRelationsFromForeignKeyConstraints(varName, constraintArg, required, program)
       : [];
 
     return [...fieldRelations, ...fkRelations];
@@ -636,6 +746,7 @@ export function extractRelationsFromSchema(code: readonly string[]) {
   const allRelations = [
     ...tableRelations,
     ...extractRelationsFromDefinitions(program, text, tableRelations, required, keys),
+    ...extractV1Relations(program, required),
   ];
 
   const seen = new Set<string>();

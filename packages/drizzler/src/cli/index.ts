@@ -2,7 +2,12 @@ import { Config, Console, Effect, Option } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/cli";
 import { version } from "../../package.json" with { type: "json" };
 import { drizzlerDbml, drizzlerDocs, drizzlerER, drizzlerMermaidER } from "../core/index.js";
-import { collectSchemaFiles, drizzleConfigSchema, readSchemaSources } from "../schema/sources.js";
+import {
+  collectSchemaFiles,
+  drizzleConfigFile,
+  drizzleConfigSchema,
+  readSchemaSources,
+} from "../schema/sources.js";
 import { DEFAULT_PORT } from "../studio/server/constants/index.js";
 import type { OutputKind } from "./output.js";
 import { generatedLine, planGenerate, studioFailure } from "./output.js";
@@ -45,6 +50,11 @@ function readSchema(inputs: readonly string[], cwd: string) {
     const files = yield* collectSchemaFiles(inputs, cwd);
     return { files, code: yield* readSchemaSources(files) };
   }).pipe(Effect.mapError((error) => userError(`Failed to read input: ${error.message}`)));
+}
+
+// The drizzle config in `cwd`, named in the error when it has no schema.
+function drizzleConfigFileIn(cwd: string) {
+  return Effect.sync(() => drizzleConfigFile(cwd));
 }
 
 /** The inputs given, else the `schema` of drizzle.config.ts in `cwd`; empty when neither is. */
@@ -90,8 +100,9 @@ function generate(args: GenerateArgs) {
   return Effect.gen(function* () {
     const cwd = process.cwd();
     const inputs = yield* schemaInputs(args.input, cwd);
-    // Without a schema there is nothing to do: the usage is the answer.
-    const plan = planGenerate(inputs, Option.getOrNull(args.output));
+    // Given nothing, the usage is the answer; asked for an output without a schema, an error.
+    const config = args.input.length > 0 ? null : yield* drizzleConfigFileIn(cwd);
+    const plan = planGenerate(inputs, Option.getOrNull(args.output), config);
     if (plan.action === "help") {
       return yield* new CliError.ShowHelp({ commandPath: [COMMAND_NAME], errors: [] });
     }

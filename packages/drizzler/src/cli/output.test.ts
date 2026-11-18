@@ -55,7 +55,7 @@ describe("studioFailure", () => {
 
 describe("planGenerate", () => {
   it("shows the usage without a schema, and says what is wrong with the output", () => {
-    expect(planGenerate([], "out.dbml")).toStrictEqual({ action: "help" });
+    expect(planGenerate([], null)).toStrictEqual({ action: "help" });
     expect(planGenerate(["db/schema.ts"], null)).toStrictEqual({
       action: "error",
       message: "Missing -o flag. Usage: drizzler <input...> -o <output>",
@@ -63,6 +63,19 @@ describe("planGenerate", () => {
     expect(planGenerate(["db/schema.ts"], "out.txt")).toStrictEqual({
       action: "error",
       message: unsupportedOutputMessage("out.txt"),
+    });
+  });
+
+  it("fails with the reason when an output is asked for without a schema (#56)", () => {
+    expect(planGenerate([], "docs/schema.dbml", "/app/drizzle.config.ts")).toStrictEqual({
+      action: "error",
+      message:
+        "No schema to read: drizzle.config.ts has no `schema`. Pass the schema files, e.g. `drizzler src/schema.ts -o docs/schema.dbml`",
+    });
+    expect(planGenerate([], "docs/schema.dbml")).toStrictEqual({
+      action: "error",
+      message:
+        "No schema to read: no schema was given and there is no drizzle.config.ts here. Pass the schema files, e.g. `drizzler src/schema.ts -o docs/schema.dbml`",
     });
   });
 

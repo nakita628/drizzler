@@ -18,6 +18,8 @@ function keyName(key: Node, computed: boolean) {
     : null;
 }
 
+// An object whose keys are all known; a value the reader cannot work out is kept as UNKNOWN, so
+// `siteConfig.name` is read though `siteConfig.url` comes from the environment.
 function evaluateObject(node: Node & { type: "ObjectExpression" }, scope: Scope): Value {
   const entries = node.properties.map((prop) => {
     if (prop.type !== "Property" || prop.kind !== "init" || prop.method) return null;
@@ -25,6 +27,49 @@ function evaluateObject(node: Node & { type: "ObjectExpression" }, scope: Scope)
     return key === null ? null : ([key, evaluate(prop.value, scope)] as const);
   });
   return entries.every((e) => e !== null) ? Object.fromEntries(entries) : UNKNOWN;
+}
+
+// The string methods the reader follows, on a string it knows: what a table creator's callback
+// does to a configured name (`siteConfig.name.toLowerCase().replace(/\s/g, "_")`).
+const STRING_METHODS = new Map<string, (text: string, args: readonly Value[]) => Value>([
+  ["toLowerCase", (text) => text.toLowerCase()],
+  ["toUpperCase", (text) => text.toUpperCase()],
+  ["trim", (text) => text.trim()],
+  ["replace", (text, [pattern, by]) => replaced(text, pattern, by, false)],
+  ["replaceAll", (text, [pattern, by]) => replaced(text, pattern, by, true)],
+]);
+
+function replaced(text: string, pattern: Value, by: Value, all: boolean): Value {
+  if (typeof by !== "string") return UNKNOWN;
+  if (typeof pattern === "string") {
+    return all ? text.replaceAll(pattern, by) : text.replace(pattern, by);
+  }
+  if (!(pattern instanceof RegExp)) return UNKNOWN;
+  // `replaceAll` with a regular expression that is not global throws.
+  if (all && !pattern.global) return UNKNOWN;
+  return text.replace(pattern, by);
+}
+
+function evaluateCall(node: Node & { type: "CallExpression" }, scope: Scope): Value {
+  const { callee } = node;
+  if (callee.type !== "MemberExpression" || callee.computed) return UNKNOWN;
+  if (callee.property.type !== "Identifier") return UNKNOWN;
+  const method = STRING_METHODS.get(callee.property.name);
+  const text = evaluate(callee.object, scope);
+  if (method === undefined || typeof text !== "string") return UNKNOWN;
+  const args = node.arguments.map((arg) => evaluate(arg, scope));
+  return args.includes(UNKNOWN) ? UNKNOWN : method(text, args);
+}
+
+// A literal's value: a regular expression as a RegExp, for `replace` to take.
+function literalValue(node: Node & { type: "Literal" }): Value {
+  if ("regex" in node && isRecord(node.regex)) {
+    const { pattern, flags } = node.regex;
+    return typeof pattern === "string" && typeof flags === "string"
+      ? new RegExp(pattern, flags)
+      : UNKNOWN;
+  }
+  return node.value instanceof RegExp || typeof node.value === "bigint" ? UNKNOWN : node.value;
 }
 
 function evaluateMember(node: Node & { type: "MemberExpression" }, scope: Scope): Value {
@@ -82,7 +127,9 @@ function evaluate(node: Node | null | undefined, scope: Scope): Value {
   if (node === null || node === undefined) return UNKNOWN;
   switch (node.type) {
     case "Literal":
-      return node.value instanceof RegExp || typeof node.value === "bigint" ? UNKNOWN : node.value;
+      return literalValue(node);
+    case "CallExpression":
+      return evaluateCall(node, scope);
     case "Identifier":
       if (scope.has(node.name)) return scope.get(node.name);
       return node.name === "undefined" ? undefined : UNKNOWN;
@@ -212,6 +259,62 @@ export function customTypeName(
 ): string | null {
   const value = topLevelValue(builder, program);
   return isCustomType(value) ? customTypeCallName(value, args) : null;
+}
+
+// The names a subtree reads, outside the keys it names (`x.key`, `{ key: ... }`).
+function namesIn(node: unknown): readonly string[] {
+  if (Array.isArray(node)) return node.flatMap(namesIn);
+  if (!isRecord(node) || !("type" in node)) return [];
+  if (node.type === "Identifier" && typeof node.name === "string") return [node.name];
+  return Object.entries(node).flatMap(([key, child]) => {
+    if (key === "parent") return [];
+    const naming =
+      node.computed !== true &&
+      ((node.type === "MemberExpression" && key === "property") ||
+        (node.type === "Property" && key === "key"));
+    return naming ? [] : namesIn(child);
+  });
+}
+
+// The values of the top-level constants a subtree reads, so far as the reader can work them out.
+function constantsScope(node: Node, program: Program, bound: Scope, depth: number): Scope {
+  const names = [...new Set(namesIn(node))].filter((name) => !bound.has(name));
+  return new Map([
+    ...bound,
+    ...names.flatMap((name): (readonly [string, Value])[] => {
+      const value = depth > 8 ? undefined : topLevelValue(name, program, node.start);
+      if (value === undefined) return [];
+      return [[name, evaluate(value, constantsScope(value, program, new Map(), depth + 1))]];
+    }),
+  ]);
+}
+
+/**
+ * The string an expression makes, reading the schema's top-level constants and the names
+ * `bound` gives: `` `${projectName}_${name}` `` with `const projectName = "app"` and `name` bound
+ * to `"playlist"` is `app_playlist`. Null when the reader cannot work it out.
+ *
+ * @param node - the expression
+ * @param program - the schema, whose top-level constants the expression may read
+ * @param bound - the names the expression is given, such as a callback's parameter
+ */
+export function evaluateString(
+  node: Node,
+  program: Program,
+  bound: ReadonlyMap<string, string> = new Map(),
+): string | null {
+  const value = evaluate(node, constantsScope(node, program, bound, 0));
+  return typeof value === "string" ? value : null;
+}
+
+/**
+ * The string a node is when the reader can work it out without running the schema: a literal, or
+ * a template of ones (`` `ux_${"books_genre"}_name` ``, as a helper's parameter bound to its
+ * argument writes it). Null otherwise.
+ */
+export function staticString(node: Node | null | undefined): string | null {
+  const value = evaluate(node, new Map());
+  return typeof value === "string" ? value : null;
 }
 
 /** Whether a node is a `customType({ ... })` call: the builder a custom column is made with. */

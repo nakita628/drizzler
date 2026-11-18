@@ -298,3 +298,18 @@ describe("docsMarkdown of tables and enums the builders alone do not name", () =
     expect(markdown).toContain("[`projectRole`](#enum-projectRole)");
   });
 });
+
+describe("docsMarkdown of a table a creator names from a constant (#52)", () => {
+  it("lists the table by the prefixed name, and finds its definition by it", () => {
+    const markdown = docsMarkdown(
+      [
+        'const projectName = "app";',
+        "const createTable = pgTableCreator((name) => `${projectName}_${name}`);",
+        'export const playlists = createTable("playlist", { id: text("id").primaryKey() });',
+      ],
+      { queries: null, ddl: ['CREATE TABLE "app_playlist" (\n\t"id" text PRIMARY KEY\n);'] },
+    );
+    expect(markdown).toContain("| [playlists](#table-playlists) | `app_playlist` |");
+    expect(markdown).toContain('#### Definition\n\n```sql\nCREATE TABLE "app_playlist" (');
+  });
+});

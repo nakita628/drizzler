@@ -196,35 +196,124 @@ function unwrapTypes(node: Expression): Expression {
   return unwrapParens(node) === node ? node : unwrapTypes(unwrapParens(node));
 }
 
-const valuesOf = new WeakMap<Program, ReadonlyMap<string, Expression>>();
+type Declared<T> = { readonly start: number; readonly node: T };
 
-// The value every top-level `const name = value` is given, by name.
+/**
+ * The declaration of `name` a use at `at` reaches, of the ones the schema's files make: the last
+ * one before it, else the first. The files are read as one source, so two of them may each keep a
+ * module-local helper of the same name; a helper is declared above where its own file uses it
+ * (a `const` must be, to run), which tells the two apart.
+ */
+function nearest<T>(declared: readonly Declared<T>[] | undefined, at: number | undefined) {
+  if (declared === undefined) return undefined;
+  const before = at === undefined ? [] : declared.filter((d) => d.start <= at);
+  return (before.at(-1) ?? declared[0])?.node;
+}
+
+const valuesOf = new WeakMap<Program, ReadonlyMap<string, readonly Declared<Expression>[]>>();
+
+// Every value a top-level `const name = value` is given, by name, in the order written.
 function topLevelValues(program: Program) {
   const known = valuesOf.get(program);
   if (known) return known;
-  const values = new Map<string, Expression>();
-  for (const { declarator } of topLevelDeclarations(program)) {
+  const declared = topLevelDeclarations(program).flatMap(({ declarator, start }) => {
     const name = declaratorName(declarator);
-    // The first declaration wins: two files may each keep a helper of the same name.
-    if (name !== null && declarator.init && !values.has(name)) {
-      values.set(name, unwrapTypes(declarator.init));
-    }
-  }
+    return name !== null && declarator.init
+      ? [{ name, start, node: unwrapTypes(declarator.init) }]
+      : [];
+  });
+  const values = new Map(
+    [...Map.groupBy(declared, (d) => d.name)].map(([name, list]) => [
+      name,
+      list.toSorted((x, y) => x.start - y.start),
+    ]),
+  );
   valuesOf.set(program, values);
   return values;
 }
 
-/** The value a top-level `const name = value` is given, `as` and `satisfies` aside. */
-export function topLevelValue(name: string, program: Program) {
-  return topLevelValues(program).get(name);
+/**
+ * The value a top-level `const name = value` is given, `as` and `satisfies` aside: the one a use
+ * at `at` reaches when two files declare the name, else the first.
+ */
+export function topLevelValue(name: string, program: Program, at?: number) {
+  return nearest(topLevelValues(program).get(name), at);
+}
+
+type Bindings = ReadonlyMap<string, Expression>;
+
+// The keys of a node that name something rather than read it: `x.key`, `{ key: ... }`.
+function namingKey(node: Node, key: string) {
+  if (node.type === "MemberExpression") return key === "property" && !node.computed;
+  return node.type === "Property" && key === "key" && !node.computed;
+}
+
+function substituted(node: unknown, bindings: Bindings): unknown {
+  if (Array.isArray(node)) return node.map((item) => substituted(item, bindings));
+  if (!isNode(node)) return node;
+  if (node.type === "Identifier" && bindings.has(node.name)) return bindings.get(node.name);
+  return Object.fromEntries(
+    Object.entries(node).map(([key, value]) =>
+      key === "parent" || namingKey(node, key) ? [key, value] : [key, substituted(value, bindings)],
+    ),
+  );
+}
+
+function isExpression(value: unknown): value is Expression {
+  return isNode(value);
+}
+
+/**
+ * An expression with each parameter it reads replaced by what the call gives it: in a helper
+ * `(modelMediaId) => ({ mediaId: integer().references(() => modelMediaId) })` called as
+ * `helper(books.id)`, the key points at `books.id`. The nodes keep their offsets, so the text of
+ * the expression is still the helper's.
+ */
+function substitute(node: Expression, bindings: Bindings): Expression {
+  if (bindings.size === 0) return node;
+  const result = substituted(node, bindings);
+  return isExpression(result) ? result : node;
+}
+
+/**
+ * What each parameter of a function stands for in a call of it: the argument given, or the
+ * parameter's default when the call leaves it out. A destructured parameter is left out.
+ */
+function parameterBindings(fn: Node, args: CallExpression["arguments"]): Bindings {
+  const params: readonly Node[] = "params" in fn ? fn.params : [];
+  return new Map(
+    params.flatMap((param, index): (readonly [string, Expression])[] => {
+      const arg = args[index];
+      const given = arg !== undefined && arg.type !== "SpreadElement" ? arg : undefined;
+      if (param.type === "Identifier") return given === undefined ? [] : [[param.name, given]];
+      return param.type === "AssignmentPattern" && param.left.type === "Identifier"
+        ? [[param.left.name, given ?? param.right]]
+        : [];
+    }),
+  );
+}
+
+/**
+ * The function a call of a top-level helper runs and what it returns, its parameters bound to
+ * the call's arguments. Null when the callee is not a top-level function with one `return`.
+ */
+export function helperCall(call: CallExpression, program: Program) {
+  if (call.callee.type !== "Identifier") return null;
+  const fn = nearest(topLevelFunctions(program).get(call.callee.name), call.start);
+  const returned = fn === undefined ? null : returnedValue(fn);
+  if (fn === undefined || returned === null) return null;
+  const bindings = parameterBindings(fn, call.arguments);
+  return { name: call.callee.name, returned: substitute(returned, bindings), bindings };
 }
 
 /**
  * The `key: value` columns of a table's second argument, in the order they are written: an
  * object literal, or the `(t) => ({ ... })` form, with each spread of a top-level object
  * (`...timestamps`, kept in a helper module) or of what a top-level function returns
- * (`...createTimestampColumns()`, which may spread other helpers in turn) read in place. A
- * spread of something else, and a column that is not a `key: value`, is left out.
+ * (`...createTimestampColumns()`, which may spread other helpers in turn, its parameters bound
+ * to the call's arguments) read in place. A column held in a top-level constant
+ * (`id: idUuid`, or the shorthand `createdAt`) is the builder the constant holds. A spread of
+ * something else, and a column that is not a `key: value`, is left out.
  */
 export function columnProperties(
   node: Node | null | undefined,
@@ -241,37 +330,53 @@ export function columnProperties(
       if (arg.type !== "Identifier" || seen.has(arg.name)) return [];
       return columnProperties(arg, program, new Set([...seen, arg.name]));
     }
-    return isPropertyAssignment(prop) ? [prop] : [];
+    if (prop.type !== "Property" || prop.kind !== "init" || prop.method) return [];
+    const value = heldColumn(prop.value, program);
+    if (value === prop.value) return prop.shorthand ? [] : [prop];
+    return [{ ...prop, shorthand: false, value }];
   });
 }
 
+// The builder a column held in a top-level constant is: `uuid("id").primaryKey()` for `idUuid`
+// with `const idUuid = uuid("id").primaryKey()`, through aliases. The value itself otherwise.
+function heldColumn(value: Expression, program: Program, depth = 0): Expression {
+  const expr = unwrapTypes(value);
+  if (expr.type !== "Identifier" || depth > 8) return value;
+  const bound = topLevelValue(expr.name, program, expr.start);
+  if (bound?.type === "Identifier") {
+    const held = heldColumn(bound, program, depth + 1);
+    return held === bound ? value : held;
+  }
+  return isCall(bound) ? bound : value;
+}
+
 // The columns of `...createTimestampColumns()`: those of the object the top-level function
-// returns. Its parameters are not bound to the call's arguments, so a column's name or type must
-// not come from them.
+// returns, its parameters bound to the call's arguments.
 function spreadCallColumns(call: CallExpression, program: Program, seen: ReadonlySet<string>) {
   if (call.callee.type !== "Identifier") return [];
   const key = `${call.callee.name}()`;
   if (seen.has(key)) return [];
-  const fn = topLevelFunctions(program).get(call.callee.name);
-  const returned = fn === undefined ? null : returnedValue(fn);
-  return isObject(returned) ? columnProperties(returned, program, new Set([...seen, key])) : [];
+  const helper = helperCall(call, program);
+  return isObject(helper?.returned)
+    ? columnProperties(helper.returned, program, new Set([...seen, key]))
+    : [];
 }
 
 // The object literal a table's columns are written in: itself, the one `(t) => ({ ... })` returns,
 // or the top-level object an identifier names.
 function columnsObject(node: Node, program: Program, seen: ReadonlySet<string>) {
   if (isArrow(node)) return arrowObject(node);
-  if (node.type === "Identifier") return resolveObject(node.name, program, seen);
+  if (node.type === "Identifier") return resolveObject(node.name, program, seen, node.start);
   return isObject(node) ? node : null;
 }
 
-function resolveObject(name: string, program: Program, seen: ReadonlySet<string>) {
-  const value = topLevelValues(program).get(name);
+function resolveObject(name: string, program: Program, seen: ReadonlySet<string>, at: number) {
+  const value = topLevelValue(name, program, at);
   if (value === undefined) return null;
   if (isObject(value)) return value;
   // `const columns = { ...a, ...b }` is an object too; an alias (`const t = timestamps`) follows.
   if (value.type === "Identifier" && !seen.has(value.name)) {
-    return resolveObject(value.name, program, new Set([...seen, value.name]));
+    return resolveObject(value.name, program, new Set([...seen, value.name]), value.start);
   }
   return null;
 }
@@ -374,25 +479,32 @@ function returnedValue(fn: Node): Expression | null {
   return returns.length === 1 && only?.argument ? unwrapTypes(only.argument) : null;
 }
 
-const functionsOf = new WeakMap<Program, ReadonlyMap<string, Node>>();
+const functionsOf = new WeakMap<Program, ReadonlyMap<string, readonly Declared<Node>[]>>();
 
-// Every function the schema declares at the top level, by name: `function f() {}`, exported or
-// not, and `const f = () => ...` or `const f = function () {}`.
+// Every function the schema declares at the top level, by name, in the order written:
+// `function f() {}`, exported or not, and `const f = () => ...` or `const f = function () {}`.
 function topLevelFunctions(program: Program) {
   const known = functionsOf.get(program);
   if (known) return known;
-  const functions = new Map<string, Node>();
-  for (const stmt of program.body) {
+  const declarations = program.body.flatMap((stmt) => {
     const decl = stmt.type === "ExportNamedDeclaration" ? stmt.declaration : stmt;
-    if (decl?.type === "FunctionDeclaration" && decl.id && !functions.has(decl.id.name)) {
-      functions.set(decl.id.name, decl);
-    }
-  }
-  for (const [name, value] of topLevelValues(program)) {
-    const isFunction =
-      value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression";
-    if (isFunction && !functions.has(name)) functions.set(name, value);
-  }
+    return decl?.type === "FunctionDeclaration" && decl.id
+      ? [{ name: decl.id.name, start: stmt.start, node: decl }]
+      : [];
+  });
+  const expressions = [...topLevelValues(program)].flatMap(([name, list]) =>
+    list.flatMap(({ start, node }) =>
+      node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression"
+        ? [{ name, start, node }]
+        : [],
+    ),
+  );
+  const functions = new Map(
+    [...Map.groupBy([...declarations, ...expressions], (d) => d.name)].map(([name, list]) => [
+      name,
+      list.toSorted((x, y) => x.start - y.start),
+    ]),
+  );
   functionsOf.set(program, functions);
   return functions;
 }
@@ -400,31 +512,18 @@ function topLevelFunctions(program: Program) {
 /**
  * A column a helper function of the schema builds: for `createdAt: createdAtField("at").unique()`
  * with `function createdAtField(name = "createdAt") { return integer(name).notNull(); }`, the
- * chain the helper returns (`integer(name).notNull()`), the call that runs it, and what each of
- * its parameters stands for there (`name` is `"at"`, or the default when the call leaves it out).
- * Null when the column is not a call of a top-level function that returns a call.
+ * chain the helper returns (`integer(name).notNull()`, each parameter it reads replaced by what
+ * the call gives it), the call that runs it, and what each of its parameters stands for there
+ * (`name` is `"at"`, or the default when the call leaves it out). Null when the column is not a
+ * call of a top-level function that returns a call.
  */
 export function helperColumn(expr: Expression, program: Program) {
   const value = unwrapTypes(expr);
   if (!isCall(value)) return null;
   const root = rootCall(value);
-  if (root.callee.type !== "Identifier") return null;
-  const fn = topLevelFunctions(program).get(root.callee.name);
-  if (fn === undefined) return null;
-  const returned = returnedValue(fn);
-  if (!isCall(returned)) return null;
-  const params: readonly Node[] = "params" in fn ? fn.params : [];
-  const bindings = new Map(
-    params.flatMap((param, index): (readonly [string, Expression])[] => {
-      const arg = root.arguments[index];
-      const given = arg !== undefined && arg.type !== "SpreadElement" ? arg : undefined;
-      if (param.type === "Identifier") return given === undefined ? [] : [[param.name, given]];
-      return param.type === "AssignmentPattern" && param.left.type === "Identifier"
-        ? [[param.left.name, given ?? param.right]]
-        : [];
-    }),
-  );
-  return { chain: returned, call: root, bindings, name: root.callee.name };
+  const helper = helperCall(root, program);
+  if (helper === null || !isCall(helper.returned)) return null;
+  return { chain: helper.returned, call: root, bindings: helper.bindings, name: helper.name };
 }
 
 /**

@@ -216,6 +216,38 @@ describe("the docs' SQL, as drizzle-orm builds it", () => {
     expect(readme).toContain("FOREIGN KEY (`parentId`) REFERENCES `lists`(`id`)");
   });
 
+  it("is the same on every run when a default draws from node:crypto (#48)", async () => {
+    const schema = [
+      'import { sqliteTable, text } from "drizzle-orm/sqlite-core";',
+      'import crypto, { randomUUID } from "node:crypto";',
+      'import { randomFillSync } from "node:crypto";',
+      "",
+      // As nanoid and uuid read it: the module's functions, and a named import.
+      'const nanoid = () => crypto.randomBytes(8).toString("hex");',
+      'const uuidV7 = () => randomFillSync(Buffer.alloc(8)).toString("hex");',
+      "",
+      'export const items = sqliteTable("items", {',
+      '  id: text("id").primaryKey().$defaultFn(() => nanoid()),',
+      '  traceId: text("trace_id").notNull().$defaultFn(() => uuidV7()),',
+      '  requestId: text("request_id").notNull().$defaultFn(() => randomUUID()),',
+      '  name: text("name").notNull(),',
+      "});",
+      "",
+    ].join("\n");
+    const project = makeProject({ "schema.ts": schema });
+    const first = await drizzler(["schema.ts", "-o", "docs"], project);
+    const readme = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    await drizzler(["schema.ts", "-o", "docs"], project);
+    const again = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    removeProject(project);
+    expect(first.code).toBe(0);
+    expect(first.output).not.toContain("without their SQL");
+    expect(readme).toContain(
+      '"0000000000000000","0000000000000000","00000000-0000-4000-8000-000000000000"',
+    );
+    expect(again).toBe(readme);
+  });
+
   it("is left out, with the reason, when the schema cannot be loaded", async () => {
     const project = makeProject({
       "schema.ts": `${SQLITE_SCHEMA}\nthrow new Error("the schema refuses to load");\n`,
@@ -254,11 +286,25 @@ describe("the docs' SQL, as drizzle-orm builds it", () => {
 });
 
 describe("a command line drizzler cannot run", () => {
+  it("exits with 1 when drizzle.config.ts has no schema to read (#56)", async () => {
+    const project = makeProject({
+      "drizzle.config.ts":
+        'import { defineConfig } from "drizzle-kit";\nexport default defineConfig({ dialect: "sqlite", out: "./src/generated" });\n',
+    });
+    const { code, output } = await drizzler(["-o", "docs/schema.dbml"], project);
+    const written = fs.existsSync(path.join(project, "docs/schema.dbml"));
+    removeProject(project);
+    expect(code).toBe(1);
+    expect(output).toContain("No schema to read: drizzle.config.ts has no `schema`");
+    expect(written).toBe(false);
+  });
+
   it.each([
     [["missing.ts", "-o", "out.dbml"], "missing.ts does not exist"],
     [["schema.ts", "-o", "out.txt"], "Unsupported output format: out.txt"],
     [["schema.ts"], "Missing -o flag"],
     [["src/*.ts", "-o", "out.dbml"], "matches no schema file"],
+    [["-o", "out.dbml"], "No schema to read: no schema was given"],
   ])("drizzler %s exits with 1 and says why", async (args, message) => {
     const project = makeProject({ "schema.ts": "export const x = 1;\n" });
     const { code, output } = await drizzler(args, project);

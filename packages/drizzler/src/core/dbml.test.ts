@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { dbml } from "../generator/index.js";
+import { joinSources } from "../schema/paths.js";
 import { stripImports } from "../schema/strip-imports.js";
 import { drizzlerDbml } from "./dbml.js";
 
@@ -783,6 +784,281 @@ export const userProjects = pgTable("user_projects", {
         "  id uuid [pk, not null]",
         "  role project_role [not null]",
         "  plan plan_type",
+        "}",
+      ].join("\n"),
+    );
+  });
+});
+
+describe("columns, keys and indexes written another way (#49 to #58)", () => {
+  it("reads a column held in a constant, by name or as a shorthand in a spread object (#49)", () => {
+    const code = stripImports(`import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+
+const idUuid = uuid("id").primaryKey().default(sql\`gen_random_uuid()\`);
+const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+
+const Audit = {
+  id: idUuid,
+  createdAt,
+};
+
+export const roles = pgTable("roles", {
+  id: idUuid,
+  name: text("name").notNull(),
+});
+
+export const users = pgTable("users", {
+  ...Audit,
+  name: text("name").notNull(),
+  roleId: uuid("role_id").references(() => roles.id),
+});`);
+    const out = dbml(code);
+    expect(out).toBe(
+      [
+        "Table roles {",
+        "  id uuid [pk, not null]",
+        "  name text [not null]",
+        "}",
+        "",
+        "Table users {",
+        "  id uuid [pk, not null]",
+        "  created_at timestamptz [not null]",
+        "  name text [not null]",
+        "  role_id uuid",
+        "}",
+        "",
+        "Ref users_role_id_roles_id_fk: users.role_id > roles.id",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("reads d.snakeCase.table names and d.foreignKey of a namespace import (#50)", () => {
+    const code = stripImports(`import * as d from "drizzle-orm/pg-core";
+
+export const employees = d.snakeCase.table(
+  "employees",
+  {
+    id: d.serial().primaryKey(),
+    lastName: d.varchar().notNull(),
+    recipientId: d.integer(),
+  },
+  (table) => [
+    d.foreignKey({
+      columns: [table.recipientId],
+      foreignColumns: [table.id],
+    }),
+  ],
+);`);
+    expect(dbml(code)).toBe(
+      [
+        "Table employees {",
+        "  id serial [pk, increment, not null]",
+        "  last_name varchar [not null]",
+        "  recipient_id integer",
+        "}",
+        "",
+        "Ref employees_recipient_id_employees_id_fk: employees.recipient_id > employees.id",
+      ].join("\n"),
+    );
+  });
+
+  it.each([
+    ['integer("id").primaryKey({ autoIncrement: true })', "sqliteTable"],
+    ['int("id").primaryKey().autoincrement()', "mysqlTable"],
+    ['integer("id").primaryKey().generatedByDefaultAsIdentity()', "pgTable"],
+    ['integer("id").primaryKey().generatedAlwaysAsIdentity()', "pgTable"],
+  ])("marks %s as increment (#51)", (column, builder) => {
+    const out = dbml([`export const users = ${builder}("users", {`, `  id: ${column},`, "});"]);
+    expect(out).toMatch(/^ {2}id \w+ \[pk, increment, not null\]$/mu);
+  });
+
+  it("names a table through a creator whose callback reads the schema's constants (#52)", () => {
+    const code = stripImports(`import { pgTableCreator, text } from "drizzle-orm/pg-core";
+
+const siteConfig = { name: "My Site", url: process.env.URL };
+const projectName = "app";
+const createTable = pgTableCreator((name) => \`\${projectName}_\${name}\`);
+const createSiteTable = pgTableCreator(
+  (name) => \`\${siteConfig.name.toLowerCase().replace(/\\s/g, "_")}_\${name}\`,
+);
+
+export const playlists = createTable("playlist", { id: text("id").primaryKey() });
+export const pages = createSiteTable("page", { id: text("id").primaryKey() });`);
+    expect(dbml(code)).toBe(
+      [
+        "Table app_playlist {",
+        "  id text [pk, not null]",
+        "}",
+        "",
+        "Table my_site_page {",
+        "  id text [pk, not null]",
+        "}",
+      ].join("\n"),
+    );
+  });
+
+  it("draws a relation declared only with the v1 relations() (#53)", () => {
+    const code = stripImports(`import { relations } from "drizzle-orm/_relations";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+});
+
+export const sessions = sqliteTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+});
+
+export const usersRelations = relations(users, ({ many }) => ({
+  sessions: many(sessions),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, { fields: [sessions.userId], references: [users.id] }),
+}));`);
+    const out = dbml(code);
+    expect(out).toContain("Ref sessions_user_id_users_id: sessions.user_id > users.id");
+    expect(out.match(/^Ref /gmu)).toHaveLength(1);
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("follows a key a spread helper builds from its parameter to the argument (#54)", () => {
+    const code =
+      stripImports(`import { integer, sqliteTable, text, type SQLiteColumn } from "drizzle-orm/sqlite-core";
+
+const commonGenericCols = (modelMediaId: SQLiteColumn) => ({
+  id: integer("id").primaryKey(),
+  mediaId: integer("media_id").notNull().references(() => modelMediaId, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+});
+
+export const books = sqliteTable("books", {
+  id: integer("id").primaryKey(),
+  title: text("title").notNull(),
+});
+
+export const booksGenre = sqliteTable("books_genre", {
+  ...commonGenericCols(books.id),
+});`);
+    const out = dbml(code);
+    expect(out).toContain(
+      "Ref books_genre_media_id_books_id_fk: books_genre.media_id > books.id [delete: cascade]",
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("reads the indexes a function returns to a table's third argument (#55)", () => {
+    const code =
+      stripImports(`import { index, integer, sqliteTable, text, uniqueIndex, type SQLiteColumn } from "drizzle-orm/sqlite-core";
+
+const genericIndexes = (table: { mediaId: SQLiteColumn; name: SQLiteColumn }, tableName: string) => [
+  uniqueIndex(\`ux_\${tableName}_media_name\`).on(table.mediaId, table.name),
+  index(\`ix_\${tableName}_name\`).on(table.name),
+];
+
+export const booksGenre = sqliteTable(
+  "books_genre",
+  {
+    id: integer("id").primaryKey(),
+    mediaId: integer("media_id").notNull(),
+    name: text("name").notNull(),
+  },
+  (table) => genericIndexes(table, "books_genre"),
+);`);
+    const out = dbml(code);
+    expect(out).toBe(
+      [
+        "Table books_genre {",
+        "  id integer [pk, not null]",
+        "  media_id integer [not null]",
+        "  name text [not null]",
+        "  indexes {",
+        "    (media_id, name) [unique, name: 'ux_books_genre_media_name']",
+        "    (name) [name: 'ix_books_genre_name']",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("keeps index columns with a sort order or operator class, and expression indexes (#57)", () => {
+    const code = stripImports(`import { sql } from "drizzle-orm";
+import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+export const comments = pgTable(
+  "comments",
+  {
+    id: text("id").primaryKey(),
+    postId: text("post_id").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("comments_post_id_idx").on(table.postId),
+    index("comments_created_at_desc_idx").on(table.createdAt.desc()),
+    index("comments_post_id_created_at_desc_idx").on(table.postId, table.createdAt.desc()),
+    index("comments_created_at_asc_idx").on(table.createdAt.asc()),
+    index("comments_body_tsvector_idx").using("gin", sql\`to_tsvector('english', \${table.body})\`),
+    index("comments_post_id_ops_idx").using("btree", table.postId.asc().nullsLast().op("text_ops")),
+  ],
+);`);
+    const out = dbml(code);
+    expect(out).toContain(
+      [
+        "  indexes {",
+        "    (post_id) [name: 'comments_post_id_idx']",
+        "    (created_at) [name: 'comments_created_at_desc_idx']",
+        "    (post_id, created_at) [name: 'comments_post_id_created_at_desc_idx']",
+        "    (created_at) [name: 'comments_created_at_asc_idx']",
+        "    `to_tsvector('english', body)` [type: gin, name: 'comments_body_tsvector_idx']",
+        "    (post_id) [type: btree, name: 'comments_post_id_ops_idx']",
+        "  }",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("spreads each file's own helper when two files declare one of the same name (#58)", () => {
+    const a = stripImports(`import { pgTable, text } from "drizzle-orm/pg-core";
+
+const scope = () => ({
+  org_id: text("org_id").notNull(),
+  account_id: text("account_id").notNull(),
+});
+
+export const messages = pgTable("messages", {
+  ...scope(),
+  subject: text("subject").notNull(),
+});`);
+    const b = stripImports(`import { pgTable, text } from "drizzle-orm/pg-core";
+
+const scope = () => ({
+  org_id: text("org_id").notNull(),
+  installation_id: text("installation_id").notNull(),
+  store_key: text("store_key").notNull(),
+});
+
+export const policies = pgTable("policies", {
+  ...scope(),
+  rule: text("rule").notNull(),
+});`);
+    expect(dbml(joinSources([a, b]))).toBe(
+      [
+        "Table messages {",
+        "  org_id text [not null]",
+        "  account_id text [not null]",
+        "  subject text [not null]",
+        "}",
+        "",
+        "Table policies {",
+        "  org_id text [not null]",
+        "  installation_id text [not null]",
+        "  store_key text [not null]",
+        "  rule text [not null]",
         "}",
       ].join("\n"),
     );
