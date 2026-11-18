@@ -1064,3 +1064,82 @@ export const policies = pgTable("policies", {
     );
   });
 });
+
+describe("v1 relations and index names after 0.4.5 (#60, #61)", () => {
+  it("writes a one() declared from the referenced side once, as the foreign key (#60)", () => {
+    const code = stripImports(`import { relations } from "drizzle-orm/_relations";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("user", {
+  id: text("id").primaryKey(),
+});
+
+export const userLinks = sqliteTable("userLink", {
+  id: text("id").primaryKey(),
+  userId: text("userId").unique().references(() => users.id, { onDelete: "cascade" }),
+});
+
+export const usersRelations = relations(users, ({ one }) => ({
+  userLink: one(userLinks, { fields: [users.id], references: [userLinks.userId] }),
+}));
+
+export const userLinksRelations = relations(userLinks, ({ one }) => ({
+  user: one(users, { fields: [userLinks.userId], references: [users.id] }),
+}));`);
+    const out = dbml(code);
+    expect(out.match(/^Ref /gmu)).toStrictEqual(["Ref "]);
+    expect(out).toContain(
+      "Ref userLink_userId_user_id_fk: userLink.userId - user.id [delete: cascade]",
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("keeps one relation of two mirrored one()s without a foreign key, the key on its holder (#60)", () => {
+    const code = stripImports(`import { relations } from "drizzle-orm/_relations";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("user", { id: text("id").primaryKey() });
+export const userLinks = sqliteTable("userLink", {
+  id: text("id").primaryKey(),
+  userId: text("userId").unique(),
+});
+
+export const usersRelations = relations(users, ({ one }) => ({
+  userLink: one(userLinks, { fields: [users.id], references: [userLinks.userId] }),
+}));
+export const userLinksRelations = relations(userLinks, ({ one }) => ({
+  user: one(users, { fields: [userLinks.userId], references: [users.id] }),
+}));`);
+    const out = dbml(code);
+    expect(out.match(/^Ref .*$/gmu)).toStrictEqual([
+      "Ref userLink_userId_user_id: userLink.userId - user.id",
+    ]);
+  });
+
+  it("names an index a helper builds from a constant object's member (#61)", () => {
+    const code =
+      stripImports(`import { index, integer, sqliteTable, uniqueIndex, type SQLiteColumn } from "drizzle-orm/sqlite-core";
+
+const MediaType = { BOOKS: "books", GAMES: "games" } as const;
+type MediaType = (typeof MediaType)[keyof typeof MediaType];
+
+const listIndexes = (table: { userId: SQLiteColumn; mediaId: SQLiteColumn }, mediaTypeName: MediaType | string) => [
+  uniqueIndex(\`ux_\${mediaTypeName}_list_user_media\`).on(table.userId, table.mediaId),
+  index(\`ix_\${mediaTypeName}_list_media_id\`).on(table.mediaId),
+];
+
+export const booksList = sqliteTable(
+  "books_list",
+  { id: integer("id").primaryKey(), userId: integer("user_id").notNull(), mediaId: integer("media_id").notNull() },
+  (table) => listIndexes(table, MediaType.BOOKS),
+);`);
+    expect(dbml(code)).toContain(
+      [
+        "  indexes {",
+        "    (user_id, media_id) [unique, name: 'ux_books_list_user_media']",
+        "    (media_id) [name: 'ix_books_list_media_id']",
+        "  }",
+      ].join("\n"),
+    );
+  });
+});

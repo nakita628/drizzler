@@ -652,3 +652,21 @@ describe("relations and names written another way (#50, #53)", () => {
     expect(out).toContain('    users ||..o{ sessions : "(id) - (user_id)"');
   });
 });
+
+describe("a v1 one() declared from the referenced side (#60)", () => {
+  it("draws the foreign key alone, with only its column marked FK", () => {
+    const out = mermaidER([
+      'export const users = sqliteTable("user", { id: text("id").primaryKey() });',
+      'export const userLinks = sqliteTable("userLink", {',
+      '  id: text("id").primaryKey(),',
+      '  userId: text("userId").unique().references(() => users.id, { onDelete: "cascade" }),',
+      "});",
+      "export const usersRelations = relations(users, ({ one }) => ({",
+      "  userLink: one(userLinks, { fields: [users.id], references: [userLinks.userId] }),",
+      "}));",
+    ]);
+    expect(out).toContain('    user |o--o| userLink : "(id) - (userId)"');
+    expect(out).not.toContain("userLink ||..o| user");
+    expect(out).toContain("    user {\n        text id PK\n    }");
+  });
+});

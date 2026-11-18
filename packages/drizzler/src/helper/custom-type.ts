@@ -307,16 +307,6 @@ export function evaluateString(
   return typeof value === "string" ? value : null;
 }
 
-/**
- * The string a node is when the reader can work it out without running the schema: a literal, or
- * a template of ones (`` `ux_${"books_genre"}_name` ``, as a helper's parameter bound to its
- * argument writes it). Null otherwise.
- */
-export function staticString(node: Node | null | undefined): string | null {
-  const value = evaluate(node, new Map());
-  return typeof value === "string" ? value : null;
-}
-
 /** Whether a node is a `customType({ ... })` call: the builder a custom column is made with. */
 export function isCustomType(node: Node | null | undefined): node is CallExpression {
   return isCall(node) && node.callee.type === "Identifier" && node.callee.name === "customType";

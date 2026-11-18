@@ -21,13 +21,7 @@ import {
   topLevelValue,
   unwrapParens,
 } from "./ast.js";
-import {
-  customTypeCallName,
-  customTypeName,
-  evaluateString,
-  isCustomType,
-  staticString,
-} from "./custom-type.js";
+import { customTypeCallName, customTypeName, evaluateString, isCustomType } from "./custom-type.js";
 import { asksForTimezone, constraintEntries, tableCalls } from "./extract-tables.js";
 import { mergeRelations } from "./merge-relations.js";
 
@@ -219,10 +213,23 @@ function indexExpression(node: Node, text: string): DiagramIndex["expression"] |
   });
 }
 
+// The name an index or constraint is given: `index("users_email_idx")`, `unique("name")`, or
+// `primaryKey({ name, columns })`; a template a helper builds the name with is read too, the
+// constants it reads (`MediaType.BOOKS`) included.
+function indexName(config: Node | undefined, program: Program) {
+  const named = optionValue(config, "name") ?? config;
+  return named === undefined || isObject(named) ? null : evaluateString(named, program);
+}
+
 // An index or key constraint: `index("name").on(t.a, t.b.desc())`, `index("name").using("gin",
 // t.search)` or on an expression, `unique().on(...)`, `primaryKey({ columns: [t.a, t.b] })` or the
 // older `primaryKey(t.a, t.b)`. Null when it names no column.
-function readIndex(chain: Chain, type: DiagramIndex["type"], text: string): DiagramIndex | null {
+function readIndex(
+  chain: Chain,
+  type: DiagramIndex["type"],
+  source: { readonly program: Program; readonly text: string },
+): DiagramIndex | null {
+  const { program, text } = source;
   const config = chain.args[0];
   const listed = optionValue(config, "columns");
   const fromConfig =
@@ -238,10 +245,7 @@ function readIndex(chain: Chain, type: DiagramIndex["type"], text: string): Diag
   );
   const used = using ? [...columnNames(targets), ...expressionFields] : fromConfig;
   const fields = on ? columnNames(on.args) : used;
-  // `index("users_email_idx")`, `unique("name")`, or `primaryKey({ name, columns })`; a template
-  // a helper builds the name with is read too.
-  const named = optionValue(config, "name");
-  const name = named === undefined ? staticString(config) : staticString(named);
+  const name = indexName(config, program);
   const indexMethod = stringLiteral(method);
   if (fields.length === 0 && expression === null) return null;
   return {
@@ -274,7 +278,7 @@ function readConstraints(
         : [];
     }
     const type = INDEX_TYPES.get(chain.builder);
-    const index = type === undefined ? null : readIndex(chain, type, text);
+    const index = type === undefined ? null : readIndex(chain, type, { program, text });
     return index === null ? [] : [{ kind: "index", index }];
   });
 }
