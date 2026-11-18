@@ -23,6 +23,9 @@ describe("makeProbeModule", () => {
     expect(source).toContain('await import("drizzle-kit/payload/postgres")');
     // Before the schema loads, so a library seeding itself from Math.random gets one seed (#62).
     expect(source.indexOf("Math.random=()=>0.5")).toBeLessThan(source.indexOf("file:///app/a.ts"));
+    // And Web Crypto, which cuid2's init() draws its counter and fingerprint from (#68).
+    expect(source.indexOf("'getRandomValues'")).toBeLessThan(source.indexOf("file:///app/a.ts"));
+    expect(source).toContain("  delete globalThis.crypto.getRandomValues;");
   });
 });
 

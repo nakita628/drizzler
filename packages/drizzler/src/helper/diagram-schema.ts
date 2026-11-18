@@ -10,6 +10,7 @@ import {
   descriptionBefore,
   declaratorName,
   columnProperties,
+  helperCall,
   helperColumn,
   isArrow,
   topLevelDeclarations,
@@ -17,6 +18,7 @@ import {
   isObject,
   isPropertyAssignment,
   parseSource,
+  sourceText,
   textOf,
   topLevelValue,
   unwrapParens,
@@ -180,14 +182,38 @@ const INDEX_TYPES = new Map<string, DiagramIndex["type"]>([
   ["index", "normal"],
 ]);
 
+/** What the database does when the parent row changes, and the name of the key, if it has one. */
+type KeyActions = {
+  readonly onDelete: string | null;
+  readonly onUpdate: string | null;
+  readonly name: string | null;
+};
+
 type Constraint =
-  | {
+  | ({
       readonly kind: "fk";
-      readonly column: string;
-      readonly onDelete: string | null;
-      readonly onUpdate: string | null;
-    }
+      readonly columns: readonly string[];
+      /** The table the key points at, by its variable. */
+      readonly target: string;
+    } & KeyActions)
   | { readonly kind: "index"; readonly index: DiagramIndex };
+
+/**
+ * A foreign key by its child columns and the table it points at, so two keys that start with the
+ * same column (`team_id`, and `team_id, category_slug`) keep their own actions.
+ */
+function keyOf(table: string, columns: readonly string[], target: string) {
+  return `${table}.${columns.join(",")}->${target}`;
+}
+
+// The table `() => users.id` points at, by its variable.
+function referencedTable(target: Node | undefined) {
+  if (!isArrow(target) || target.body.type === "BlockStatement") return null;
+  const body = unwrapParens(target.body);
+  return body.type === "MemberExpression" && body.object.type === "Identifier"
+    ? body.object.name
+    : null;
+}
 
 // The value of one key of an options object: `columns` in `primaryKey({ columns: [...] })`.
 function optionValue(config: Node | undefined, key: string) {
@@ -199,18 +225,72 @@ function optionValue(config: Node | undefined, key: string) {
 }
 
 // An index on an expression, `sql\`to_tsvector('english', ${table.body})\``: its text, each column
-// it reads in its place. Null for anything else.
-function indexExpression(node: Node, text: string): DiagramIndex["expression"] | null {
-  if (node.type !== "TaggedTemplateExpression" || node.tag.type !== "Identifier") return null;
-  if (node.tag.name !== "sql") return null;
-  const { quasis, expressions } = node.quasi;
+// it reads in its place. A top-level helper that returns one, `lower(table.email)` with
+// `function lower(column) { return sql\`lower(${column})\` }`, is read with its parameters bound.
+// Null for anything else.
+function indexExpression(
+  node: Node,
+  source: { readonly program: Program; readonly text: string },
+): DiagramIndex["expression"] | null {
+  const { program } = source;
+  const helper = isCall(node) ? helperCall(node, program) : null;
+  const expr = helper === null ? node : helper.returned;
+  if (expr.type !== "TaggedTemplateExpression" || expr.tag.type !== "Identifier") return null;
+  if (expr.tag.name !== "sql") return null;
+  const { quasis, expressions } = expr.quasi;
   return quasis.flatMap((q, i) => {
-    const expr = expressions[i];
-    const column = expr === undefined ? null : columnName(expr);
-    const read =
-      expr === undefined ? [] : [column === null ? textOf(text, expr) : { field: column }];
-    return [q.value.cooked ?? "", ...read];
+    const part = expressions[i];
+    return [q.value.cooked ?? "", ...(part === undefined ? [] : expressionPart(part, source))];
   });
+}
+
+// What one `${...}` of an expression index reads: a column, a `sql` template or a helper that
+// returns one (`${foldedEmail(table.email)}`), read in place, or else its text.
+function expressionPart(
+  part: Expression,
+  source: { readonly program: Program; readonly text: string },
+): NonNullable<DiagramIndex["expression"]> {
+  const column = columnName(part);
+  if (column !== null) return [{ field: column }];
+  return indexExpression(part, source) ?? [sourceText(source.text, part)];
+}
+
+// The terms of an index when one of them is an expression: `.on(sql\`lower(${t.owner})\`, t.repo)`
+// is `lower(owner), repo`, as the SQL lists them. Null when every term is a column.
+function indexTerms(
+  terms: readonly Node[],
+  source: { readonly program: Program; readonly text: string },
+): DiagramIndex["expression"] | null {
+  const expressions = terms.map((term) => indexExpression(term, source));
+  if (expressions.every((e) => e === null)) return null;
+  return terms.flatMap((term, i) => {
+    const separator = i === 0 ? [] : [", "];
+    const column = columnName(term);
+    const read = expressions[i] ?? [
+      column === null ? sourceText(source.text, term) : { field: column },
+    ];
+    return [...separator, ...read];
+  });
+}
+
+// The method `.using()` names, and the terms an index is on: the columns `.on()` lists, or the
+// targets `.using()` gives after its method. Null terms when the builder lists its own columns.
+function indexTargets(chain: Chain) {
+  const on = chain.methods.find((m) => m.name === "on");
+  const using = chain.methods.find((m) => m.name === "using");
+  const [method, ...targets] = using?.args ?? [];
+  if (on) return { method, terms: on.args };
+  return { method, terms: using ? targets : null };
+}
+
+// The columns an index reads: those it lists, or each column its expression reads, once.
+function indexFields(
+  terms: readonly Node[],
+  expression: DiagramIndex["expression"] | null | undefined,
+) {
+  if (expression === null || expression === undefined) return columnNames(terms);
+  const read = expression.flatMap((part) => (typeof part === "string" ? [] : [part.field]));
+  return [...new Set(read)];
 }
 
 // The name an index or constraint is given: `index("users_email_idx")`, `unique("name")`, or
@@ -229,22 +309,16 @@ function readIndex(
   type: DiagramIndex["type"],
   source: { readonly program: Program; readonly text: string },
 ): DiagramIndex | null {
-  const { program, text } = source;
+  const { program } = source;
   const config = chain.args[0];
   const listed = optionValue(config, "columns");
   const fromConfig =
     listed?.type === "ArrayExpression"
       ? columnNames(listed.elements.filter((e) => e !== null))
       : columnNames(chain.args);
-  const on = chain.methods.find((m) => m.name === "on");
-  const using = chain.methods.find((m) => m.name === "using");
-  const [method, ...targets] = using?.args ?? [];
-  const expression = targets.map((t) => indexExpression(t, text)).find((e) => e !== null) ?? null;
-  const expressionFields = (expression ?? []).flatMap((part) =>
-    typeof part === "string" ? [] : [part.field],
-  );
-  const used = using ? [...columnNames(targets), ...expressionFields] : fromConfig;
-  const fields = on ? columnNames(on.args) : used;
+  const { method, terms } = indexTargets(chain);
+  const expression = terms === null ? null : indexTerms(terms, source);
+  const fields = terms === null ? fromConfig : indexFields(terms, expression);
   const name = indexName(config, program);
   const indexMethod = stringLiteral(method);
   if (fields.length === 0 && expression === null) return null;
@@ -257,24 +331,47 @@ function readIndex(
   };
 }
 
+// The table the first of `foreignColumns: [users.id]` belongs to; the callback's own parameter
+// (`(table) => ...`) stands for the table being declared.
+function foreignTable(config: Node | undefined, own: string | null, table: string) {
+  const foreign = optionValue(config, "foreignColumns");
+  const [first] = foreign?.type === "ArrayExpression" ? foreign.elements : [];
+  if (first?.type !== "MemberExpression" || first.object.type !== "Identifier") return null;
+  return first.object.name === own ? table : first.object.name;
+}
+
 function readConstraints(
   arg: CallExpression["arguments"][number] | undefined,
-  program: Program,
-  text: string,
+  table: string,
+  source: { readonly program: Program; readonly text: string },
 ) {
+  const { program, text } = source;
+  const [own] = isArrow(arg) ? arg.params : [];
+  const ownName = own?.type === "Identifier" ? own.name : null;
   return constraintEntries(arg, program).flatMap((entry): Constraint[] => {
     const chain = readChain(entry);
     if (chain === null) return [];
     if (chain.builder === "foreignKey") {
-      const columns = optionValue(chain.args[0], "columns");
-      if (columns?.type !== "ArrayExpression") return [];
-      const [column] = columnNames(columns.elements.filter((e) => e !== null));
+      const [config] = chain.args;
+      const listed = optionValue(config, "columns");
+      if (listed?.type !== "ArrayExpression") return [];
+      const columns = columnNames(listed.elements.filter((e) => e !== null));
+      const target = foreignTable(config, ownName, table);
       const { methods } = chain;
       function action(name: string) {
         return stringLiteral(methods.find((m) => m.name === name)?.args[0]);
       }
-      return column !== undefined
-        ? [{ kind: "fk", column, onDelete: action("onDelete"), onUpdate: action("onUpdate") }]
+      return columns.length > 0 && target !== null
+        ? [
+            {
+              kind: "fk",
+              columns,
+              target,
+              onDelete: action("onDelete"),
+              onUpdate: action("onUpdate"),
+              name: indexName(optionValue(config, "name"), program),
+            },
+          ]
         : [];
     }
     const type = INDEX_TYPES.get(chain.builder);
@@ -428,7 +525,7 @@ export function diagramSchema(code: readonly string[]) {
   const foreignKeys = new Set(
     merged.flatMap((r) => (r.to.fields ?? [r.to.field]).map((field) => `${r.to.model}.${field}`)),
   );
-  const actions = new Map<string, { onDelete: string | null; onUpdate: string | null }>();
+  const actions = new Map<string, KeyActions>();
 
   const creators = tableCreators(program);
 
@@ -438,9 +535,9 @@ export function diagramSchema(code: readonly string[]) {
     // snake_case.
     const snakeCase = /(?:^|\.)snakeCase\.table\b/u.test(builder);
     if (!isObject(columns) && !isArrow(columns) && columns?.type !== "Identifier") return [];
-    const constraints = readConstraints(args[2], program, text);
+    const constraints = readConstraints(args[2], varName, { program, text });
     for (const c of constraints) {
-      if (c.kind === "fk") actions.set(`${varName}.${c.column}`, c);
+      if (c.kind === "fk") actions.set(keyOf(varName, c.columns, c.target), c);
     }
     const indexes = constraints.flatMap((c) => (c.kind === "index" ? [c.index] : []));
     const compositeKey = indexes.find((i) => i.type === "id")?.fields ?? null;
@@ -455,7 +552,14 @@ export function diagramSchema(code: readonly string[]) {
         return methods.some((m) => m.name === method);
       }
       const references = chain.methods.find((m) => m.name === "references");
-      if (references) actions.set(`${varName}.${name}`, referentialActions(references.args[1]));
+      const target = references ? referencedTable(references.args[0]) : null;
+      // A key declared again as a `foreignKey()` constraint keeps the constraint's name and actions.
+      if (references && target !== null && !actions.has(keyOf(varName, [name], target))) {
+        actions.set(keyOf(varName, [name], target), {
+          ...referentialActions(references.args[1]),
+          name: null,
+        });
+      }
       const dbName = stringLiteral(chain.args[0]) ?? (snakeCase ? toSnakeCase(name) : name);
       const isId = has("primaryKey");
       const withTimezone = chain.args.some(asksForTimezone);
@@ -495,14 +599,18 @@ export function diagramSchema(code: readonly string[]) {
     ];
   });
 
-  const relations = merged.map((r): SchemaRelation => ({
-    origin: r.origin,
-    name: null,
-    onDelete: actions.get(`${r.to.model}.${r.to.field}`)?.onDelete ?? null,
-    onUpdate: actions.get(`${r.to.model}.${r.to.field}`)?.onUpdate ?? null,
-    from: r.from,
-    to: r.to,
-  }));
+  const relations = merged.map((r): SchemaRelation => {
+    const key = actions.get(keyOf(r.to.model, r.to.fields ?? [r.to.field], r.from.model));
+    return {
+      origin: r.origin,
+      name: null,
+      ...(key?.name === undefined || key.name === null ? {} : { constraintName: key.name }),
+      onDelete: key?.onDelete ?? null,
+      onUpdate: key?.onUpdate ?? null,
+      from: r.from,
+      to: r.to,
+    };
+  });
 
   return { models, relations, enums };
 }

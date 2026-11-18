@@ -162,6 +162,7 @@ export function sqlSchema(code: readonly string[]) {
     origin: r.origin satisfies RelationOrigin,
     onDelete: r.onDelete,
     onUpdate: r.onUpdate ?? null,
+    constraintName: r.constraintName ?? null,
     from: sqlEnd(r.from),
     to: sqlEnd(r.to),
   }));

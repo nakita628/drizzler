@@ -111,8 +111,11 @@ export function dbml(code: string[]) {
     // Physical FKs keep the `_fk` suffix; logical (`defineRelations`-only) ones drop it,
     // since they are not DB-enforced constraints.
     const suffix = r.origin === "inferred" ? "_fk" : "";
-    // Named as drizzle-kit names the constraint: by the tables' names without their schemas.
-    const refName = `${r.to.bareTable}_${r.to.columns.join("_")}_${r.from.bareTable}_${r.from.columns.join("_")}${suffix}`;
+    // The name `foreignKey({ name })` gives the constraint; else named as drizzle-kit names one: by
+    // the tables' names without their schemas.
+    const refName =
+      r.constraintName ??
+      `${r.to.bareTable}_${r.to.columns.join("_")}_${r.from.bareTable}_${r.from.columns.join("_")}${suffix}`;
     // https://dbml.dbdiagram.io/docs/#relationship-settings
     const settings = [
       r.onDelete !== null ? `delete: ${r.onDelete}` : null,

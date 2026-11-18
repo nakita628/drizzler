@@ -104,6 +104,54 @@ export function textOf(text: string, node: { readonly start: number; readonly en
   return text.slice(node.start, node.end);
 }
 
+type Span = { readonly start: number; readonly end: number };
+
+// The place a value bound to a name was put in, by `substitute`: the name's own offsets.
+function slotOf(node: Node): Span | null {
+  const slot: unknown = Reflect.get(node, "slot");
+  if (typeof slot !== "object" || slot === null) return null;
+  const start: unknown = Reflect.get(slot, "start");
+  const end: unknown = Reflect.get(slot, "end");
+  return typeof start === "number" && typeof end === "number" ? { start, end } : null;
+}
+
+// The values put in place of names within a node, outermost first, not those inside them.
+function slottedWithin(node: Node): Node[] {
+  return Object.entries(node).flatMap(([key, value]): Node[] => {
+    if (key === "parent") return [];
+    const children: unknown[] = Array.isArray(value) ? value : [value];
+    return children
+      .filter(isNode)
+      .flatMap((child) => (slotOf(child) ? [child] : slottedWithin(child)));
+  });
+}
+
+/**
+ * The text of a node as it reads with each name a `substitute` replaced written as its value:
+ * `column.notNull()` with `column` bound to `text("team_id").references(...)` reads
+ * `text("team_id").references(...).notNull()`. The node's own text when nothing was replaced.
+ */
+export function sourceText(text: string, node: Node): string {
+  const slotted = slottedWithin(node)
+    .flatMap((child) => {
+      const slot = slotOf(child);
+      return slot !== null && slot.start >= node.start && slot.end <= node.end
+        ? [{ slot, child }]
+        : [];
+    })
+    .toSorted((a, b) => a.slot.start - b.slot.start);
+  // Slots nested in an earlier one are already in its text; keep only those after it.
+  const kept = slotted.filter(
+    ({ slot }, i) => !slotted.slice(0, i).some((prev) => slot.start < prev.slot.end),
+  );
+  const parts = kept.flatMap(({ slot, child }, i) => [
+    text.slice(i === 0 ? node.start : (kept[i - 1]?.slot.end ?? node.start), slot.start),
+    sourceText(text, child),
+  ]);
+  const at = kept.at(-1)?.slot.end ?? node.start;
+  return [...parts, text.slice(at, node.end)].join("");
+}
+
 /**
  * The first declarator of every `export const ...` at the top level, with the
  * offsets of the statement: `start` is the `export` keyword its leading comments
@@ -251,7 +299,10 @@ function namingKey(node: Node, key: string) {
 function substituted(node: unknown, bindings: Bindings): unknown {
   if (Array.isArray(node)) return node.map((item) => substituted(item, bindings));
   if (!isNode(node)) return node;
-  if (node.type === "Identifier" && bindings.has(node.name)) return bindings.get(node.name);
+  const bound = node.type === "Identifier" ? bindings.get(node.name) : undefined;
+  // The value keeps its own offsets, and the place of the name it stands in for, so its text can
+  // be read where it is used (see `sourceText`).
+  if (bound !== undefined) return { ...bound, slot: { start: node.start, end: node.end } };
   return Object.fromEntries(
     Object.entries(node).map(([key, value]) =>
       key === "parent" || namingKey(node, key) ? [key, value] : [key, substituted(value, bindings)],
@@ -464,19 +515,50 @@ function rootCall(call: CallExpression): CallExpression {
     : call;
 }
 
-// The expression a function gives back: an arrow's body, or the one `return` of its block.
-function returnedValue(fn: Node): Expression | null {
+// The branch of `test ? a : b` a column takes: the one that adds the most to the column
+// (`column.notNull()` over `column`), as the test is read at runtime, often from the environment.
+function takenBranch(expr: Expression): Expression {
+  if (expr.type !== "ConditionalExpression") return expr;
+  // Without `as` and `satisfies`, whose types (`ReturnType<typeof column.notNull>`) call nothing.
+  const consequent = unwrapTypes(expr.consequent);
+  const alternate = unwrapTypes(expr.alternate);
+  const richer = callsIn(alternate).length > callsIn(consequent).length ? alternate : consequent;
+  return takenBranch(richer);
+}
+
+// What a block's one `return` gives back, each `const` declared above it read in place:
+// `const column = text("team_id"); return column.notNull();` returns `text("team_id").notNull()`.
+function blockReturn(statements: readonly Statement[]): Expression | null {
+  const returns = statements.filter((stmt) => stmt.type === "ReturnStatement");
+  const [only] = returns;
+  if (returns.length !== 1 || !only?.argument) return null;
+  // Each `const` sees those above it, so the map grows as the statements are read.
+  const locals = new Map<string, Expression>();
+  for (const stmt of statements) {
+    if (stmt.type !== "VariableDeclaration" || stmt.kind !== "const") continue;
+    for (const d of stmt.declarations) {
+      if (d.id.type === "Identifier" && d.init) {
+        locals.set(d.id.name, substitute(unwrapTypes(d.init), locals));
+      }
+    }
+  }
+  return takenBranch(substitute(unwrapTypes(only.argument), locals));
+}
+
+/**
+ * The expression a function gives back: an arrow's body, or what the one `return` of its block
+ * returns, the `const`s above it read in place and a `cond ? a : b` resolved (see `takenBranch`).
+ * Null when the block has no `return`, or several.
+ */
+export function returnedValue(fn: Node): Expression | null {
   if (fn.type === "ArrowFunctionExpression" && fn.body.type !== "BlockStatement") {
-    return unwrapTypes(fn.body);
+    return takenBranch(unwrapTypes(fn.body));
   }
   const isFunction =
     fn.type === "ArrowFunctionExpression" ||
     fn.type === "FunctionExpression" ||
     fn.type === "FunctionDeclaration";
-  const statements = isFunction && fn.body?.type === "BlockStatement" ? fn.body.body : [];
-  const returns = statements.filter((stmt) => stmt.type === "ReturnStatement");
-  const [only] = returns;
-  return returns.length === 1 && only?.argument ? unwrapTypes(only.argument) : null;
+  return isFunction && fn.body?.type === "BlockStatement" ? blockReturn(fn.body.body) : null;
 }
 
 const functionsOf = new WeakMap<Program, ReadonlyMap<string, readonly Declared<Node>[]>>();
@@ -535,7 +617,7 @@ export function helperColumn(expr: Expression, program: Program) {
 export function columnText(expr: Expression, program: Program, text: string, depth = 0): string {
   // A helper that calls itself would never end; eight helpers deep is more than any schema needs.
   const helper = depth < 8 ? helperColumn(expr, program) : null;
-  if (helper === null) return textOf(text, expr);
+  if (helper === null) return sourceText(text, expr);
   const inner = columnText(helper.chain, program, text, depth + 1);
   return `${inner}${text.slice(helper.call.end, expr.end)}`;
 }
