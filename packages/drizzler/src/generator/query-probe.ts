@@ -33,11 +33,19 @@ export function makeProbeModule(input: {
   const namespaces = input.fileUrls.map((_, i) => `__s${i}`);
   const tables = [...new Set(input.examples.map((example) => example.table))];
   return [
+    // Imported first, so it runs before the schema's modules: a library that seeds itself from
+    // `Math.random` when it loads (Faker's own random generator) gets the same seed on every run. A
+    // process that loads the schema again has the module cached, and it does not run again.
+    `import "data:text/javascript,globalThis.__drizzlerRandom=Math.random;Math.random=()=>0.5;";`,
     `import * as __orm from "drizzle-orm";`,
     `import __nodeCrypto from "node:crypto";`,
     `import { syncBuiltinESMExports as __syncBuiltins } from "node:module";`,
     `import { drizzle as __drizzle } from "${PROXIES[input.dialect]}";`,
     ...input.fileUrls.map((url, i) => `import * as __s${i} from ${JSON.stringify(url)};`),
+    `if ("__drizzlerRandom" in globalThis) {`,
+    `  Math.random = globalThis.__drizzlerRandom;`,
+    `  delete globalThis.__drizzlerRandom;`,
+    `}`,
     `const __schema = Object.assign({}, ${namespaces.join(", ")});`,
     // Every table is queryable; each `defineRelations` export and part adds its relations, the
     // main one (with the most tables) first, each table's relations merged, as the studio does.

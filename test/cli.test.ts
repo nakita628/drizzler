@@ -248,6 +248,40 @@ describe("the docs' SQL, as drizzle-orm builds it", () => {
     expect(again).toBe(readme);
   });
 
+  it("is the same on every run when a default draws from a library seeded on load (#62)", async () => {
+    const project = makeProject({
+      // As Faker does: a generator seeded once from Math.random when its module loads.
+      "words.ts": [
+        "const seed = Math.random();",
+        "let state = seed;",
+        "export const word = () => {",
+        "  state = (state * 9301 + 0.49297) % 1;",
+        "  return state.toFixed(6);",
+        "};",
+        "",
+      ].join("\n"),
+      "schema.ts": [
+        'import { sqliteTable, text } from "drizzle-orm/sqlite-core";',
+        'import { word } from "./words.ts";',
+        "",
+        'export const apps = sqliteTable("apps", {',
+        '  id: text("id").primaryKey(),',
+        '  appName: text("app_name").notNull().$defaultFn(() => `app-${word()}`),',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    const first = await drizzler(["schema.ts", "-o", "docs"], project);
+    const readme = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    await drizzler(["schema.ts", "-o", "docs"], project);
+    const again = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    removeProject(project);
+    expect(first.code).toBe(0);
+    expect(first.output).not.toContain("without their SQL");
+    expect(readme).toContain('"app-');
+    expect(again).toBe(readme);
+  });
+
   it("is left out, with the reason, when the schema cannot be loaded", async () => {
     const project = makeProject({
       "schema.ts": `${SQLITE_SCHEMA}\nthrow new Error("the schema refuses to load");\n`,

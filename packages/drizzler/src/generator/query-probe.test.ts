@@ -21,6 +21,8 @@ describe("makeProbeModule", () => {
     expect(source).toContain("const { users, posts } = __schema;");
     expect(source).toContain("  __sql(() => db.select().from(posts).limit(1)),");
     expect(source).toContain('await import("drizzle-kit/payload/postgres")');
+    // Before the schema loads, so a library seeding itself from Math.random gets one seed (#62).
+    expect(source.indexOf("Math.random=()=>0.5")).toBeLessThan(source.indexOf("file:///app/a.ts"));
   });
 });
 

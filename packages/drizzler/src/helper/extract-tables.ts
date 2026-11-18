@@ -625,6 +625,51 @@ function extractV1Relations(program: Program, required: ReadonlyMap<string, bool
   });
 }
 
+// A relation by its two ends, parent first: the key two entries for one relation share.
+function endsKey(r: Relation) {
+  return `${r.fromModel}.${r.fromFields.join(",")}->${r.toModel}.${r.toFields.join(",")}`;
+}
+
+// The same relation seen from the other table: its ends swapped.
+function mirrorKey(r: Relation) {
+  return `${r.toModel}.${r.toFields.join(",")}->${r.fromModel}.${r.fromFields.join(",")}`;
+}
+
+// How likely a relation's child end holds the key: a column that is not a key of its table, and
+// one named like a foreign key (`userId`), rather than the `id` it points at.
+function childLikelihood(r: Relation, keys: ReturnType<typeof keyedColumns>) {
+  const keyed = (keys.get(r.toModel) ?? [])
+    .map((k) => new Set(k))
+    .some((k) => k.size === r.toFields.length && r.toFields.every((f) => k.has(f)));
+  return (keyed ? 0 : 2) + (r.toFields.every(isFkLikeName) ? 1 : 0);
+}
+
+/**
+ * The v1 relations without the ones that mirror another: a `one()` declared from the referenced
+ * side (`users.userLink: one(userLinks, { fields: [users.id], references: [userLinks.userId] })`)
+ * is the foreign key, or the other table's `one()`, with its ends swapped. A foreign key or
+ * `defineRelations` entry wins; between two `one()`s, the one whose child end more likely holds
+ * the key, else the first.
+ */
+function withoutMirrors(
+  v1: readonly Relation[],
+  declared: readonly Relation[],
+  keys: ReturnType<typeof keyedColumns>,
+) {
+  const taken = new Set(declared.map(endsKey));
+  // Each v1 relation's place by its ends; the first of the same ends counts.
+  const places = new Map(v1.map((r, index) => [endsKey(r), index] as const).toReversed());
+  return v1.filter((r, index) => {
+    if (taken.has(mirrorKey(r))) return false;
+    const place = places.get(mirrorKey(r));
+    const rival = place === undefined ? undefined : v1[place];
+    if (place === undefined || rival === undefined) return true;
+    const mine = childLikelihood(r, keys);
+    const theirs = childLikelihood(rival, keys);
+    return mine !== theirs ? mine > theirs : index < place;
+  });
+}
+
 /**
  * Whether a callee builds a table: `pgTable`, `sqliteTable`, `mysqlTable`, ..., `pgTable.withRLS`,
  * and the `.table` of a casing or a schema (`snakeCase.table`, `camelCase.table`,
@@ -743,10 +788,13 @@ export function extractRelationsFromSchema(code: readonly string[]) {
   });
 
   const keys = keyedColumns(program, text);
-  const allRelations = [
+  const declared = [
     ...tableRelations,
     ...extractRelationsFromDefinitions(program, text, tableRelations, required, keys),
-    ...extractV1Relations(program, required),
+  ];
+  const allRelations = [
+    ...declared,
+    ...withoutMirrors(extractV1Relations(program, required), declared, keys),
   ];
 
   const seen = new Set<string>();
