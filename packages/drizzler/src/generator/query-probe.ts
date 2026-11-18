@@ -20,6 +20,16 @@ const KITS = {
   sqlite: "drizzle-kit/payload/sqlite",
 } as const;
 
+// What the first module holds still while the schema loads: `Math.random`, and Web Crypto's
+// `getRandomValues` and `randomUUID`, set on the instance over the prototype's so a `delete` gives
+// them back. In single quotes, as it sits in a double-quoted specifier.
+const LOAD_HOLD = [
+  "globalThis.__drizzlerRandom=Math.random;",
+  "Math.random=()=>0.5;",
+  "Object.defineProperty(crypto,'getRandomValues',{value:(a)=>a.fill(0),configurable:true});",
+  "Object.defineProperty(crypto,'randomUUID',{value:()=>'00000000-0000-4000-8000-000000000000',configurable:true});",
+].join("");
+
 /**
  * The module that imports the schema, builds `db` and turns each example into its SQL, and has
  * drizzle-kit write the tables' definitions. The caller writes it to a file and imports it.
@@ -34,9 +44,10 @@ export function makeProbeModule(input: {
   const tables = [...new Set(input.examples.map((example) => example.table))];
   return [
     // Imported first, so it runs before the schema's modules: a library that seeds itself from
-    // `Math.random` when it loads (Faker's own random generator) gets the same seed on every run. A
-    // process that loads the schema again has the module cached, and it does not run again.
-    `import "data:text/javascript,globalThis.__drizzlerRandom=Math.random;Math.random=()=>0.5;";`,
+    // `Math.random` or Web Crypto when it loads (Faker's own random generator, the counter and
+    // fingerprint of cuid2's `init()`) gets the same seed on every run. A process that loads the
+    // schema again has the module cached, and it does not run again.
+    `import "data:text/javascript,${LOAD_HOLD}";`,
     `import * as __orm from "drizzle-orm";`,
     `import __nodeCrypto from "node:crypto";`,
     `import { syncBuiltinESMExports as __syncBuiltins } from "node:module";`,
@@ -45,6 +56,8 @@ export function makeProbeModule(input: {
     `if ("__drizzlerRandom" in globalThis) {`,
     `  Math.random = globalThis.__drizzlerRandom;`,
     `  delete globalThis.__drizzlerRandom;`,
+    `  delete globalThis.crypto.getRandomValues;`,
+    `  delete globalThis.crypto.randomUUID;`,
     `}`,
     `const __schema = Object.assign({}, ${namespaces.join(", ")});`,
     // Every table is queryable; each `defineRelations` export and part adds its relations, the

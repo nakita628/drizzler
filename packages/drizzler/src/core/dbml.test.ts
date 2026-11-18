@@ -498,7 +498,7 @@ export const users = pgTable(
 );`);
     const out = dbml(code);
     expect(out).toContain(
-      "// Ref users_id_users_id_fk: users.id - users.id [delete: cascade] (a key from a column to itself, which DBML cannot express)",
+      "// Ref users_id_fkey: users.id - users.id [delete: cascade] (a key from a column to itself, which DBML cannot express)",
     );
     expect(out.split("\n").filter((line) => line.startsWith("Ref "))).toStrictEqual([]);
     expect(() => run(out, "svg")).not.toThrow();
@@ -1140,6 +1140,157 @@ export const booksList = sqliteTable(
         "    (media_id) [name: 'ix_books_list_media_id']",
         "  }",
       ].join("\n"),
+    );
+  });
+});
+
+describe("foreign keys, configs, expression indexes and column helpers after 0.4.6 (#64 to #67)", () => {
+  it("keeps each foreign key's own action and the name foreignKey({ name }) gives it (#64)", () => {
+    const code =
+      stripImports(`import { foreignKey, pgTable, text, unique } from "drizzle-orm/pg-core";
+
+export const teams = pgTable("teams", { id: text().primaryKey() });
+
+export const categories = pgTable(
+  "categories",
+  { teamId: text("team_id").notNull(), slug: text().notNull() },
+  (t) => [unique().on(t.teamId, t.slug)],
+);
+
+export const tx = pgTable(
+  "tx",
+  { id: text().primaryKey(), teamId: text("team_id").notNull(), slug: text() },
+  (t) => [
+    foreignKey({ columns: [t.teamId], foreignColumns: [teams.id], name: "tx_team_fk" }).onDelete("cascade"),
+    foreignKey({ columns: [t.teamId, t.slug], foreignColumns: [categories.teamId, categories.slug], name: "tx_category_fk" }),
+  ],
+);`);
+    const out = dbml(code);
+    expect(out.match(/^Ref .*$/gmu)).toStrictEqual([
+      "Ref tx_team_fk: tx.team_id > teams.id [delete: cascade]",
+      "Ref tx_category_fk: tx.(team_id, slug) > categories.(team_id, slug)",
+    ]);
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("does not give a composite key the action of a .references() on its first column (#64)", () => {
+    const code = stripImports(`import { foreignKey, pgTable, text } from "drizzle-orm/pg-core";
+
+export const folder = pgTable(
+  "folder",
+  {
+    id: text().primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    parentId: text("parent_id").references((): AnyPgColumn => folder.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    foreignKey({ columns: [t.parentId, t.ownerId], foreignColumns: [t.id, t.ownerId], name: "folder_parent_owner_fk" }),
+  ],
+);`);
+    const out = dbml(code);
+    expect(out).toContain(
+      "Ref folder_parent_id_folder_id_fk: folder.parent_id > folder.id [delete: set null]",
+    );
+    expect(out).toContain(
+      "Ref folder_parent_owner_fk: folder.(parent_id, owner_id) > folder.(id, owner_id)",
+    );
+  });
+
+  it("reads an extra config written as a block returning an array (#65)", () => {
+    const code =
+      stripImports(`import { index, jsonb, pgTable, primaryKey, text } from "drizzle-orm/pg-core";
+
+export const blockArray = pgTable("block_array", { a: text().notNull(), b: jsonb().notNull() }, (t) => {
+  return [primaryKey({ columns: [t.a] }), index("block_array_b_idx").on(t.b)];
+});`);
+    expect(dbml(code)).toBe(
+      [
+        "Table block_array {",
+        "  a text [not null]",
+        "  b jsonb [not null]",
+        "  indexes {",
+        "    (a) [pk]",
+        "    (b) [name: 'block_array_b_idx']",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+  });
+
+  it("writes indexes on sql expressions given to .on() (#66)", () => {
+    const code = stripImports(`import { sql } from "drizzle-orm";
+import { index, jsonb, pgTable, text } from "drizzle-orm/pg-core";
+
+export const exprIndex = pgTable("expr_index", { slug: text().notNull(), meta: jsonb() }, (t) => [
+  index("expr_index_lower_slug_idx").on(sql\`lower(\${t.slug})\`),
+  index("expr_index_meta_idx").on(sql\`(\${t.meta} ->> 'k')\`),
+  index("expr_index_gin_idx").using("gin", sql\`to_tsvector('english', \${t.slug})\`),
+]);`);
+    const out = dbml(code);
+    expect(out).toContain(
+      [
+        "  indexes {",
+        "    `lower(slug)` [name: 'expr_index_lower_slug_idx']",
+        "    `(meta ->> 'k')` [name: 'expr_index_meta_idx']",
+        "    `to_tsvector('english', slug)` [type: gin, name: 'expr_index_gin_idx']",
+        "  }",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("writes an expression index a helper returns, and one mixing expressions and columns (#66)", () => {
+    const code = stripImports(`import { sql, type SQL } from "drizzle-orm";
+import { type AnyPgColumn, index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+
+function lower(column: AnyPgColumn): SQL {
+  return sql\`lower(\${column})\`;
+}
+
+function gmail(column: AnyPgColumn): SQL {
+  const address = lower(column);
+  const isGmail = sql\`split_part(\${address}, '@', 2) = 'gmail.com'\`;
+  return sql\`(CASE WHEN \${isGmail} THEN \${address} END)\`;
+}
+
+export const collaborator = pgTable("collaborator", { owner: text().notNull(), repo: text().notNull(), email: text().notNull() }, (table) => [
+  index("collaborator_email_lower_idx").on(lower(table.email)),
+  index("collaborator_gmail_idx").on(gmail(table.email)),
+  uniqueIndex("uq_collaborator_owner_repo_email_ci").on(sql\`lower(\${table.owner})\`, sql\`lower(\${table.repo})\`, table.email),
+]);`);
+    const out = dbml(code);
+    expect(out).toContain(
+      [
+        "  indexes {",
+        "    `lower(email)` [name: 'collaborator_email_lower_idx']",
+        "    `(CASE WHEN split_part(lower(email), '@', 2) = 'gmail.com' THEN lower(email) END)` [name: 'collaborator_gmail_idx']",
+        "    `lower(owner), lower(repo), email` [unique, name: 'uq_collaborator_owner_repo_email_ci']",
+        "  }",
+      ].join("\n"),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
+  it("reads a column a function with statements builds (#67)", () => {
+    const code =
+      stripImports(`import { type AnyPgColumn, pgTable, text } from "drizzle-orm/pg-core";
+
+export const teams = pgTable("teams", { id: text().primaryKey() });
+
+function teamIdColumn() {
+  const column = text("team_id").references((): AnyPgColumn => teams.id, { onDelete: "restrict" });
+  return process.env.X === "1" && process.env.Y === "1"
+    ? (column as ReturnType<typeof column.notNull>)
+    : column.notNull();
+}
+
+export const project = pgTable("project", { id: text().primaryKey(), teamId: teamIdColumn() });`);
+    const out = dbml(code);
+    expect(out).toContain(
+      ["Table project {", "  id text [pk, not null]", "  team_id text [not null]", "}"].join("\n"),
+    );
+    expect(out).toContain(
+      "Ref project_team_id_teams_id_fk: project.team_id > teams.id [delete: restrict]",
     );
   });
 });

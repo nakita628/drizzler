@@ -282,6 +282,39 @@ describe("the docs' SQL, as drizzle-orm builds it", () => {
     expect(again).toBe(readme);
   });
 
+  it("is the same on every run when a default draws from Web Crypto seeded on load (#68)", async () => {
+    const project = makeProject({
+      // As cuid2's init() does: a counter and a fingerprint drawn from Web Crypto when the module
+      // loads, and each id from the clock, the counter and Web Crypto again.
+      "ids.ts": [
+        "const draw = () => crypto.getRandomValues(new Uint32Array(1))[0];",
+        "let counter = draw();",
+        "const fingerprint = draw().toString(36);",
+        "export const createId = () => `${Date.now().toString(36)}${(counter++).toString(36)}${fingerprint}${draw().toString(36)}`;",
+        "",
+      ].join("\n"),
+      "schema.ts": [
+        'import { sqliteTable, text } from "drizzle-orm/sqlite-core";',
+        'import { createId } from "./ids.ts";',
+        "",
+        'export const orgs = sqliteTable("orgs", {',
+        '  id: text("id").primaryKey().$defaultFn(() => `org_${createId()}`),',
+        '  name: text("name").notNull(),',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    const first = await drizzler(["schema.ts", "-o", "docs"], project);
+    const readme = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    await drizzler(["schema.ts", "-o", "docs"], project);
+    const again = fs.readFileSync(path.join(project, "docs/README.md"), "utf8");
+    removeProject(project);
+    expect(first.code).toBe(0);
+    expect(first.output).not.toContain("without their SQL");
+    expect(readme).toContain('"org_');
+    expect(again).toBe(readme);
+  });
+
   it("is left out, with the reason, when the schema cannot be loaded", async () => {
     const project = makeProject({
       "schema.ts": `${SQLITE_SCHEMA}\nthrow new Error("the schema refuses to load");\n`,

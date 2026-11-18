@@ -16,6 +16,7 @@ import {
   fallbackValue,
   declaratorName,
   helperCall,
+  returnedValue,
   topLevelDeclarations,
   isArrow,
   isCall,
@@ -178,8 +179,8 @@ function extractRelationFromField(
 }
 
 /**
- * The entries of a table's third argument: `(t) => [index(...)]` or the older
- * `(t) => ({ name: index(...) })`. An array a top-level function returns,
+ * The entries of a table's third argument: `(t) => [index(...)]` (or a block returning it) or the
+ * older `(t) => ({ name: index(...) })`. An array a top-level function returns,
  * `(t) => genericIndexes(t, "books_genre")`, is read with its parameters bound to the call's
  * arguments, and so is one spread into the array.
  */
@@ -188,7 +189,8 @@ export function constraintEntries(
   program?: Program,
 ) {
   if (!isArrow(arg)) return [];
-  const body = arg.body.type === "BlockStatement" ? null : unwrapParens(arg.body);
+  // `(t) => [...]`, or a block that returns one: `(t) => { return [...]; }`.
+  const body = returnedValue(arg);
   const listed = body === null ? null : arrayEntries(body, program);
   if (listed !== null) return listed;
   const obj = arrowObject(arg);

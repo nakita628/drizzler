@@ -130,6 +130,8 @@ export type SchemaRelation = {
   readonly onDelete: string | null;
   readonly onUpdate?: string | null;
   readonly name?: string | null;
+  /** The name `foreignKey({ name })` gives the constraint, which the database knows it by. */
+  readonly constraintName?: string | null;
   readonly from: RelationEnd;
   readonly to: RelationEnd;
 };
