@@ -622,3 +622,33 @@ describe("tables in a schema of their own and enums from TypeScript (#45, #46)",
     expect(out).not.toContain("projectRole");
   });
 });
+
+describe("relations and names written another way (#50, #53)", () => {
+  it("draws a namespace import's d.snakeCase.table columns and d.foreignKey (#50)", () => {
+    const out = mermaidER([
+      "export const employees = d.snakeCase.table(",
+      '  "employees",',
+      "  { id: d.serial().primaryKey(), lastName: d.varchar().notNull(), recipientId: d.integer() },",
+      "  (table) => [d.foreignKey({ columns: [table.recipientId], foreignColumns: [table.id] })],",
+      ");",
+    ]);
+    expect(out).toContain('    employees |o--o{ employees : "(id) - (recipient_id)"');
+    expect(out).toContain(
+      "    employees {\n        serial id PK\n        varchar last_name\n        integer recipient_id FK\n    }",
+    );
+  });
+
+  it("draws a relation only the v1 relations() declares as a dotted line (#53)", () => {
+    const out = mermaidER([
+      'export const users = sqliteTable("users", { id: text("id").primaryKey() });',
+      'export const sessions = sqliteTable("sessions", {',
+      '  id: text("id").primaryKey(),',
+      '  userId: text("user_id").notNull(),',
+      "});",
+      "export const sessionsRelations = relations(sessions, ({ one }) => ({",
+      "  user: one(users, { fields: [sessions.userId], references: [users.id] }),",
+      "}));",
+    ]);
+    expect(out).toContain('    users ||..o{ sessions : "(id) - (user_id)"');
+  });
+});

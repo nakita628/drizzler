@@ -83,10 +83,17 @@ export function dbml(code: string[]) {
               const settings = [
                 index.kind === "pk" ? "pk" : null,
                 index.kind === "unique" ? "unique" : null,
+                index.using === null ? null : `type: ${index.using}`,
                 index.name === null ? null : `name: ${note(index.name)}`,
               ].filter((s): s is string => s !== null);
               const settingsStr = settings.length > 0 ? ` [${settings.join(", ")}]` : "";
-              return `    (${index.columns.map(name).join(", ")})${settingsStr}`;
+              // An index on an expression is written as one, in backticks.
+              // https://dbml.dbdiagram.io/docs/#index-definition
+              const target =
+                index.expression === null
+                  ? `(${index.columns.map(name).join(", ")})`
+                  : `\`${index.expression.replaceAll("`", "")}\``;
+              return `    ${target}${settingsStr}`;
             }),
             "  }",
           ];

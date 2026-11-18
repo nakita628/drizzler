@@ -186,6 +186,13 @@ export function readSchemaSources(files: readonly string[]) {
   );
 }
 
+/** The first `drizzle.config.*` in `cwd`, or null when there is none. */
+export function drizzleConfigFile(cwd: string) {
+  return (
+    DRIZZLE_CONFIG_FILES.map((name) => path.join(cwd, name)).find((f) => fs.existsSync(f)) ?? null
+  );
+}
+
 /**
  * The schema drizzle-kit is configured with: the `schema` of the first `drizzle.config.*` in
  * `cwd`, a path or glob or a list of them, as written. Null when there is no config, or it does
@@ -193,10 +200,8 @@ export function readSchemaSources(files: readonly string[]) {
  */
 export function drizzleConfigSchema(cwd: string) {
   return attempt(() => {
-    const file = DRIZZLE_CONFIG_FILES.map((name) => path.join(cwd, name)).find((f) =>
-      fs.existsSync(f),
-    );
-    if (file === undefined) return null;
+    const file = drizzleConfigFile(cwd);
+    if (file === null) return null;
     const inputs = configSchemaInputs(parseModule(file, fs.readFileSync(file, "utf8")));
     return inputs === null ? null : { file, inputs };
   });

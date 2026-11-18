@@ -66,17 +66,43 @@ export function studioFailure(error: FileReadError | MissingAssetsError | Server
 }
 
 /**
- * What `drizzler <input...> -o <output>` does with what it was given: show the usage when there is
- * no schema, say what is wrong with the output, or write the kind of output the path asks for.
+ * Why there is no schema to read when an output is asked for: the drizzle config has no `schema`,
+ * or there is no config.
+ *
+ * @param output - the output asked for, shown in the example command
+ * @param config - the drizzle config found, or null
+ */
+function noSchemaMessage(output: string, config: string | null) {
+  const why =
+    config === null
+      ? "no schema was given and there is no drizzle.config.ts here"
+      : `${path.basename(config)} has no \`schema\``;
+  return `No schema to read: ${why}. Pass the schema files, e.g. \`drizzler src/schema.ts -o ${output}\``;
+}
+
+/**
+ * What `drizzler <input...> -o <output>` does with what it was given: show the usage when it was
+ * given nothing, say why there is no schema to read for an output, say what is wrong with the
+ * output, or write the kind of output the path asks for.
+ *
+ * @param inputs - the schema inputs, given or from the drizzle config
+ * @param output - the `-o` path, or null
+ * @param config - the drizzle config found, or null; named in the message when it has no schema
  */
 export function planGenerate(
   inputs: readonly string[],
   output: string | null,
+  config: string | null = null,
 ):
   | { readonly action: "help" }
   | { readonly action: "error"; readonly message: string }
   | { readonly action: "write"; readonly output: string; readonly kind: OutputKind } {
-  if (inputs.length === 0) return { action: "help" };
+  if (inputs.length === 0) {
+    // A bare `drizzler` asks for the usage; with an output, a script expects a file or a failure.
+    return output === null
+      ? { action: "help" }
+      : { action: "error", message: noSchemaMessage(output, config) };
+  }
   if (output === null) {
     return { action: "error", message: "Missing -o flag. Usage: drizzler <input...> -o <output>" };
   }

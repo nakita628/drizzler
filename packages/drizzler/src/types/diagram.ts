@@ -25,6 +25,10 @@ export type DiagramIndex = {
   readonly fields: readonly string[];
   /** The name the schema gives the index or constraint, when it gives one. */
   readonly name?: string | null;
+  /** The index method `.using()` names: `btree`, `gin`, ... */
+  readonly using?: string | null;
+  /** An index on an expression: its text, with each column it reads in its place. */
+  readonly expression?: readonly (string | { readonly field: string })[];
 };
 
 /** What the layout needs of a field to size the row it takes. */
@@ -93,6 +97,11 @@ export type SchemaField = {
   readonly attributes?: readonly string[];
   /** Set when the column's config says `withTimezone: true`. */
   readonly withTimezone?: true;
+  /**
+   * Set when the database generates the column's values: `primaryKey({ autoIncrement: true })`,
+   * `.autoincrement()`, or an identity column. A `serial` type says so itself.
+   */
+  readonly isIncrement?: true;
 };
 
 /** A model as the drawing shows it: a card with a row per field. */

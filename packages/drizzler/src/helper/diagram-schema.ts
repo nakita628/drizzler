@@ -21,7 +21,13 @@ import {
   topLevelValue,
   unwrapParens,
 } from "./ast.js";
-import { customTypeCallName, customTypeName, isCustomType } from "./custom-type.js";
+import {
+  customTypeCallName,
+  customTypeName,
+  evaluateString,
+  isCustomType,
+  staticString,
+} from "./custom-type.js";
 import { asksForTimezone, constraintEntries, tableCalls } from "./extract-tables.js";
 import { mergeRelations } from "./merge-relations.js";
 
@@ -101,8 +107,21 @@ function stringLiteral(node: Node | undefined) {
   return node?.type === "Literal" && typeof node.value === "string" ? node.value : null;
 }
 
-// The column a `t.col` / `table.col` argument names.
-function columnName(node: Node) {
+// What an index may say of a column besides naming it: `t.createdAt.desc().nullsLast()`.
+const COLUMN_MODIFIERS = new Set(["asc", "desc", "nullsFirst", "nullsLast", "op"]);
+
+// The column a `t.col` / `table.col` argument names, under the order or operator class an index
+// gives it (`t.createdAt.desc()`, `t.teamId.asc().nullsLast().op("text_ops")`).
+function columnName(node: Node): string | null {
+  if (
+    isCall(node) &&
+    node.callee.type === "MemberExpression" &&
+    !node.callee.computed &&
+    node.callee.property.type === "Identifier" &&
+    COLUMN_MODIFIERS.has(node.callee.property.name)
+  ) {
+    return columnName(node.callee.object);
+  }
   return node.type === "MemberExpression" && !node.computed && node.property.type === "Identifier"
     ? node.property.name
     : null;
@@ -123,6 +142,28 @@ function referentialActions(node: Node | undefined) {
     return prop && isPropertyAssignment(prop) ? stringLiteral(prop.value) : null;
   }
   return { onDelete: value("onDelete"), onUpdate: value("onUpdate") };
+}
+
+// The methods that have the database generate a column's values.
+const INCREMENTS = new Set([
+  "autoincrement",
+  "generatedAlwaysAsIdentity",
+  "generatedByDefaultAsIdentity",
+]);
+
+// Whether the database generates the column's values: an identity column, MySQL's
+// `.autoincrement()`, or SQLite's `primaryKey({ autoIncrement: true })`.
+function increments(methods: readonly ChainMethod[]): { readonly isIncrement?: true } {
+  const generated = methods.some(
+    (m) =>
+      INCREMENTS.has(m.name) ||
+      (m.name === "primaryKey" && isTrue(optionValue(m.args[0], "autoIncrement"))),
+  );
+  return generated ? { isIncrement: true } : {};
+}
+
+function isTrue(node: Node | undefined) {
+  return node?.type === "Literal" && node.value === true;
 }
 
 // What the drawing writes under a field: the defaults and generated values the
@@ -154,21 +195,76 @@ type Constraint =
     }
   | { readonly kind: "index"; readonly index: DiagramIndex };
 
-function readConstraints(arg: CallExpression["arguments"][number] | undefined) {
-  // oxlint-disable-next-line complexity -- one branch per constraint builder (foreignKey, index, unique, primaryKey)
-  return constraintEntries(arg).flatMap((entry): Constraint[] => {
+// The value of one key of an options object: `columns` in `primaryKey({ columns: [...] })`.
+function optionValue(config: Node | undefined, key: string) {
+  if (!isObject(config)) return undefined;
+  const prop = config.properties.find(
+    (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === key,
+  );
+  return prop !== undefined && isPropertyAssignment(prop) ? prop.value : undefined;
+}
+
+// An index on an expression, `sql\`to_tsvector('english', ${table.body})\``: its text, each column
+// it reads in its place. Null for anything else.
+function indexExpression(node: Node, text: string): DiagramIndex["expression"] | null {
+  if (node.type !== "TaggedTemplateExpression" || node.tag.type !== "Identifier") return null;
+  if (node.tag.name !== "sql") return null;
+  const { quasis, expressions } = node.quasi;
+  return quasis.flatMap((q, i) => {
+    const expr = expressions[i];
+    const column = expr === undefined ? null : columnName(expr);
+    const read =
+      expr === undefined ? [] : [column === null ? textOf(text, expr) : { field: column }];
+    return [q.value.cooked ?? "", ...read];
+  });
+}
+
+// An index or key constraint: `index("name").on(t.a, t.b.desc())`, `index("name").using("gin",
+// t.search)` or on an expression, `unique().on(...)`, `primaryKey({ columns: [t.a, t.b] })` or the
+// older `primaryKey(t.a, t.b)`. Null when it names no column.
+function readIndex(chain: Chain, type: DiagramIndex["type"], text: string): DiagramIndex | null {
+  const config = chain.args[0];
+  const listed = optionValue(config, "columns");
+  const fromConfig =
+    listed?.type === "ArrayExpression"
+      ? columnNames(listed.elements.filter((e) => e !== null))
+      : columnNames(chain.args);
+  const on = chain.methods.find((m) => m.name === "on");
+  const using = chain.methods.find((m) => m.name === "using");
+  const [method, ...targets] = using?.args ?? [];
+  const expression = targets.map((t) => indexExpression(t, text)).find((e) => e !== null) ?? null;
+  const expressionFields = (expression ?? []).flatMap((part) =>
+    typeof part === "string" ? [] : [part.field],
+  );
+  const used = using ? [...columnNames(targets), ...expressionFields] : fromConfig;
+  const fields = on ? columnNames(on.args) : used;
+  // `index("users_email_idx")`, `unique("name")`, or `primaryKey({ name, columns })`; a template
+  // a helper builds the name with is read too.
+  const named = optionValue(config, "name");
+  const name = named === undefined ? staticString(config) : staticString(named);
+  const indexMethod = stringLiteral(method);
+  if (fields.length === 0 && expression === null) return null;
+  return {
+    type,
+    fields,
+    ...(name === null ? {} : { name }),
+    ...(indexMethod === null ? {} : { using: indexMethod }),
+    ...(expression === null ? {} : { expression }),
+  };
+}
+
+function readConstraints(
+  arg: CallExpression["arguments"][number] | undefined,
+  program: Program,
+  text: string,
+) {
+  return constraintEntries(arg, program).flatMap((entry): Constraint[] => {
     const chain = readChain(entry);
     if (chain === null) return [];
     if (chain.builder === "foreignKey") {
-      const config = chain.args[0];
-      if (!isObject(config)) return [];
-      const columns = config.properties.find(
-        (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "columns",
-      );
-      if (!(columns && isPropertyAssignment(columns) && columns.value.type === "ArrayExpression")) {
-        return [];
-      }
-      const [column] = columnNames(columns.value.elements.filter((e) => e !== null));
+      const columns = optionValue(chain.args[0], "columns");
+      if (columns?.type !== "ArrayExpression") return [];
+      const [column] = columnNames(columns.elements.filter((e) => e !== null));
       const { methods } = chain;
       function action(name: string) {
         return stringLiteral(methods.find((m) => m.name === name)?.args[0]);
@@ -178,34 +274,8 @@ function readConstraints(arg: CallExpression["arguments"][number] | undefined) {
         : [];
     }
     const type = INDEX_TYPES.get(chain.builder);
-    if (!type) return [];
-    // `primaryKey({ columns: [t.a, t.b] })`, or the older `primaryKey(t.a, t.b)`.
-    const config = chain.args[0];
-    const listed = isObject(config)
-      ? config.properties.find(
-          (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "columns",
-        )
-      : undefined;
-    const fromConfig =
-      listed !== undefined &&
-      isPropertyAssignment(listed) &&
-      listed.value.type === "ArrayExpression"
-        ? columnNames(listed.value.elements.filter((e) => e !== null))
-        : columnNames(chain.args);
-    const on = chain.methods.find((m) => m.name === "on");
-    const fields = on ? columnNames(on.args) : fromConfig;
-    // `index("users_email_idx")`, `unique("name")`, or `primaryKey({ name, columns })`.
-    const named = isObject(config)
-      ? config.properties.find(
-          (p) => isPropertyAssignment(p) && p.key.type === "Identifier" && p.key.name === "name",
-        )
-      : undefined;
-    const name =
-      named !== undefined && isPropertyAssignment(named)
-        ? stringLiteral(named.value)
-        : stringLiteral(config);
-    const index: DiagramIndex = name === null ? { type, fields } : { type, fields, name };
-    return fields.length > 0 ? [{ kind: "index", index }] : [];
+    const index = type === undefined ? null : readIndex(chain, type, text);
+    return index === null ? [] : [{ kind: "index", index }];
   });
 }
 
@@ -295,7 +365,9 @@ function toSnakeCase(name: string) {
 /**
  * The name each table creator gives a table, by the creator's variable:
  * `const createTable = pgTableCreator((name) => \`project1_${name}\`)` makes
- * `createTable("post")` the table `project1_post`. Only a template of the name is read.
+ * `createTable("post")` the table `project1_post`. The callback may read the schema's constants
+ * (`` `${projectName}_${name}` ``, `siteConfig.name.toLowerCase()`); a callback the reader cannot
+ * work out leaves the name as it is given.
  */
 function tableCreators(program: Program) {
   return new Map(
@@ -308,12 +380,13 @@ function tableCreators(program: Program) {
       if (!isArrow(make)) return [];
       const [param] = make.params;
       const body = make.body.type === "BlockStatement" ? null : unwrapParens(make.body);
-      if (param?.type !== "Identifier" || body?.type !== "TemplateLiteral") return [];
-      if (!body.expressions.every((e) => e.type === "Identifier" && e.name === param.name)) {
-        return [];
-      }
-      const parts = body.quasis.map((q) => q.value.cooked ?? "");
-      return [[name, (table: string) => parts.join(table)] as const];
+      if (param?.type !== "Identifier" || body === null) return [];
+      return [
+        [
+          name,
+          (table: string) => evaluateString(body, program, new Map([[param.name, table]])),
+        ] as const,
+      ];
     }),
   );
 }
@@ -329,7 +402,7 @@ function tableSchema(builder: string, program: Program): { readonly schema?: str
 function schemaName(builder: string, program: Program) {
   const owner = /^(.+)\.table(?:\.withRLS)?$/su.exec(builder)?.[1];
   if (owner === undefined) return null;
-  const inline = /^[\w$]*Schema\((['"`])([^'"`]+)\1\)$/u.exec(owner);
+  const inline = /^(?:[\w$]+\.)?[\w$]*Schema\((['"`])([^'"`]+)\1\)$/u.exec(owner);
   if (inline !== null) return inline[2] ?? null;
   const value = /^[\w$]+$/u.test(owner) ? topLevelValue(owner, program) : undefined;
   if (!isCall(value) || value.callee.type !== "Identifier") return null;
@@ -359,9 +432,9 @@ export function diagramSchema(code: readonly string[]) {
     const columns = args[1];
     // `snakeCase.table(...)`, or an alias of it, names a column it is not given a name for in
     // snake_case.
-    const snakeCase = /^snakeCase\.table\b/u.test(builder);
+    const snakeCase = /(?:^|\.)snakeCase\.table\b/u.test(builder);
     if (!isObject(columns) && !isArrow(columns) && columns?.type !== "Identifier") return [];
-    const constraints = readConstraints(args[2]);
+    const constraints = readConstraints(args[2], program, text);
     for (const c of constraints) {
       if (c.kind === "fk") actions.set(`${varName}.${c.column}`, c);
     }
@@ -396,6 +469,7 @@ export function diagramSchema(code: readonly string[]) {
           documentation: descriptionBefore(source, prop.start),
           attributes: fieldNotes(chain.methods, text),
           ...(withTimezone ? { withTimezone: true as const } : {}),
+          ...increments(chain.methods),
         },
       ];
     });

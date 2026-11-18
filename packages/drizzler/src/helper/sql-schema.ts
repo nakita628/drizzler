@@ -93,14 +93,40 @@ export function sqlSchema(code: readonly string[]) {
     const keyColumns = new Set(model.primaryKey ?? []);
     const indexes = [
       ...(tableKey && model.primaryKey !== null
-        ? [{ kind: "pk" as const, columns: model.primaryKey, name: null }]
+        ? [
+            {
+              kind: "pk" as const,
+              columns: model.primaryKey,
+              name: null,
+              using: null,
+              expression: null,
+            },
+          ]
         : []),
       ...(model.indexes ?? []).flatMap((index) =>
         index.type === "id"
           ? []
-          : [{ kind: index.type, columns: index.fields, name: index.name ?? null }],
+          : [
+              {
+                kind: index.type,
+                columns: index.fields,
+                name: index.name ?? null,
+                using: index.using ?? null,
+                expression: index.expression ?? null,
+              },
+            ],
       ),
-    ].map((index) => ({ ...index, columns: index.columns.map((c) => columnOf(model.name, c)) }));
+    ].map((index) => ({
+      ...index,
+      columns: index.columns.map((c) => columnOf(model.name, c)),
+      // An index on an expression, each column it reads by its SQL name.
+      expression:
+        index.expression === null
+          ? null
+          : index.expression
+              .map((part) => (typeof part === "string" ? part : columnOf(model.name, part.field)))
+              .join(""),
+    }));
     return {
       name: tableNames.get(model.name) ?? model.name,
       schema: model.schema ?? null,
@@ -110,7 +136,7 @@ export function sqlSchema(code: readonly string[]) {
         name: field.dbName ?? field.name,
         type: sqlType(field, enumTypes),
         primaryKey: field.isId,
-        increment: field.type.includes("serial"),
+        increment: field.type.includes("serial") || field.isIncrement === true,
         // A primary key column is NOT NULL whether or not it says so.
         notNull: field.isRequired || keyColumns.has(field.name),
         unique: field.isUnique ?? false,
