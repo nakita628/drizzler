@@ -8,9 +8,11 @@ name: Claude
 # No secret is stored: the action exchanges the workflow's OIDC token both for the Claude App's
 # installation token and, through workload identity federation, for a short-lived Claude API
 # token. The federation identifiers are not credentials and live in repository variables.
-# The action itself refuses anyone without write access to the repository. Claude may run only the
-# build, check and test commands and plain git and gh commands, not arbitrary pnpm, vp or git
-# invocations, since the issue or comment it reads may come from someone else.
+# The action itself refuses anyone without write access to the repository, but the issue or comment
+# Claude reads may still come from someone else, so a maintainer should read it before labelling.
+# Claude's commands are limited to the build, check and test commands, plain gh commands, and git
+# pushes of the current branch to a branch of the same name; main is protected and takes no direct
+# push. The tests run the code Claude writes, so this narrows what Claude does, not what code runs.
 
 on:
   issues:
@@ -34,7 +36,9 @@ jobs:
     if: >-
       (github.event_name == 'issues' && github.event.label.name == 'claude') ||
       (github.event_name != 'issues' && contains(github.event.comment.body, '@claude') &&
-      github.event.comment.user.type != 'Bot')
+      github.event.comment.user.type != 'Bot' &&
+      (github.event_name != 'pull_request_review_comment' ||
+      github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -74,7 +78,7 @@ jobs:
             5. Commit, push the branch, and open a pull request against main with `gh pr create`. Its title
                says what changed; its body explains the change and ends with `Closes #${{ github.event.issue.number }}`.
           claude_args: >-
-            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp install),Bash(vp run build),Bash(vp check),Bash(vp check --fix),Bash(vp test),Bash(vp test:*),Bash(vp run --filter ./test test),Bash(git status),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh issue view:*)"
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp install),Bash(vp run build),Bash(vp check),Bash(vp check --fix),Bash(vp test),Bash(vp test:*),Bash(vp run --filter ./test test),Bash(git status),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin HEAD),Bash(git push -u origin HEAD),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh issue view:*)"
 
       # An `@claude` comment: Claude does what it asks, on the pull request's branch when there is one.
       - if: github.event_name != 'issues'
@@ -85,4 +89,4 @@ jobs:
           anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           claude_args: >-
             --append-system-prompt "The dependencies were installed from the default branch: run vp install after switching to a pull request's branch. Do not change the version in packages/drizzler/package.json."
-            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp install),Bash(vp run build),Bash(vp check),Bash(vp check --fix),Bash(vp test),Bash(vp test:*),Bash(vp run --filter ./test test),Bash(git status),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh issue view:*),Bash(gh pr diff:*)"
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp install),Bash(vp run build),Bash(vp check),Bash(vp check --fix),Bash(vp test),Bash(vp test:*),Bash(vp run --filter ./test test),Bash(git status),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin HEAD),Bash(git push -u origin HEAD),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh issue view:*),Bash(gh pr diff:*)"
