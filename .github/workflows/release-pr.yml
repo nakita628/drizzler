@@ -1,0 +1,102 @@
+name: release-pr
+
+# Opens the release pull request: run it from the Actions tab, choose patch, minor or major, and
+# it bumps the version in packages/drizzler/package.json on a release/vX.Y.Z branch and opens a
+# "Version X.Y.Z" pull request whose body lists what changed since the last tag. Merging that pull
+# request is the release: release.yml tags, publishes to npm and writes the GitHub release once
+# Test passes on main.
+#
+# A pull request opened with the workflow's own GITHUB_TOKEN does not start other workflows, so
+# Test and Lint would not run on it. Give the job a GitHub App token instead: set the repository
+# secrets RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY for an App installed on this
+# repository with Contents and Pull requests set to read and write. Without them the job falls
+# back to GITHUB_TOKEN (allow "GitHub Actions to create and approve pull requests" in the
+# repository settings), and the checks start once the pull request is closed and reopened.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions: {}
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      pull-requests: write
+    # A secret cannot be read in a step's `if`, so the client ID comes through the environment.
+    env:
+      APP_CLIENT_ID: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+    steps:
+      - name: Mint a GitHub App token
+        id: app
+        if: env.APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ env.APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # The token stays in the checkout: the step below pushes the release branch with it
+      # (.github/zizmor.yml excuses this one checkout from the artipacked audit).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token || github.token }}
+
+      - name: Bump the version and open the pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          BUMP: ${{ inputs.bump }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PREVIOUS=$(jq -r .version packages/drizzler/package.json)
+          (cd packages/drizzler && npm version "$BUMP" --no-git-tag-version --ignore-scripts >/dev/null)
+          VERSION=$(jq -r .version packages/drizzler/package.json)
+          BRANCH="release/v$VERSION"
+
+          if git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION already exists. Check packages/drizzler/package.json on main"
+            exit 1
+          fi
+          if git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null; then
+            echo "::error::Branch $BRANCH already exists. Merge or close its pull request, delete the branch, and run again"
+            exit 1
+          fi
+          OPEN=$(gh pr list --repo "$REPO" --state open --search 'head:release/v' --json number --jq 'length')
+          if [ "$OPEN" != "0" ]; then
+            echo "::error::A release pull request is already open. Merge or close it first"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add packages/drizzler/package.json
+          git commit -m "Version $VERSION"
+          git push origin "$BRANCH"
+
+          # GitHub writes the notes from the pull requests merged since the previous tag, the
+          # same notes release.yml puts on the release.
+          ARGS=(-f "tag_name=v$VERSION" -f "target_commitish=main")
+          if git ls-remote --exit-code origin "refs/tags/v$PREVIOUS" >/dev/null; then
+            ARGS+=(-f "previous_tag_name=v$PREVIOUS")
+          fi
+          NOTES=$(gh api "repos/$REPO/releases/generate-notes" "${ARGS[@]}" --jq .body)
+
+          BODY=$(printf 'Release drizzler %s (%s bump from %s).\n\nMerging this pull request publishes drizzler@%s to npm, tags v%s and writes the GitHub release, once Test passes on main.\n\n%s\n' \
+            "$VERSION" "$BUMP" "$PREVIOUS" "$VERSION" "$VERSION" "$NOTES")
+          gh pr create --repo "$REPO" --base main --head "$BRANCH" --title "Version $VERSION" --body "$BODY"
