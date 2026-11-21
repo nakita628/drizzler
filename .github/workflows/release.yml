@@ -1,9 +1,23 @@
 name: release
 
-# Runs after Test has passed on main. `workflow_run` is the trigger zizmor warns about because
-# it hands a token to code from a pull request when misused; here every job checks out the
-# commit Test ran on (`head_sha`), only for a `push` to main, and the token stays read-only
-# except where a tag or a release is written from that same commit.
+# Releases drizzler after Test has passed on main, with nothing but the workflow's own token: no
+# App, no secret, no pull request and no push to main (which requires the test and lint checks).
+# Every Test run that passed on main for a push decides here whether a release is due, one run at
+# a time (the concurrency group), so a change cannot be missed or released twice.
+#
+# The version:
+# - A version in packages/drizzler/package.json that npm does not have yet is released as it is.
+#   Raising it in a pull request is how a minor or major release is made.
+# - Otherwise, when what reaches npm has changed since the latest release (anything under
+#   packages/drizzler but the tests, docs/ and, in package.json, version and devDependencies), the
+#   next patch after the latest release on npm is released. It is set in the build only, so main
+#   keeps the version it has; the tag, the npm package and the GitHub release carry the new one.
+# - Otherwise nothing is released.
+#
+# `workflow_run` is the trigger zizmor warns about because it hands a token to code from a pull
+# request when misused; here every job checks out the commit Test ran on (`head_sha`), only for a
+# `push` to main, and the token stays read-only except where a tag or a release is written from
+# that same commit.
 on:
   workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [Test]
@@ -26,30 +40,65 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       unpublished: ${{ steps.ver.outputs.unpublished }}
     steps:
+      # The whole history and the tags, to compare with the commit the latest release came from.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - name: Check version and npm publish state
+      - name: Decide the version
         id: ver
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          VERSION=$(jq -r .version packages/drizzler/package.json)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          decide() {
+            echo "version=$1" >> "$GITHUB_OUTPUT"
+            echo "unpublished=$2" >> "$GITHUB_OUTPUT"
+            echo "$3"
+            exit 0
+          }
+          BASE=$(jq -r .version packages/drizzler/package.json)
           if ! VERSIONS=$(npm view drizzler versions --json); then
             echo "::error::Failed to query the npm registry for drizzler versions. Check https://status.npmjs.org/ and re-run the workflow"
             exit 1
           fi
-          if ! PUBLISHED=$(echo "$VERSIONS" | jq --arg version "$VERSION" '[.] | flatten | index($version) != null'); then
+          if ! PUBLISHED=$(echo "$VERSIONS" | jq -r '[.] | flatten | .[]'); then
             echo "::error::Unexpected npm registry response. Re-run the workflow"
             exit 1
           fi
-          if [ "$PUBLISHED" = "true" ]; then
-            echo "unpublished=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "unpublished=true" >> "$GITHUB_OUTPUT"
+          # The latest release, counting x.y.z versions only (npm also has 0.0.0-stage).
+          LATEST=$(printf '%s\n' "$PUBLISHED" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+
+          # A version npm does not have yet, set in package.json by hand: release it as it is.
+          if ! printf '%s\n' "$PUBLISHED" | grep -qxF "$BASE"; then
+            if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$BASE" "$LATEST" | sort -V | tail -n 1)" != "$BASE" ]; then
+              echo "::error::packages/drizzler/package.json has $BASE, lower than the latest release $LATEST. Raise it above $LATEST"
+              exit 1
+            fi
+            decide "$BASE" true "Releasing $BASE, the version in packages/drizzler/package.json"
           fi
+
+          if [ -z "$LATEST" ] || ! git rev-parse -q --verify "refs/tags/v$LATEST" >/dev/null; then
+            echo "::error::Tag v$LATEST of the latest release on npm does not exist. Tag the commit drizzler@$LATEST was published from (git tag v$LATEST <sha> && git push origin v$LATEST)"
+            exit 1
+          fi
+          RELEASED=$(git rev-parse "v$LATEST^{commit}")
+          # Test runs can finish out of order: a commit the latest release already has is done.
+          if git merge-base --is-ancestor "$HEAD_SHA" "$RELEASED"; then
+            decide "$LATEST" false "$HEAD_SHA is already in v$LATEST"
+          fi
+          # What reaches npm: the files under packages/drizzler but the tests, docs/ and package.json,
+          # and in package.json everything but version and devDependencies.
+          FILES=$(git diff --name-only "$RELEASED" "$HEAD_SHA" -- packages/drizzler ':!packages/drizzler/docs' ':!*.test.ts' ':!packages/drizzler/package.json')
+          manifest() { git show "$1:packages/drizzler/package.json" | jq -S 'del(.version, .devDependencies)'; }
+          if [ -z "$FILES" ] && [ "$(manifest "$RELEASED")" = "$(manifest "$HEAD_SHA")" ]; then
+            decide "$LATEST" false "Nothing that reaches npm has changed since v$LATEST"
+          fi
+          NEXT=$(echo "$LATEST" | awk -F. '{ print $1 "." $2 "." $3 + 1 }')
+          printf '%s\n' "$FILES"
+          decide "$NEXT" true "Releasing $NEXT: what reaches npm has changed since v$LATEST"
 
   tag:
     runs-on: ubuntu-latest
@@ -119,6 +168,13 @@ jobs:
 
       # pnpm-lock.yaml is not committed in this repository, so the install cannot be frozen.
       - run: vp install
+
+      # The version decided above, for the build (the CLI bundles it) and the package only.
+      - name: Set the version
+        working-directory: packages/drizzler
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version --ignore-scripts
 
       - run: vp run drizzler#build
 
