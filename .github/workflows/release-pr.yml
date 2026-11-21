@@ -12,6 +12,13 @@ name: release-pr
 # repository with Contents and Pull requests set to read and write. Without them the job falls
 # back to GITHUB_TOKEN (allow "GitHub Actions to create and approve pull requests" in the
 # repository settings), and the checks start once the pull request is closed and reopened.
+#
+# With auto_merge on, the job also turns on auto-merge (squash) for the pull request, pinned to
+# the commit it pushed, so GitHub merges it by itself once the required checks pass. That needs
+# the App token: a merge made with GITHUB_TOKEN would not start Test on main, so release.yml would
+# never run. It also needs "Allow auto-merge" in the repository settings and a branch protection
+# rule (or ruleset) on main that requires the test and lint checks; without required checks
+# GitHub would have nothing to wait for. Running this workflow is the approval of the release.
 on:
   workflow_dispatch:
     inputs:
@@ -20,6 +27,10 @@ on:
         type: choice
         options: [patch, minor, major]
         default: patch
+      auto_merge:
+        description: Merge the pull request by itself once the required checks pass
+        type: boolean
+        default: true
 
 permissions: {}
 
@@ -57,6 +68,7 @@ jobs:
           token: ${{ steps.app.outputs.token || github.token }}
 
       - name: Bump the version and open the pull request
+        id: pr
         env:
           GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
           BUMP: ${{ inputs.bump }}
@@ -99,4 +111,24 @@ jobs:
 
           BODY=$(printf 'Release drizzler %s (%s bump from %s).\n\nMerging this pull request publishes drizzler@%s to npm, tags v%s and writes the GitHub release, once Test passes on main.\n\n%s\n' \
             "$VERSION" "$BUMP" "$PREVIOUS" "$VERSION" "$VERSION" "$NOTES")
-          gh pr create --repo "$REPO" --base main --head "$BRANCH" --title "Version $VERSION" --body "$BODY"
+          URL=$(gh pr create --repo "$REPO" --base main --head "$BRANCH" --title "Version $VERSION" --body "$BODY")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Turn on auto-merge
+        if: inputs.auto_merge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          URL: ${{ steps.pr.outputs.url }}
+          SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Auto-merge needs the GitHub App token (RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY): a merge made with GITHUB_TOKEN would not start the release. Merge $URL by hand"
+            exit 0
+          fi
+          # --match-head-commit pins the merge to the commit pushed above: a later push to the
+          # branch cancels it rather than releasing something unreviewed.
+          if ! gh pr merge "$URL" --auto --squash --match-head-commit "$SHA"; then
+            echo "::warning::Could not turn on auto-merge for $URL. Check that \"Allow auto-merge\" is on and that main requires the test and lint checks, then merge it by hand"
+          fi
