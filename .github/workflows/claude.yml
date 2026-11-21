@@ -8,7 +8,9 @@ name: Claude
 # No secret is stored: the action exchanges the workflow's OIDC token both for the Claude App's
 # installation token and, through workload identity federation, for a short-lived Claude API
 # token. The federation identifiers are not credentials and live in repository variables.
-# The action itself refuses anyone without write access to the repository.
+# The action itself refuses anyone without write access to the repository. Claude may run only the
+# build, check and test commands and plain git and gh commands, not arbitrary pnpm, vp or git
+# invocations, since the issue or comment it reads may come from someone else.
 
 on:
   issues:
@@ -23,6 +25,9 @@ permissions: {}
 concurrency:
   group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: false
+  # Without a queue GitHub keeps one pending run per group and drops the rest, so a second
+  # `@claude` while the first runs would be lost.
+  queue: max
 
 jobs:
   claude:
@@ -69,7 +74,7 @@ jobs:
             5. Commit, push the branch, and open a pull request against main with `gh pr create`. Its title
                says what changed; its body explains the change and ends with `Closes #${{ github.event.issue.number }}`.
           claude_args: >-
-            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp:*),Bash(pnpm:*),Bash(git:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh issue view:*)"
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp install),Bash(vp run build),Bash(vp check),Bash(vp check --fix),Bash(vp test),Bash(vp test:*),Bash(vp run --filter ./test test),Bash(git status),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh issue view:*)"
 
       # An `@claude` comment: Claude does what it asks, on the pull request's branch when there is one.
       - if: github.event_name != 'issues'
@@ -79,4 +84,5 @@ jobs:
           anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           claude_args: >-
-            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp:*),Bash(pnpm:*),Bash(git:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*)"
+            --append-system-prompt "The dependencies were installed from the default branch: run vp install after switching to a pull request's branch. Do not change the version in packages/drizzler/package.json."
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(vp install),Bash(vp run build),Bash(vp check),Bash(vp check --fix),Bash(vp test),Bash(vp test:*),Bash(vp run --filter ./test test),Bash(git status),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh issue view:*),Bash(gh pr diff:*)"

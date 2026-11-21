@@ -1,10 +1,17 @@
 name: Claude Review
 
-# Claude reviews every pull request from a branch of this repository, whether a maintainer or
-# Claude (see claude.yml) opened it. When the review finds nothing that blocks it, Claude turns on
-# auto-merge, so GitHub squash-merges the pull request once the required checks (Test and Lint)
-# pass. Otherwise Claude leaves its findings on the pull request, and `@claude` in a comment asks
-# Claude to fix them.
+# Claude reviews every pull request into main from a branch of this repository, whether a
+# maintainer or Claude (see claude.yml) opened it. When the review finds nothing that blocks it,
+# Claude turns on auto-merge, so GitHub squash-merges the pull request once the required checks
+# (Test and Lint) pass. Otherwise Claude leaves its findings on the pull request, and `@claude` in
+# a comment asks Claude to fix them.
+#
+# Every run first turns auto-merge off, so a commit pushed after an earlier review passed is not
+# merged until its own review passes.
+#
+# A pull request that changes the package's version or a workflow is never merged automatically:
+# a version change on main publishes to npm through release.yml, and a workflow change alters what
+# runs with the repository's tokens. Claude reviews it and leaves the merge to a maintainer.
 #
 # Claude merges with the Claude GitHub App's token rather than `GITHUB_TOKEN`: a merge made with
 # `GITHUB_TOKEN` starts no workflow, so Test would not run on main and release.yml would not
@@ -17,6 +24,7 @@ name: Claude Review
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
 
 permissions: {}
 
@@ -38,6 +46,30 @@ jobs:
       issues: read
       id-token: write
     steps:
+      - name: Turn auto-merge off until this commit is reviewed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR" --repo "$REPO" --disable-auto || true
+
+      - name: Decide whether the pull request may merge automatically
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          FILES=$(gh api --paginate "repos/$REPO/pulls/$PR/files")
+          WORKFLOWS=$(echo "$FILES" | jq -s '[.[][] | select(.filename | startswith(".github/"))] | length')
+          VERSION=$(echo "$FILES" | jq -rs '.[][] | select(.filename == "packages/drizzler/package.json") | .patch // ""' | grep -cE '^\+[[:space:]]*"version"' || true)
+          if [ "$WORKFLOWS" -gt 0 ] || [ "$VERSION" -gt 0 ]; then
+            echo "auto_merge=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "auto_merge=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -61,7 +93,6 @@ jobs:
 
             - If you find problems that should block the merge, post them as inline comments on the
               lines concerned, and a summary with `gh pr comment`. Do not merge.
-            - If you find none, post a short comment with `gh pr comment` saying the review passed,
-              then run `gh pr merge ${{ github.event.pull_request.number }} --auto --squash --delete-branch`.
+            ${{ steps.guard.outputs.auto_merge == 'true' && format('- If you find none, run `gh pr merge {0} --auto --squash --delete-branch`, and once it succeeds post a short comment with `gh pr comment` saying the review passed and auto-merge is on.', github.event.pull_request.number) || '- If you find none, post a short comment with `gh pr comment` saying the review passed. Do not merge: this pull request changes the package version or a workflow, so a maintainer merges it.' }}
           claude_args: >-
-            --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh pr merge:*),mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),${{ steps.guard.outputs.auto_merge == 'true' && format('Bash(gh pr merge {0} --auto --squash --delete-branch),', github.event.pull_request.number) || '' }}mcp__github_inline_comment__create_inline_comment"
