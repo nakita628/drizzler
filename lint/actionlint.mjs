@@ -12,7 +12,12 @@ const WORKFLOWS = ".github/workflows";
 
 // `concurrency.queue` is a GitHub Actions key newer than the schema actionlint knows; the
 // finding is noise until the schema catches up. This is the `-ignore` pattern of the binary.
-const IGNORED = [/unexpected key "queue" for "concurrency"/u];
+// The `vars` context (repository variables) is likewise newer than the WebAssembly build of the
+// npm package; the Go binary knows it.
+const IGNORED = [
+  /unexpected key "queue" for "concurrency"/u,
+  /undefined variable "vars"\. available variables are/u,
+];
 
 const lint = await createLinter();
 
