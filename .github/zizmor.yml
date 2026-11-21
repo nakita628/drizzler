@@ -5,3 +5,5 @@ rules:
     ignore:
       # The tag job pushes the tag with the checkout's token, so the credentials have to persist.
       - release.yml:62:9
+      # release-pr pushes the release branch with the checkout's token.
+      - release-pr.yml:64:9
