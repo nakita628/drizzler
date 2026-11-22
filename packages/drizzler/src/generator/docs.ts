@@ -234,14 +234,20 @@ function tableSection(
   ].join("\n\n");
 }
 
-function enumSection(value: Docs["enums"][number], ddl: ReadonlyMap<string, readonly string[]>) {
+// An enum's section; its statements are found by its own name (`user_role`), as `ddlBySubject`
+// keys them, though the docs name an enum of a schema of its own with it (`auth.user_role`).
+function enumSection(
+  value: Docs["enums"][number],
+  ddl: ReadonlyMap<string, readonly string[]>,
+  ddlName: string,
+) {
   const names = value.dbName === value.name ? [] : [`Type ${inline(value.dbName)}.`];
   const intro = [...names, ...(value.description !== null ? [value.description] : [])].join(" ");
   return [
     heading(3, "enum", value.name),
     ...(intro === "" ? [] : [intro]),
     value.values.map((v) => `- ${inline(v)}`).join("\n"),
-    ...definitionOf(ddl.get(`enum:${value.dbName}`)),
+    ...definitionOf(ddl.get(`enum:${ddlName}`)),
   ].join("\n\n");
 }
 
@@ -291,8 +297,10 @@ export function docsMarkdown(
       ? null
       : Map.groupBy(options.queries, (query) => query.table);
   const ddl = ddlBySubject(options.ddl ?? []);
-  const docs = makeDocs({ ...diagramSchema(code), relationFields: relationFields(code) });
+  const schema = diagramSchema(code);
+  const docs = makeDocs({ ...schema, relationFields: relationFields(code) });
   const enums = new Set(docs.enums.map((e) => e.name));
+  const ddlNames = new Map(schema.enums.map((e) => [e.name, e.dbName ?? e.name]));
   return `${[
     "# Schema docs",
     `![ER diagram](${DOCS_FILES.diagram})`,
@@ -303,7 +311,12 @@ export function docsMarkdown(
     ...docs.tables.map((table) => tableSection(table, enums, queries, ddl)),
     ...(docs.enums.length === 0
       ? []
-      : ["## Enums", ...docs.enums.map((value) => enumSection(value, ddl))]),
+      : [
+          "## Enums",
+          ...docs.enums.map((value) =>
+            enumSection(value, ddl, ddlNames.get(value.name) ?? value.dbName),
+          ),
+        ]),
   ].join("\n\n")}\n`;
 }
 

@@ -173,6 +173,20 @@ describe("docsMarkdown with the tables' definitions", () => {
       "```sql\nCREATE TYPE \"member_role\" AS ENUM('owner', 'member');\n```",
     );
   });
+
+  it("names an enum of a schema of its own with the schema, and finds its definition", () => {
+    const markdown = docsMarkdown(
+      [
+        "export const authSchema = pgSchema('auth')",
+        "export const role = authSchema.enum('user_role', ['admin', 'member'])",
+      ],
+      { ddl: ["CREATE TYPE \"auth\".\"user_role\" AS ENUM('admin', 'member');"] },
+    );
+    expect(markdown).toContain("Type `auth.user_role`.");
+    expect(markdown).toContain(
+      "#### Definition\n\n```sql\nCREATE TYPE \"auth\".\"user_role\" AS ENUM('admin', 'member');\n```",
+    );
+  });
 });
 
 describe("docsSql", () => {

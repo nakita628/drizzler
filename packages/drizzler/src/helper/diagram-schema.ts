@@ -433,8 +433,9 @@ function unwrapExpression(node: Node): Node {
 
 // The name of a database schema: `auth` for `pgSchema("auth")` (`mysqlSchema`, or `pg.pgSchema`
 // after `import * as pg`), or for a top-level variable bound to one (`authSchema`), under `as` or
-// `satisfies`. Null for anything else, a call that only ends in `Schema`
-// (`createInsertSchema(users)`) among them. Tables and enums both read their schema with it.
+// `satisfies`. The name may be a template or a constant (`pgSchema(SCHEMA)`). Null for anything
+// else: a call whose name ends in `Schema` but that names no schema (`createInsertSchema(users)`)
+// is not one. Tables and enums both read their schema with it.
 function schemaOf(node: Node | undefined, program: Program) {
   const expr = node === undefined ? undefined : unwrapExpression(node);
   const bound = expr?.type === "Identifier" ? topLevelValue(expr.name, program) : expr;
@@ -443,7 +444,8 @@ function schemaOf(node: Node | undefined, program: Program) {
   const { callee } = value;
   const builder = callee.type === "MemberExpression" && !callee.computed ? callee.property : callee;
   if (builder.type !== "Identifier" || !builder.name.endsWith("Schema")) return null;
-  return stringLiteral(value.arguments[0]);
+  const [name] = value.arguments;
+  return name === undefined ? null : evaluateString(name, program);
 }
 
 // The enum a top-level call declares, with the database schema it is declared in: none for

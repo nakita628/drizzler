@@ -229,6 +229,22 @@ describe("diagramSchema", () => {
       ["level", "enum"],
     ]);
   });
+
+  it("reads a schema named by a template or a constant, for tables and enums", () => {
+    const schema = diagramSchema([
+      "const SCHEMA = 'auth'",
+      "export const authSchema = pgSchema(SCHEMA)",
+      "export const role = authSchema.enum('user_role', ['admin'])",
+      "export const status = pgSchema(`billing`).enum('status', ['paid'])",
+      "export const users = authSchema.table('users', { role: role('role') })",
+    ]);
+
+    expect(schema.enums.map((e) => [e.name, e.schema])).toStrictEqual([
+      ["role", "auth"],
+      ["status", "billing"],
+    ]);
+    expect(schema.models.map((m) => [m.name, m.schema])).toStrictEqual([["users", "auth"]]);
+  });
 });
 
 describe("diagramSchema of tables built in a function", () => {

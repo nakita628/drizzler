@@ -64,4 +64,17 @@ describe("makeDocs", () => {
   it("leaves out the relations query for a table without relations", () => {
     expect(Object.keys(queries([]))).toStrictEqual(["Select", "Count", "Find many"]);
   });
+
+  it("names an enum of a schema of its own with the schema, as it names a table", () => {
+    const { enums } = makeDocs({
+      models: [],
+      relations: [],
+      enums: [
+        { name: "role", dbName: "user_role", schema: "auth", values: [] },
+        { name: "status", dbName: null, values: [] },
+      ],
+      relationFields: [],
+    });
+    expect(enums.map((e) => e.dbName)).toStrictEqual(["auth.user_role", "status"]);
+  });
 });
