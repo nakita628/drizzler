@@ -761,6 +761,20 @@ export const sessions = pgSchema("auth").table("sessions", {
     expect(dbml(code)).toBe(["Table auth.sessions {", "  id uuid [pk, not null]", "}"].join("\n"));
   });
 
+  it("types a column of an enum declared on a pgSchema under the enum's schema", () => {
+    const code = stripImports(`import { pgSchema } from "drizzle-orm/pg-core";
+
+export const authSchema = pgSchema("auth");
+export const role = authSchema.enum("user_role", ["admin", "member"]);
+
+export const users = authSchema.table("users", {
+  role: role("role").notNull(),
+});`);
+    const out = dbml(code);
+    expect(out).toBe(["Table auth.users {", "  role auth.user_role [not null]", "}"].join("\n"));
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
   it("reads a pgEnum built from a TypeScript enum, or from one it cannot see (#46)", () => {
     const code = stripImports(`import { pgEnum, pgTable, uuid } from "drizzle-orm/pg-core";
 import { PlanType } from "@acme/billing";

@@ -59,11 +59,12 @@ function attribute(value: string) {
   return /^[A-Za-z_][\w-]*$/u.test(value) ? value : quoted(value);
 }
 
-// An attribute type as Mermaid reads it: one word, so `double precision` is `double_precision`.
+// An attribute type as Mermaid reads it: one word, so `double precision` is `double_precision`,
+// and an enum of a schema of its own, `auth.user_role`, is `auth_user_role` (a dot ends the word).
 // A type may hold parentheses but no comma, so `numeric(10,2)` is drawn as `numeric`.
 function attributeType(value: string) {
   const word = value.includes(",") ? value.replace(/\(.*\)/u, "") : value;
-  return word.replaceAll(/\s+/gu, "_");
+  return word.replaceAll(/[\s.]+/gu, "_");
 }
 
 /**

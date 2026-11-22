@@ -42,10 +42,15 @@ function endpoint(end: {
   return `${tableName({ schema: end.schema, bare: end.bareTable })}.${columns}`;
 }
 
-// A column type as DBML reads it: a word with its size or precision (`numeric(10,2)`) as it is,
-// anything else as a name.
-function typeName(value: string) {
-  return /^[A-Za-z_]\w*\(\d+(?:,\d+)?\)$/u.test(value) ? value : name(value);
+// A column type as DBML reads it: a word with its size or precision (`numeric(10,2)`) as it is, a
+// type of a schema of its own (`auth.user_role`) under its schema, anything else as a name.
+// https://dbml.dbdiagram.io/docs/#enum-definition
+function typeName(value: string): string {
+  if (/^[A-Za-z_]\w*\(\d+(?:,\d+)?\)$/u.test(value)) return value;
+  const [, schema, type] = /^([A-Za-z_]\w*)\.(.+)$/su.exec(value) ?? [];
+  return schema === undefined || type === undefined
+    ? name(value)
+    : `${name(schema)}.${typeName(type)}`;
 }
 
 function note(text: string) {

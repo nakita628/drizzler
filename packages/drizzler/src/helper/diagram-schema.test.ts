@@ -183,6 +183,7 @@ describe("diagramSchema", () => {
       {
         name: "role",
         dbName: "user_role",
+        schema: "auth",
         documentation: null,
         values: [
           { name: "admin", dbName: null },
@@ -192,6 +193,7 @@ describe("diagramSchema", () => {
       {
         name: "status",
         dbName: null,
+        schema: "billing",
         documentation: null,
         values: [
           { name: "paid", dbName: null },
@@ -203,6 +205,20 @@ describe("diagramSchema", () => {
       ["role", "enum", "role"],
       ["status", "enum", "status"],
     ]);
+  });
+
+  it("reads a schema bound through a namespace import or under satisfies, for tables and enums", () => {
+    const schema = diagramSchema([
+      "export const authSchema = pg.pgSchema('auth') satisfies PgSchema",
+      "export const role = authSchema.enum('user_role', ['admin'])",
+      "export const users = authSchema.table('users', { role: role('role') })",
+      // A call whose name only ends in `Schema` makes no database schema.
+      "export const userInput = createInsertSchema(users)",
+      "export const kind = userInput.enum('kind', ['a'])",
+    ]);
+
+    expect(schema.enums.map((e) => [e.name, e.schema])).toStrictEqual([["role", "auth"]]);
+    expect(schema.models.map((m) => [m.name, m.schema])).toStrictEqual([["users", "auth"]]);
   });
 });
 

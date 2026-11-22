@@ -73,7 +73,14 @@ type SqlRelationEnd = {
  */
 export function sqlSchema(code: readonly string[]) {
   const { models, relations, enums } = diagramSchema(code);
-  const enumTypes = new Map(enums.map((e) => [e.name, e.dbName ?? e.name]));
+  // An enum of a schema of its own (`authSchema.enum("user_role")`) is `auth.user_role`, as a table
+  // is, so it is not taken for a `user_role` of the default schema.
+  const enumTypes = new Map(
+    enums.map((e) => {
+      const bare = e.dbName ?? e.name;
+      return [e.name, e.schema === undefined || e.schema === null ? bare : `${e.schema}.${bare}`];
+    }),
+  );
   // A table in a schema of its own (`pgSchema("auth").table("users")`) is `auth.users`, so it is
   // not taken for a `users` table of the default schema.
   const bareNames = new Map(models.map((m) => [m.name, m.dbName ?? m.name]));

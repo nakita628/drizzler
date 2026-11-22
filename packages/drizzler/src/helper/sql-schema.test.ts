@@ -26,14 +26,14 @@ describe("sqlSchema", () => {
     ]);
   });
 
-  it("names a column of an enum declared on a database schema by the enum's SQL name", () => {
+  it("names a column of an enum declared on a database schema by the enum's schema and name", () => {
     const [table] = sqlSchema([
       "export const authSchema = pgSchema('auth')",
       "export const role = authSchema.enum('user_role', ['admin', 'member'])",
       "export const users = authSchema.table('users', { role: role('role').notNull() })",
     ]).tables;
 
-    expect(table?.columns.map((c) => [c.name, c.type])).toStrictEqual([["role", "user_role"]]);
+    expect(table?.columns.map((c) => [c.name, c.type])).toStrictEqual([["role", "auth.user_role"]]);
   });
 
   it("marks the serial types as generated, but no enum or custom type named after them", () => {

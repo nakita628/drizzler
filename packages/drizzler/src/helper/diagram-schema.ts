@@ -431,28 +431,34 @@ function unwrapExpression(node: Node): Node {
   return node.type === "ParenthesizedExpression" ? unwrapExpression(node.expression) : node;
 }
 
-// A database schema: `pgSchema('auth')`, or a top-level variable bound to one (`authSchema`).
-function isSchema(node: Node, program: Program) {
-  const value = node.type === "Identifier" ? topLevelValue(node.name, program) : node;
-  if (!isCall(value)) return false;
+// The name of a database schema: `auth` for `pgSchema("auth")` (`mysqlSchema`, or `pg.pgSchema`
+// after `import * as pg`), or for a top-level variable bound to one (`authSchema`), under `as` or
+// `satisfies`. Null for anything else, a call that only ends in `Schema`
+// (`createInsertSchema(users)`) among them. Tables and enums both read their schema with it.
+function schemaOf(node: Node | undefined, program: Program) {
+  const expr = node === undefined ? undefined : unwrapExpression(node);
+  const bound = expr?.type === "Identifier" ? topLevelValue(expr.name, program) : expr;
+  const value = bound === undefined ? undefined : unwrapExpression(bound);
+  if (!isCall(value)) return null;
   const { callee } = value;
   const builder = callee.type === "MemberExpression" && !callee.computed ? callee.property : callee;
-  return builder.type === "Identifier" && builder.name.endsWith("Schema");
+  if (builder.type !== "Identifier" || !builder.name.endsWith("Schema")) return null;
+  return stringLiteral(value.arguments[0]);
 }
 
-// Whether a call declares an enum: `pgEnum('role', [...])`, or `authSchema.enum('role', [...])`
-// (`pgSchema('auth').enum(...)`) for an enum of a database schema.
-function declaresEnum(init: Node | null, program: Program): init is CallExpression {
-  if (!isCall(init)) return false;
+// The enum a top-level call declares, with the database schema it is declared in: none for
+// `pgEnum('role', [...])`, `auth` for `authSchema.enum('role', [...])` or
+// `pgSchema('auth').enum(...)`. Null when the call declares no enum.
+function enumDeclaration(init: Node | null, program: Program) {
+  if (!isCall(init)) return null;
   const { callee } = init;
-  if (callee.type === "Identifier") return callee.name.endsWith("Enum");
-  return (
-    callee.type === "MemberExpression" &&
-    !callee.computed &&
-    callee.property.type === "Identifier" &&
-    callee.property.name === "enum" &&
-    isSchema(callee.object, program)
-  );
+  if (callee.type === "Identifier") {
+    return callee.name.endsWith("Enum") ? { call: init, schema: null } : null;
+  }
+  if (callee.type !== "MemberExpression" || callee.computed) return null;
+  if (callee.property.type !== "Identifier" || callee.property.name !== "enum") return null;
+  const schema = schemaOf(callee.object, program);
+  return schema === null ? null : { call: init, schema };
 }
 
 // `export const role = pgEnum('role', ['admin', 'member'])`, or `pgEnum('role', Role)` for a
@@ -461,9 +467,9 @@ function readEnums(program: Program, source: Parameters<typeof descriptionBefore
   const declared = tsEnums(program);
   return topLevelDeclarations(program).flatMap(({ declarator, start }): SchemaEnum[] => {
     const name = declaratorName(declarator);
-    const init = declarator.init;
-    if (name === null || !declaresEnum(init, program)) return [];
-    const [dbName, given] = init.arguments;
+    const declaration = enumDeclaration(declarator.init, program);
+    if (name === null || declaration === null) return [];
+    const [dbName, given] = declaration.call.arguments;
     const values = enumValues(given, program, declared);
     if (values === null) return [];
     const literal = stringLiteral(dbName);
@@ -471,6 +477,7 @@ function readEnums(program: Program, source: Parameters<typeof descriptionBefore
       {
         name,
         dbName: literal !== null && literal !== name ? literal : null,
+        ...(declaration.schema === null ? {} : { schema: declaration.schema }),
         documentation: descriptionBefore(source, start),
         values: values.map((v) => ({ name: v, dbName: null })),
       },
@@ -528,9 +535,7 @@ function schemaName(builder: string, program: Program) {
   if (owner === undefined) return null;
   const inline = /^(?:[\w$]+\.)?[\w$]*Schema\((['"`])([^'"`]+)\1\)$/u.exec(owner);
   if (inline !== null) return inline[2] ?? null;
-  const value = /^[\w$]+$/u.test(owner) ? topLevelValue(owner, program) : undefined;
-  if (!isCall(value) || value.callee.type !== "Identifier") return null;
-  return value.callee.name.endsWith("Schema") ? stringLiteral(value.arguments[0]) : null;
+  return /^[\w$]+$/u.test(owner) ? schemaOf(topLevelValue(owner, program), program) : null;
 }
 
 /**

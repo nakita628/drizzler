@@ -120,6 +120,8 @@ export type SchemaModel = {
 export type SchemaEnum = {
   readonly name: string;
   readonly dbName: string | null;
+  /** The database schema a `pgSchema("auth").enum(...)` declares the enum in; absent for the default one. */
+  readonly schema?: string | null;
   readonly documentation?: string | null;
   readonly values: readonly { readonly name: string; readonly dbName: string | null }[];
 };
