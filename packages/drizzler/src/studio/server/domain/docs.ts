@@ -169,7 +169,11 @@ export function makeDocs(input: z.infer<typeof MakeDocsInput>) {
     tables,
     enums: enums.map((e) => ({
       name: e.name,
-      dbName: e.dbName ?? e.name,
+      // An enum of a schema of its own is named with it, as a table is: `auth.user_role`.
+      dbName:
+        e.schema === undefined || e.schema === null
+          ? (e.dbName ?? e.name)
+          : `${e.schema}.${e.dbName ?? e.name}`,
       description: e.documentation ?? null,
       values: e.values.map((v) => v.name),
     })),

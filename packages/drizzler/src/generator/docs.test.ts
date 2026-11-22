@@ -137,6 +137,7 @@ describe("ddlBySubject", () => {
   it("groups each statement under the table or enum it defines, in every dialect's quoting", () => {
     const grouped = ddlBySubject([
       "CREATE TYPE \"member_role\" AS ENUM('owner', 'member');",
+      'CREATE TYPE "public"."plan" AS ENUM(\'free\');',
       'CREATE TABLE "users" (\n\t"id" uuid PRIMARY KEY\n);',
       'CREATE TABLE "auth"."post" (\n\t"id" uuid\n);',
       'CREATE UNIQUE INDEX "post_slug" ON "auth"."post" ("slug");',
@@ -144,13 +145,17 @@ describe("ddlBySubject", () => {
       "CREATE TABLE `tags` (\n\t`id` int\n);",
       'CREATE SCHEMA "auth";',
     ]);
+    // A table or enum of a schema of its own keeps the schema; `public` is the default one.
     expect([...grouped.keys()]).toStrictEqual([
       "enum:member_role",
+      "enum:plan",
       "table:users",
+      "table:auth.post",
       "table:post",
       "table:tags",
     ]);
-    expect(grouped.get("table:post")).toHaveLength(3);
+    expect(grouped.get("table:auth.post")).toHaveLength(2);
+    expect(grouped.get("table:post")).toHaveLength(1);
   });
 });
 
@@ -172,6 +177,48 @@ describe("docsMarkdown with the tables' definitions", () => {
     expect(markdown).toContain(
       "```sql\nCREATE TYPE \"member_role\" AS ENUM('owner', 'member');\n```",
     );
+  });
+
+  it("names an enum of a schema of its own with the schema, and finds its definition", () => {
+    const markdown = docsMarkdown(
+      [
+        "export const authSchema = pgSchema('auth')",
+        "export const role = authSchema.enum('user_role', ['admin', 'member'])",
+      ],
+      { ddl: ["CREATE TYPE \"auth\".\"user_role\" AS ENUM('admin', 'member');"] },
+    );
+    expect(markdown).toContain("Type `auth.user_role`.");
+    expect(markdown).toContain(
+      "#### Definition\n\n```sql\nCREATE TYPE \"auth\".\"user_role\" AS ENUM('admin', 'member');\n```",
+    );
+  });
+
+  it("keeps the definitions of same-named enums and tables of different schemas apart", () => {
+    const markdown = docsMarkdown(
+      [
+        "export const billingSchema = pgSchema('billing')",
+        "export const status = pgEnum('status', ['a', 'b'])",
+        "export const billingStatus = billingSchema.enum('status', ['paid', 'void'])",
+        "export const users = pgTable('users', { id: uuid('id').primaryKey() })",
+        "export const billingUsers = billingSchema.table('users', { id: uuid('id').primaryKey() })",
+      ],
+      {
+        ddl: [
+          "CREATE TYPE \"status\" AS ENUM('a', 'b');",
+          "CREATE TYPE \"billing\".\"status\" AS ENUM('paid', 'void');",
+          'CREATE TABLE "users" (\n\t"id" uuid PRIMARY KEY\n);',
+          'CREATE TABLE "billing"."users" (\n\t"id" uuid PRIMARY KEY\n);',
+        ],
+      },
+    );
+    for (const statement of [
+      "CREATE TYPE \"status\" AS ENUM('a', 'b');",
+      "CREATE TYPE \"billing\".\"status\" AS ENUM('paid', 'void');",
+      'CREATE TABLE "users" (\n\t"id" uuid PRIMARY KEY\n);',
+      'CREATE TABLE "billing"."users" (\n\t"id" uuid PRIMARY KEY\n);',
+    ]) {
+      expect(markdown).toContain(`#### Definition\n\n\`\`\`sql\n${statement}\n\`\`\``);
+    }
   });
 });
 

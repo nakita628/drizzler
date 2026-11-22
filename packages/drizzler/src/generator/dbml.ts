@@ -48,6 +48,14 @@ function typeName(value: string) {
   return /^[A-Za-z_]\w*\(\d+(?:,\d+)?\)$/u.test(value) ? value : name(value);
 }
 
+// A column's type, under its schema for an enum of a schema of its own: `auth.user_role`. A dot
+// in a type of the default schema is part of its name (`"my.kind"`).
+// https://dbml.dbdiagram.io/docs/#enum-definition
+function columnType(column: { readonly type: string; readonly typeSchema: string | null }) {
+  const type = typeName(column.type);
+  return column.typeSchema === null ? type : `${name(column.typeSchema)}.${type}`;
+}
+
 function note(text: string) {
   return `'${text.replaceAll("'", "\\'")}'`;
 }
@@ -71,7 +79,7 @@ export function dbml(code: string[]) {
         column.note !== null ? `note: ${note(column.note)}` : null,
       ].filter((s): s is string => s !== null);
       const settingsStr = settings.length > 0 ? ` [${settings.join(", ")}]` : "";
-      return `  ${name(column.name)} ${typeName(column.type)}${settingsStr}`;
+      return `  ${name(column.name)} ${columnType(column)}${settingsStr}`;
     });
     // https://dbml.dbdiagram.io/docs/#index-definition
     const indexes =

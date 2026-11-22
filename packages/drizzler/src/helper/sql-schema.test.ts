@@ -6,6 +6,7 @@ describe("sqlSchema", () => {
     const { tables } = sqlSchema([
       "export const metric = pgTable('metric', {",
       "  id: serial('id').primaryKey(),",
+      "  total: integer('total'),",
       "  count: int('count').notNull(),",
       "  ratio: doublePrecision('ratio'),",
       "  at: timestamp('at', { withTimezone: true }),",
@@ -16,11 +17,54 @@ describe("sqlSchema", () => {
     expect(tables).toHaveLength(1);
     expect(tables[0]?.columns.map((c) => [c.name, c.type])).toStrictEqual([
       ["id", "serial"],
+      ["total", "integer"],
       ["count", "integer"],
       ["ratio", "double precision"],
       ["at", "timestamptz"],
       // A builder not in SQL_TYPES keeps its own name as its type.
       ["label", "citext"],
+    ]);
+  });
+
+  it("types a column of an enum declared on a database schema by the enum and its schema", () => {
+    const [table] = sqlSchema([
+      "export const authSchema = pgSchema('auth')",
+      "export const role = authSchema.enum('user_role', ['admin', 'member'])",
+      // A dot in the name of an enum of the default schema is part of the name.
+      "export const kind = pgEnum('my.kind', ['a', 'b'])",
+      "export const users = authSchema.table('users', {",
+      "  role: role('role').notNull(),",
+      "  kind: kind('kind'),",
+      "})",
+    ]).tables;
+
+    expect(table?.columns.map((c) => [c.name, c.type, c.typeSchema])).toStrictEqual([
+      ["role", "user_role", "auth"],
+      ["kind", "my.kind", null],
+    ]);
+  });
+
+  it("marks the serial types as generated, but no enum or custom type named after them", () => {
+    const [table] = sqlSchema([
+      "const serialized = customType({ dataType() { return 'serialized_json' } })",
+      "const legacySerial = customType({ dataType() { return 'BIGSERIAL' } })",
+      "export const serialKind = pgEnum('serial_kind', ['a', 'b'])",
+      "export const item = pgTable('item', {",
+      "  id: bigserial('id', { mode: 'number' }).primaryKey(),",
+      "  rank: smallserial('rank'),",
+      "  legacyId: legacySerial('legacy_id'),",
+      "  kind: serialKind('kind'),",
+      "  payload: serialized('payload'),",
+      "})",
+    ]).tables;
+
+    expect(table?.columns.map((c) => [c.name, c.type, c.increment])).toStrictEqual([
+      ["id", "bigserial", true],
+      ["rank", "smallserial", true],
+      // SQL reads a type in any case.
+      ["legacy_id", "BIGSERIAL", true],
+      ["kind", "serial_kind", false],
+      ["payload", "serialized_json", false],
     ]);
   });
 });
@@ -54,6 +98,7 @@ describe("sqlSchema relations", () => {
       {
         name: "user_id",
         type: "uuid",
+        typeSchema: null,
         primaryKey: false,
         increment: false,
         notNull: true,

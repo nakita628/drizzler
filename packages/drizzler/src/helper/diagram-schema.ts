@@ -431,16 +431,50 @@ function unwrapExpression(node: Node): Node {
   return node.type === "ParenthesizedExpression" ? unwrapExpression(node.expression) : node;
 }
 
+// The name of a database schema: `auth` for `pgSchema("auth")` (`mysqlSchema`, or `pg.pgSchema`
+// after `import * as pg`), or for a top-level variable bound to one (`authSchema`), under `as` or
+// `satisfies`. The name may be a template or a constant (`pgSchema(SCHEMA)`). Null for anything
+// else: a call whose name ends in `Schema` but that names no schema (`createInsertSchema(users)`)
+// is not one. Tables and enums both read their schema with it.
+function schemaOf(node: Node | undefined, program: Program) {
+  const expr = node === undefined ? undefined : unwrapExpression(node);
+  const bound = expr?.type === "Identifier" ? topLevelValue(expr.name, program) : expr;
+  const value = bound === undefined ? undefined : unwrapExpression(bound);
+  if (!isCall(value)) return null;
+  const { callee } = value;
+  const builder = callee.type === "MemberExpression" && !callee.computed ? callee.property : callee;
+  if (builder.type !== "Identifier" || !builder.name.endsWith("Schema")) return null;
+  const [name] = value.arguments;
+  return name === undefined ? null : evaluateString(name, program);
+}
+
+// The enum a top-level call declares, with the database schema it is declared in: none for
+// `pgEnum('role', [...])` (or `pg.pgEnum` after `import * as pg`), `auth` for
+// `authSchema.enum('role', [...])` or `pgSchema('auth').enum(...)`. Null when the call declares no
+// enum: a member named only like one (`z.nativeEnum(Role)`) is not read.
+function enumDeclaration(init: Node | null, program: Program) {
+  if (!isCall(init)) return null;
+  const { callee } = init;
+  if (callee.type === "Identifier") {
+    return callee.name.endsWith("Enum") ? { call: init, schema: null } : null;
+  }
+  if (callee.type !== "MemberExpression" || callee.computed) return null;
+  if (callee.property.type !== "Identifier") return null;
+  if (callee.property.name === "pgEnum") return { call: init, schema: null };
+  if (callee.property.name !== "enum") return null;
+  const schema = schemaOf(callee.object, program);
+  return schema === null ? null : { call: init, schema };
+}
+
 // `export const role = pgEnum('role', ['admin', 'member'])`, or `pgEnum('role', Role)` for a
-// TypeScript enum `Role`.
+// TypeScript enum `Role`, or the same declared on a database schema (`authSchema.enum(...)`).
 function readEnums(program: Program, source: Parameters<typeof descriptionBefore>[0]) {
   const declared = tsEnums(program);
   return topLevelDeclarations(program).flatMap(({ declarator, start }): SchemaEnum[] => {
     const name = declaratorName(declarator);
-    const init = declarator.init;
-    if (name === null || !isCall(init) || init.callee.type !== "Identifier") return [];
-    if (!init.callee.name.endsWith("Enum")) return [];
-    const [dbName, given] = init.arguments;
+    const declaration = enumDeclaration(declarator.init, program);
+    if (name === null || declaration === null) return [];
+    const [dbName, given] = declaration.call.arguments;
     const values = enumValues(given, program, declared);
     if (values === null) return [];
     const literal = stringLiteral(dbName);
@@ -448,6 +482,7 @@ function readEnums(program: Program, source: Parameters<typeof descriptionBefore
       {
         name,
         dbName: literal !== null && literal !== name ? literal : null,
+        ...(declaration.schema === null ? {} : { schema: declaration.schema }),
         documentation: descriptionBefore(source, start),
         values: values.map((v) => ({ name: v, dbName: null })),
       },
@@ -493,11 +528,33 @@ function tableCreators(program: Program) {
 }
 
 // The database schema a table is built in: `auth` for `pgSchema("auth").table(...)`, and for
-// `authSchema.table(...)` with `const authSchema = pgSchema("auth")` (or `mysqlSchema`). Nothing
-// for any other builder, `snakeCase.table` among them.
-function tableSchema(builder: string, program: Program): { readonly schema?: string } {
-  const schema = schemaName(builder, program);
+// `authSchema.table(...)` with `const authSchema = pgSchema("auth")` (or `mysqlSchema`), its
+// name read as `schemaOf` reads it (`pgSchema(SCHEMA).table(...)`). Nothing for any other
+// builder, `snakeCase.table` among them.
+function tableSchema(
+  builder: string,
+  callee: Node,
+  program: Program,
+): { readonly schema?: string } {
+  const schema = schemaName(builder, program) ?? schemaOf(tableOwner(callee), program);
   return schema === null ? {} : { schema };
+}
+
+// What a table builder is called on: `authSchema` in `authSchema.table(...)` or
+// `authSchema.table.withRLS(...)`. Undefined for any other callee.
+function tableOwner(callee: Node) {
+  const withRLS =
+    callee.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.property.type === "Identifier" &&
+    callee.property.name === "withRLS";
+  const table = withRLS ? callee.object : callee;
+  return table.type === "MemberExpression" &&
+    !table.computed &&
+    table.property.type === "Identifier" &&
+    table.property.name === "table"
+    ? table.object
+    : undefined;
 }
 
 function schemaName(builder: string, program: Program) {
@@ -505,9 +562,7 @@ function schemaName(builder: string, program: Program) {
   if (owner === undefined) return null;
   const inline = /^(?:[\w$]+\.)?[\w$]*Schema\((['"`])([^'"`]+)\1\)$/u.exec(owner);
   if (inline !== null) return inline[2] ?? null;
-  const value = /^[\w$]+$/u.test(owner) ? topLevelValue(owner, program) : undefined;
-  if (!isCall(value) || value.callee.type !== "Identifier") return null;
-  return value.callee.name.endsWith("Schema") ? stringLiteral(value.arguments[0]) : null;
+  return /^[\w$]+$/u.test(owner) ? schemaOf(topLevelValue(owner, program), program) : null;
 }
 
 /**
@@ -590,7 +645,7 @@ export function diagramSchema(code: readonly string[]) {
       {
         name: varName,
         dbName: tableName !== null && tableName !== varName ? tableName : null,
-        ...tableSchema(builder, program),
+        ...tableSchema(builder, callee, program),
         documentation: descriptionBefore(source, start),
         primaryKey: compositeKey,
         fields,

@@ -761,6 +761,27 @@ export const sessions = pgSchema("auth").table("sessions", {
     expect(dbml(code)).toBe(["Table auth.sessions {", "  id uuid [pk, not null]", "}"].join("\n"));
   });
 
+  it("types a column of an enum declared on a pgSchema under the enum's schema", () => {
+    const code = stripImports(`import { pgEnum, pgSchema } from "drizzle-orm/pg-core";
+
+export const authSchema = pgSchema("auth");
+export const role = authSchema.enum("user_role", ["admin", "member"]);
+export const kind = pgEnum("my.kind", ["a", "b"]);
+
+export const users = authSchema.table("users", {
+  role: role("role").notNull(),
+  kind: kind("kind"),
+});`);
+    const out = dbml(code);
+    // A dot in the name of an enum of the default schema is part of the name.
+    expect(out).toBe(
+      ["Table auth.users {", "  role auth.user_role [not null]", '  kind "my.kind"', "}"].join(
+        "\n",
+      ),
+    );
+    expect(() => run(out, "svg")).not.toThrow();
+  });
+
   it("reads a pgEnum built from a TypeScript enum, or from one it cannot see (#46)", () => {
     const code = stripImports(`import { pgEnum, pgTable, uuid } from "drizzle-orm/pg-core";
 import { PlanType } from "@acme/billing";

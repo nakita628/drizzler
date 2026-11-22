@@ -621,6 +621,17 @@ describe("tables in a schema of their own and enums from TypeScript (#45, #46)",
     expect(out).toContain("        project_role role\n");
     expect(out).not.toContain("projectRole");
   });
+
+  it("types a column of an enum declared on a pgSchema by the schema and the enum, as one word", () => {
+    const out = mermaidER([
+      'export const authSchema = pgSchema("auth");',
+      'export const role = authSchema.enum("user_role", ["admin", "member"]);',
+      'export const users = authSchema.table("users", {',
+      '  role: role("role").notNull(),',
+      "});",
+    ]);
+    expect(out).toContain('    "auth.users" {\n        auth_user_role role\n    }');
+  });
 });
 
 describe("relations and names written another way (#50, #53)", () => {
