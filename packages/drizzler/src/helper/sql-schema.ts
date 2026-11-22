@@ -73,14 +73,10 @@ type SqlRelationEnd = {
  */
 export function sqlSchema(code: readonly string[]) {
   const { models, relations, enums } = diagramSchema(code);
-  // An enum of a schema of its own (`authSchema.enum("user_role")`) is `auth.user_role`, as a table
-  // is, so it is not taken for a `user_role` of the default schema.
-  const enumTypes = new Map(
-    enums.map((e) => {
-      const bare = e.dbName ?? e.name;
-      return [e.name, e.schema === undefined || e.schema === null ? bare : `${e.schema}.${bare}`];
-    }),
-  );
+  const enumTypes = new Map(enums.map((e) => [e.name, e.dbName ?? e.name]));
+  // An enum of a schema of its own (`authSchema.enum("user_role")`) keeps its schema apart, as a
+  // table does, so it is not taken for a `user_role` of the default schema.
+  const enumSchemas = new Map(enums.map((e) => [e.name, e.schema ?? null]));
   // A table in a schema of its own (`pgSchema("auth").table("users")`) is `auth.users`, so it is
   // not taken for a `users` table of the default schema.
   const bareNames = new Map(models.map((m) => [m.name, m.dbName ?? m.name]));
@@ -146,9 +142,14 @@ export function sqlSchema(code: readonly string[]) {
       columns: model.fields.map((field) => ({
         name: field.dbName ?? field.name,
         type: sqlType(field, enumTypes),
+        // The schema of an enum of a schema of its own: `auth` for `auth.user_role`.
+        typeSchema: field.kind === "enum" ? (enumSchemas.get(field.type) ?? null) : null,
         primaryKey: field.isId,
-        // An enum or custom type whose name contains "serial" (`serialKind`) is not one.
-        increment: (field.kind !== "enum" && SERIALS.has(field.type)) || field.isIncrement === true,
+        // SQL reads a type in any case (`BIGSERIAL`). An enum or custom type whose name contains
+        // "serial" (`serialKind`) is not one.
+        increment:
+          (field.kind !== "enum" && SERIALS.has(field.type.toLowerCase())) ||
+          field.isIncrement === true,
         // A primary key column is NOT NULL whether or not it says so.
         notNull: field.isRequired || keyColumns.has(field.name),
         unique: field.isUnique ?? false,

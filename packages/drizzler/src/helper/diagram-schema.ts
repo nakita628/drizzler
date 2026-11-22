@@ -447,8 +447,9 @@ function schemaOf(node: Node | undefined, program: Program) {
 }
 
 // The enum a top-level call declares, with the database schema it is declared in: none for
-// `pgEnum('role', [...])`, `auth` for `authSchema.enum('role', [...])` or
-// `pgSchema('auth').enum(...)`. Null when the call declares no enum.
+// `pgEnum('role', [...])` (or `pg.pgEnum` after `import * as pg`), `auth` for
+// `authSchema.enum('role', [...])` or `pgSchema('auth').enum(...)`. Null when the call declares no
+// enum: a member named only like one (`z.nativeEnum(Role)`) is not read.
 function enumDeclaration(init: Node | null, program: Program) {
   if (!isCall(init)) return null;
   const { callee } = init;
@@ -456,7 +457,9 @@ function enumDeclaration(init: Node | null, program: Program) {
     return callee.name.endsWith("Enum") ? { call: init, schema: null } : null;
   }
   if (callee.type !== "MemberExpression" || callee.computed) return null;
-  if (callee.property.type !== "Identifier" || callee.property.name !== "enum") return null;
+  if (callee.property.type !== "Identifier") return null;
+  if (callee.property.name === "pgEnum") return { call: init, schema: null };
+  if (callee.property.name !== "enum") return null;
   const schema = schemaOf(callee.object, program);
   return schema === null ? null : { call: init, schema };
 }

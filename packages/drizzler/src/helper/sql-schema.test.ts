@@ -26,23 +26,33 @@ describe("sqlSchema", () => {
     ]);
   });
 
-  it("names a column of an enum declared on a database schema by the enum's schema and name", () => {
+  it("types a column of an enum declared on a database schema by the enum and its schema", () => {
     const [table] = sqlSchema([
       "export const authSchema = pgSchema('auth')",
       "export const role = authSchema.enum('user_role', ['admin', 'member'])",
-      "export const users = authSchema.table('users', { role: role('role').notNull() })",
+      // A dot in the name of an enum of the default schema is part of the name.
+      "export const kind = pgEnum('my.kind', ['a', 'b'])",
+      "export const users = authSchema.table('users', {",
+      "  role: role('role').notNull(),",
+      "  kind: kind('kind'),",
+      "})",
     ]).tables;
 
-    expect(table?.columns.map((c) => [c.name, c.type])).toStrictEqual([["role", "auth.user_role"]]);
+    expect(table?.columns.map((c) => [c.name, c.type, c.typeSchema])).toStrictEqual([
+      ["role", "user_role", "auth"],
+      ["kind", "my.kind", null],
+    ]);
   });
 
   it("marks the serial types as generated, but no enum or custom type named after them", () => {
     const [table] = sqlSchema([
       "const serialized = customType({ dataType() { return 'serialized_json' } })",
+      "const legacySerial = customType({ dataType() { return 'BIGSERIAL' } })",
       "export const serialKind = pgEnum('serial_kind', ['a', 'b'])",
       "export const item = pgTable('item', {",
       "  id: bigserial('id', { mode: 'number' }).primaryKey(),",
       "  rank: smallserial('rank'),",
+      "  legacyId: legacySerial('legacy_id'),",
       "  kind: serialKind('kind'),",
       "  payload: serialized('payload'),",
       "})",
@@ -51,6 +61,8 @@ describe("sqlSchema", () => {
     expect(table?.columns.map((c) => [c.name, c.type, c.increment])).toStrictEqual([
       ["id", "bigserial", true],
       ["rank", "smallserial", true],
+      // SQL reads a type in any case.
+      ["legacy_id", "BIGSERIAL", true],
       ["kind", "serial_kind", false],
       ["payload", "serialized_json", false],
     ]);
@@ -86,6 +98,7 @@ describe("sqlSchema relations", () => {
       {
         name: "user_id",
         type: "uuid",
+        typeSchema: null,
         primaryKey: false,
         increment: false,
         notNull: true,

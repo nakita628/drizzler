@@ -97,7 +97,9 @@ export function mermaidER(code: string[]) {
         ].filter((k): k is string => k !== null);
         const keyPart = keys.length > 0 ? ` ${keys.join(", ")}` : "";
         const descPart = column.note !== null ? ` "${column.note.replaceAll('"', "'")}"` : "";
-        return `        ${attributeType(column.type)} ${attribute(column.name)}${keyPart}${descPart}`;
+        const type =
+          column.typeSchema === null ? column.type : `${column.typeSchema}.${column.type}`;
+        return `        ${attributeType(type)} ${attribute(column.name)}${keyPart}${descPart}`;
       }),
       "    }",
     ];

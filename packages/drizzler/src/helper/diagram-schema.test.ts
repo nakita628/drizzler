@@ -207,18 +207,27 @@ describe("diagramSchema", () => {
     ]);
   });
 
-  it("reads a schema bound through a namespace import or under satisfies, for tables and enums", () => {
+  it("reads schemas and enums written through a namespace import or under satisfies", () => {
     const schema = diagramSchema([
       "export const authSchema = pg.pgSchema('auth') satisfies PgSchema",
       "export const role = authSchema.enum('user_role', ['admin'])",
-      "export const users = authSchema.table('users', { role: role('role') })",
-      // A call whose name only ends in `Schema` makes no database schema.
+      "export const level = pg.pgEnum('level', ['low', 'high'])",
+      "export const users = authSchema.table('users', { role: role('role'), level: level('level') })",
+      // Calls only named like a schema or an enum make neither.
       "export const userInput = createInsertSchema(users)",
       "export const kind = userInput.enum('kind', ['a'])",
+      "export const levelInput = z.nativeEnum(Level, { message: 'unknown level' })",
     ]);
 
-    expect(schema.enums.map((e) => [e.name, e.schema])).toStrictEqual([["role", "auth"]]);
+    expect(schema.enums.map((e) => [e.name, e.schema])).toStrictEqual([
+      ["role", "auth"],
+      ["level", undefined],
+    ]);
     expect(schema.models.map((m) => [m.name, m.schema])).toStrictEqual([["users", "auth"]]);
+    expect(schema.models[0]?.fields.map((f) => [f.name, f.kind])).toStrictEqual([
+      ["role", "enum"],
+      ["level", "enum"],
+    ]);
   });
 });
 
