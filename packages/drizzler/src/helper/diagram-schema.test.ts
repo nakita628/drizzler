@@ -237,13 +237,17 @@ describe("diagramSchema", () => {
       "export const role = authSchema.enum('user_role', ['admin'])",
       "export const status = pgSchema(`billing`).enum('status', ['paid'])",
       "export const users = authSchema.table('users', { role: role('role') })",
+      "export const accounts = pgSchema(SCHEMA).table('accounts', { id: uuid('id') })",
     ]);
 
     expect(schema.enums.map((e) => [e.name, e.schema])).toStrictEqual([
       ["role", "auth"],
       ["status", "billing"],
     ]);
-    expect(schema.models.map((m) => [m.name, m.schema])).toStrictEqual([["users", "auth"]]);
+    expect(schema.models.map((m) => [m.name, m.schema])).toStrictEqual([
+      ["users", "auth"],
+      ["accounts", "auth"],
+    ]);
   });
 });
 

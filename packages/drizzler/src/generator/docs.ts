@@ -152,9 +152,10 @@ function sqlQueriesOf(examples: readonly QueryExampleSql[]) {
   ];
 }
 
-// A statement's subject: the table it creates, alters or indexes, or the type it creates, by the
-// last quoted name (`"auth"."user"` is `user`; MySQL quotes with backticks).
-const NAME = '((?:[`"][^`"]+[`"]\\.)?[`"]([^`"]+)[`"])';
+// A statement's subject: the table it creates, alters or indexes, or the type it creates, by its
+// quoted name and the schema quoted before it, if any (`"auth"."user"`; MySQL quotes with
+// backticks).
+const NAME = '((?:[`"]([^`"]+)[`"]\\.)?[`"]([^`"]+)[`"])';
 const SUBJECTS = [
   {
     kind: "table",
@@ -173,7 +174,9 @@ const SUBJECTS = [
 
 /**
  * Each table's and enum's own statements of a migration, by `table:<db name>` and
- * `enum:<db name>`, in the order the migration has them.
+ * `enum:<db name>`, in the order the migration has them. A table or enum of a schema of its own
+ * is named with it, as the docs name it (`table:auth.users`), so it is not taken for one of the
+ * default schema; `"public"` is the default schema.
  *
  * @param statements - the statements drizzle-kit wrote
  * @returns the statements, grouped by what they define
@@ -181,8 +184,11 @@ const SUBJECTS = [
 export function ddlBySubject(statements: readonly string[]) {
   const keyed = statements.flatMap((statement) => {
     const subject = SUBJECTS.map(({ kind, pattern }) => {
-      const name = pattern.exec(statement)?.[2];
-      return name === undefined ? null : `${kind}:${name}`;
+      const [, , schema, name] = pattern.exec(statement) ?? [];
+      if (name === undefined) return null;
+      return schema === undefined || schema === "public"
+        ? `${kind}:${name}`
+        : `${kind}:${schema}.${name}`;
     }).find((key) => key !== null);
     return subject === undefined || subject === null ? [] : [[subject, statement] as const];
   });
@@ -234,20 +240,14 @@ function tableSection(
   ].join("\n\n");
 }
 
-// An enum's section; its statements are found by its own name (`user_role`), as `ddlBySubject`
-// keys them, though the docs name an enum of a schema of its own with it (`auth.user_role`).
-function enumSection(
-  value: Docs["enums"][number],
-  ddl: ReadonlyMap<string, readonly string[]>,
-  ddlName: string,
-) {
+function enumSection(value: Docs["enums"][number], ddl: ReadonlyMap<string, readonly string[]>) {
   const names = value.dbName === value.name ? [] : [`Type ${inline(value.dbName)}.`];
   const intro = [...names, ...(value.description !== null ? [value.description] : [])].join(" ");
   return [
     heading(3, "enum", value.name),
     ...(intro === "" ? [] : [intro]),
     value.values.map((v) => `- ${inline(v)}`).join("\n"),
-    ...definitionOf(ddl.get(`enum:${ddlName}`)),
+    ...definitionOf(ddl.get(`enum:${value.dbName}`)),
   ].join("\n\n");
 }
 
@@ -297,10 +297,8 @@ export function docsMarkdown(
       ? null
       : Map.groupBy(options.queries, (query) => query.table);
   const ddl = ddlBySubject(options.ddl ?? []);
-  const schema = diagramSchema(code);
-  const docs = makeDocs({ ...schema, relationFields: relationFields(code) });
+  const docs = makeDocs({ ...diagramSchema(code), relationFields: relationFields(code) });
   const enums = new Set(docs.enums.map((e) => e.name));
-  const ddlNames = new Map(schema.enums.map((e) => [e.name, e.dbName ?? e.name]));
   return `${[
     "# Schema docs",
     `![ER diagram](${DOCS_FILES.diagram})`,
@@ -311,12 +309,7 @@ export function docsMarkdown(
     ...docs.tables.map((table) => tableSection(table, enums, queries, ddl)),
     ...(docs.enums.length === 0
       ? []
-      : [
-          "## Enums",
-          ...docs.enums.map((value) =>
-            enumSection(value, ddl, ddlNames.get(value.name) ?? value.dbName),
-          ),
-        ]),
+      : ["## Enums", ...docs.enums.map((value) => enumSection(value, ddl))]),
   ].join("\n\n")}\n`;
 }
 

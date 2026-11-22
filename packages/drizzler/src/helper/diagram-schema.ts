@@ -528,11 +528,33 @@ function tableCreators(program: Program) {
 }
 
 // The database schema a table is built in: `auth` for `pgSchema("auth").table(...)`, and for
-// `authSchema.table(...)` with `const authSchema = pgSchema("auth")` (or `mysqlSchema`). Nothing
-// for any other builder, `snakeCase.table` among them.
-function tableSchema(builder: string, program: Program): { readonly schema?: string } {
-  const schema = schemaName(builder, program);
+// `authSchema.table(...)` with `const authSchema = pgSchema("auth")` (or `mysqlSchema`), its
+// name read as `schemaOf` reads it (`pgSchema(SCHEMA).table(...)`). Nothing for any other
+// builder, `snakeCase.table` among them.
+function tableSchema(
+  builder: string,
+  callee: Node,
+  program: Program,
+): { readonly schema?: string } {
+  const schema = schemaName(builder, program) ?? schemaOf(tableOwner(callee), program);
   return schema === null ? {} : { schema };
+}
+
+// What a table builder is called on: `authSchema` in `authSchema.table(...)` or
+// `authSchema.table.withRLS(...)`. Undefined for any other callee.
+function tableOwner(callee: Node) {
+  const withRLS =
+    callee.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.property.type === "Identifier" &&
+    callee.property.name === "withRLS";
+  const table = withRLS ? callee.object : callee;
+  return table.type === "MemberExpression" &&
+    !table.computed &&
+    table.property.type === "Identifier" &&
+    table.property.name === "table"
+    ? table.object
+    : undefined;
 }
 
 function schemaName(builder: string, program: Program) {
@@ -623,7 +645,7 @@ export function diagramSchema(code: readonly string[]) {
       {
         name: varName,
         dbName: tableName !== null && tableName !== varName ? tableName : null,
-        ...tableSchema(builder, program),
+        ...tableSchema(builder, callee, program),
         documentation: descriptionBefore(source, start),
         primaryKey: compositeKey,
         fields,
