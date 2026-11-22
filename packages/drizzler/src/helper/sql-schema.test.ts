@@ -6,6 +6,7 @@ describe("sqlSchema", () => {
     const { tables } = sqlSchema([
       "export const metric = pgTable('metric', {",
       "  id: serial('id').primaryKey(),",
+      "  total: integer('total'),",
       "  count: int('count').notNull(),",
       "  ratio: doublePrecision('ratio'),",
       "  at: timestamp('at', { withTimezone: true }),",
@@ -16,11 +17,42 @@ describe("sqlSchema", () => {
     expect(tables).toHaveLength(1);
     expect(tables[0]?.columns.map((c) => [c.name, c.type])).toStrictEqual([
       ["id", "serial"],
+      ["total", "integer"],
       ["count", "integer"],
       ["ratio", "double precision"],
       ["at", "timestamptz"],
       // A builder not in SQL_TYPES keeps its own name as its type.
       ["label", "citext"],
+    ]);
+  });
+
+  it("names a column of an enum declared on a database schema by the enum's SQL name", () => {
+    const [table] = sqlSchema([
+      "export const authSchema = pgSchema('auth')",
+      "export const role = authSchema.enum('user_role', ['admin', 'member'])",
+      "export const users = authSchema.table('users', { role: role('role').notNull() })",
+    ]).tables;
+
+    expect(table?.columns.map((c) => [c.name, c.type])).toStrictEqual([["role", "user_role"]]);
+  });
+
+  it("marks the serial types as generated, but no enum or custom type named after them", () => {
+    const [table] = sqlSchema([
+      "const serialized = customType({ dataType() { return 'serialized_json' } })",
+      "export const serialKind = pgEnum('serial_kind', ['a', 'b'])",
+      "export const item = pgTable('item', {",
+      "  id: bigserial('id', { mode: 'number' }).primaryKey(),",
+      "  rank: smallserial('rank'),",
+      "  kind: serialKind('kind'),",
+      "  payload: serialized('payload'),",
+      "})",
+    ]).tables;
+
+    expect(table?.columns.map((c) => [c.name, c.type, c.increment])).toStrictEqual([
+      ["id", "bigserial", true],
+      ["rank", "smallserial", true],
+      ["kind", "serial_kind", false],
+      ["payload", "serialized_json", false],
     ]);
   });
 });

@@ -165,6 +165,45 @@ describe("diagramSchema", () => {
     expect(relation?.origin).toBe("relations");
     expect(diagramSchema(code).models[1]?.fields[0]?.isForeignKey).toBe(true);
   });
+
+  it("reads an enum declared on a database schema, and its columns as enums", () => {
+    const schema = diagramSchema([
+      "export const authSchema = pgSchema('auth')",
+      "export const role = authSchema.enum('user_role', ['admin', 'member'])",
+      "export const status = pgSchema('billing').enum('status', ['paid', 'void'])",
+      // Not an enum of the database: `.enum()` on anything but a schema.
+      "export const roleInput = z.enum(['admin', 'member'])",
+      "export const users = authSchema.table('users', {",
+      "  role: role('role').notNull(),",
+      "  status: status('status'),",
+      "})",
+    ]);
+
+    expect(schema.enums).toStrictEqual([
+      {
+        name: "role",
+        dbName: "user_role",
+        documentation: null,
+        values: [
+          { name: "admin", dbName: null },
+          { name: "member", dbName: null },
+        ],
+      },
+      {
+        name: "status",
+        dbName: null,
+        documentation: null,
+        values: [
+          { name: "paid", dbName: null },
+          { name: "void", dbName: null },
+        ],
+      },
+    ]);
+    expect(schema.models[0]?.fields.map((f) => [f.name, f.kind, f.type])).toStrictEqual([
+      ["role", "enum", "role"],
+      ["status", "enum", "status"],
+    ]);
+  });
 });
 
 describe("diagramSchema of tables built in a function", () => {

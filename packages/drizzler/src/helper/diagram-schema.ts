@@ -431,15 +431,38 @@ function unwrapExpression(node: Node): Node {
   return node.type === "ParenthesizedExpression" ? unwrapExpression(node.expression) : node;
 }
 
+// A database schema: `pgSchema('auth')`, or a top-level variable bound to one (`authSchema`).
+function isSchema(node: Node, program: Program) {
+  const value = node.type === "Identifier" ? topLevelValue(node.name, program) : node;
+  if (!isCall(value)) return false;
+  const { callee } = value;
+  const builder = callee.type === "MemberExpression" && !callee.computed ? callee.property : callee;
+  return builder.type === "Identifier" && builder.name.endsWith("Schema");
+}
+
+// Whether a call declares an enum: `pgEnum('role', [...])`, or `authSchema.enum('role', [...])`
+// (`pgSchema('auth').enum(...)`) for an enum of a database schema.
+function declaresEnum(init: Node | null, program: Program): init is CallExpression {
+  if (!isCall(init)) return false;
+  const { callee } = init;
+  if (callee.type === "Identifier") return callee.name.endsWith("Enum");
+  return (
+    callee.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.property.type === "Identifier" &&
+    callee.property.name === "enum" &&
+    isSchema(callee.object, program)
+  );
+}
+
 // `export const role = pgEnum('role', ['admin', 'member'])`, or `pgEnum('role', Role)` for a
-// TypeScript enum `Role`.
+// TypeScript enum `Role`, or the same declared on a database schema (`authSchema.enum(...)`).
 function readEnums(program: Program, source: Parameters<typeof descriptionBefore>[0]) {
   const declared = tsEnums(program);
   return topLevelDeclarations(program).flatMap(({ declarator, start }): SchemaEnum[] => {
     const name = declaratorName(declarator);
     const init = declarator.init;
-    if (name === null || !isCall(init) || init.callee.type !== "Identifier") return [];
-    if (!init.callee.name.endsWith("Enum")) return [];
+    if (name === null || !declaresEnum(init, program)) return [];
     const [dbName, given] = init.arguments;
     const values = enumValues(given, program, declared);
     if (values === null) return [];

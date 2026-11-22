@@ -31,6 +31,10 @@ const SQL_TYPES = {
   bytea: "bytea",
 } as const satisfies { readonly [builder: string]: string };
 
+// The serial types, whose values the database numbers: what `serial()` and its kin make, and the
+// aliases a custom type may give (`serial4`).
+const SERIALS = new Set(["serial", "serial2", "serial4", "serial8", "smallserial", "bigserial"]);
+
 function isListed(builder: string): builder is keyof typeof SQL_TYPES {
   return Object.hasOwn(SQL_TYPES, builder);
 }
@@ -136,7 +140,8 @@ export function sqlSchema(code: readonly string[]) {
         name: field.dbName ?? field.name,
         type: sqlType(field, enumTypes),
         primaryKey: field.isId,
-        increment: field.type.includes("serial") || field.isIncrement === true,
+        // An enum or custom type whose name contains "serial" (`serialKind`) is not one.
+        increment: (field.kind !== "enum" && SERIALS.has(field.type)) || field.isIncrement === true,
         // A primary key column is NOT NULL whether or not it says so.
         notNull: field.isRequired || keyColumns.has(field.name),
         unique: field.isUnique ?? false,
